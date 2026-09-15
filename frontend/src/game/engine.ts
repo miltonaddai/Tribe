@@ -35,7 +35,7 @@ import { loadCharacter, saveCharacter } from "../lib/storage";
 import { loadWallet } from "../lib/wallet";
 import { VoiceChat } from "../lib/voiceChat";
 import { createPcApp, destroyPcApp, hitsAabb, material, setCycleGlow } from "./pcApp";
-import { createCitizen, type Appearance } from "./character";
+import { createCitizen, setCitizenDetail, type Appearance } from "./character";
 import { createVehicle } from "./vehicles";
 import { applyAimPose, applyCitizenMotion } from "./motion";
 import { applySkyCycle, dayFactor } from "./skyCycle";
@@ -48,6 +48,9 @@ const NAMETAG_RANGE = 48;
 const HOME_BID_RANGE = 13;
 /** Past this, a remote player is not drawn at all. */
 const REMOTE_RENDER_RANGE = 70;
+/** Cosmetic detail is culled between these two, with a gap so it cannot flicker. */
+const DETAIL_ON_RANGE = 26;
+const DETAIL_OFF_RANGE = 34;
 const HOME_SALE_LABEL_RANGE = 26;
 const PUNCH_RANGE = 2.45;
 const PUNCH_MS = 320;
@@ -241,6 +244,9 @@ export class GameEngine {
   private remoteState = new Map<string, RemotePlayer>();
   private remoteNames = new Map<string, string>();
   private remoteWallets = new Map<string, string>();
+  private remoteDetail = new Map<string, boolean>();
+  private remotePool = new Map<string, { entity: pc.Entity; lookKey: string; at: number }>();
+  private poolSweptAt = 0;
   private nametags: Nametag[] = [];
   private whispers: WhisperLine[] = [];
   private lastWhisper: WhisperLine | null = null;
@@ -515,6 +521,8 @@ export class GameEngine {
   }
 
   dispose() {
+    for (const parked of this.remotePool.values()) parked.entity.destroy();
+    this.remotePool.clear();
     this.unbind.forEach((fn) => fn());
     this.unbind = [];
     this.voice?.dispose();
@@ -1071,13 +1079,25 @@ export class GameEngine {
 
   private spawnRemote(player: RemotePlayer, sessionId: string) {
     if (!this.app || this.remotes.has(sessionId)) return;
-    const entity = createCitizen(this.app.root, appearanceOf(player), `p-${sessionId}`);
+    const key = `${player.accessories ?? ""}|${player.gun ?? ""}|${player.pet ?? ""}`;
+    const parked = this.remotePool.get(sessionId);
+    let entity: pc.Entity;
+    if (parked && parked.lookKey === key) {
+      // Same player, same outfit: reuse the model rather than rebuilding it.
+      this.remotePool.delete(sessionId);
+      entity = parked.entity;
+      entity.enabled = true;
+    } else {
+      parked?.entity.destroy();
+      this.remotePool.delete(sessionId);
+      entity = createCitizen(this.app.root, appearanceOf(player), `p-${sessionId}`);
+    }
     this.remotes.set(sessionId, entity);
     this.remoteState.set(sessionId, player);
     this.remoteNames.set(sessionId, player.name || "citizen");
     if (player.wallet) this.remoteWallets.set(sessionId, player.wallet);
     this.remoteLast.set(sessionId, { x: player.x, z: player.z });
-    this.remoteLookKey.set(sessionId, `${player.accessories ?? ""}|${player.gun ?? ""}|${player.pet ?? ""}`);
+    this.remoteLookKey.set(sessionId, key);
     this.syncRemotePet(sessionId, player);
     this.applyRemote(sessionId);
   }
@@ -1103,27 +1123,63 @@ export class GameEngine {
     body.setPosition(player.x, groundedY, player.z);
     body.setEulerAngles(0, (player.rotY * 180) / Math.PI, 0);
     // Distance cull: in a 452-unit world most players are nowhere near you,
-    // and each one is 30-64 boxes with no batching.
+    // and each one is 19-56 boxes with no batching.
     const here = this.player?.getPosition();
-    const inRange = !here || Math.hypot(player.x - here.x, player.z - here.z) <= REMOTE_RENDER_RANGE;
+    const distance = here ? Math.hypot(player.x - here.x, player.z - here.z) : 0;
+    const inRange = !here || distance <= REMOTE_RENDER_RANGE;
     body.enabled = inRange && (!player.inBuilding || this.inBuilding?.id === player.buildingId);
+
+    // Drop the cosmetic group on anyone far enough away that it would not read,
+    // which is most of the geometry in a crowd.
+    if (body.enabled) {
+      const wasDetailed = this.remoteDetail.get(sessionId) ?? true;
+      const detailed = wasDetailed ? distance <= DETAIL_OFF_RANGE : distance <= DETAIL_ON_RANGE;
+      if (detailed !== wasDetailed) this.remoteDetail.set(sessionId, detailed);
+      setCitizenDetail(body, detailed);
+    }
     this.remoteNames.set(sessionId, player.name || "citizen");
     if (player.wallet) this.remoteWallets.set(sessionId, player.wallet);
     const pet = this.remotePets.get(sessionId);
     if (pet) pet.enabled = body.enabled;
   }
 
+  /** Destroys parked citizens nobody returned for. */
+  private sweepRemotePool() {
+    const now = performance.now();
+    if (now - this.poolSweptAt < 4000) return;
+    this.poolSweptAt = now;
+    for (const [sessionId, parked] of this.remotePool) {
+      if (now - parked.at < 20000) continue;
+      parked.entity.destroy();
+      this.remotePool.delete(sessionId);
+    }
+  }
+
   private syncRemotes() {
     for (const id of this.remotes.keys()) this.applyRemote(id);
   }
 
+  /**
+   * Parks a citizen instead of destroying it. With interest management a player
+   * who walks the edge of your view leaves and re-enters repeatedly, and
+   * rebuilding 19-56 boxes each time is a visible hitch. Held briefly, reused if
+   * they come back, swept if they do not.
+   */
   private dropRemote(sessionId: string) {
-    this.remotes.get(sessionId)?.destroy();
+    const entity = this.remotes.get(sessionId);
+    const lookKey = this.remoteLookKey.get(sessionId);
+    if (entity && lookKey !== undefined) {
+      entity.enabled = false;
+      this.remotePool.set(sessionId, { entity, lookKey, at: performance.now() });
+    } else {
+      entity?.destroy();
+    }
     this.remotes.delete(sessionId);
     this.remoteState.delete(sessionId);
     this.remoteLast.delete(sessionId);
     this.remoteNames.delete(sessionId);
     this.remoteWallets.delete(sessionId);
+    this.remoteDetail.delete(sessionId);
     this.speech.delete(sessionId);
     this.remotePets.get(sessionId)?.destroy();
     this.remotePets.delete(sessionId);
@@ -1153,6 +1209,7 @@ export class GameEngine {
       this.lastMoveSync = 0;
       this.syncMove();
     }
+    this.sweepRemotePool();
     this.lastHud += dt;
     if (this.lastHud > 0.04) {
       this.lastHud = 0;

@@ -48,19 +48,42 @@ export function createCitizen(parent: pc.Entity, appearance: Appearance, name = 
   addShoes(legL, "l", shoe, shoeColor, w);
   addShoes(legR, "r", shoe, shoeColor, w);
   box(root, "torso", [0, 1.12, 0], [w, 0.92, 0.46], colors.top);
-  addOutfitDetails(root, appearance.outfit, w, colors);
 
   addLimb(root, "arm-l", [-(w / 2 + 0.16), 1.53, 0], [0, -0.41, 0], [0.28, 0.82, 0.28], colors.top);
   const armR = addLimb(root, "arm-r", [w / 2 + 0.16, 1.53, 0], [0, -0.41, 0], [0.28, 0.82, 0.28], colors.top);
   box(root, "head", [0, 1.82, 0], [0.62, 0.62, 0.62], skin);
-  box(root, "eye-l", [-0.14, 1.86, 0.32], [0.1, 0.1, 0.08], "#111111");
-  box(root, "eye-r", [0.14, 1.86, 0.32], [0.1, 0.1, 0.08], "#111111");
-  box(root, "nose", [0, 1.76, 0.33], [0.05, 0.12, 0.06], "#111111");
-  box(root, "mouth", [0, 1.64, 0.33], [0.22, 0.05, 0.06], "#111111");
-  addHeadwear(root, appearance.headwear);
-  addAccessories(root, armR, appearance.accessories ?? [], w);
+
+  /**
+   * Everything below is cosmetic: it reads at conversation distance and is
+   * invisible across a plaza, but it is most of the geometry — a crown alone is
+   * 22 boxes on every wearer. Grouping it under one child at identity transform
+   * (so every coordinate below is unchanged) lets the renderer drop all of it
+   * with a single `enabled` flag once a citizen is far away. See setCitizenDetail.
+   *
+   * The silhouette — limbs, shoes, torso, head — stays on the root, along with
+   * anything parented to a limb, so animation and the held gun are unaffected.
+   */
+  const detail = new pc.Entity("detail");
+  root.addChild(detail);
+  addOutfitDetails(detail, appearance.outfit, w, colors);
+  box(detail, "eye-l", [-0.14, 1.86, 0.32], [0.1, 0.1, 0.08], "#111111");
+  box(detail, "eye-r", [0.14, 1.86, 0.32], [0.1, 0.1, 0.08], "#111111");
+  box(detail, "nose", [0, 1.76, 0.33], [0.05, 0.12, 0.06], "#111111");
+  box(detail, "mouth", [0, 1.64, 0.33], [0.22, 0.05, 0.06], "#111111");
+  addHeadwear(detail, appearance.headwear);
+  addAccessories(detail, armR, appearance.accessories ?? [], w);
   if (appearance.gun) addGun(armR, appearance.gun);
   return root;
+}
+
+/**
+ * Level of detail for a citizen. Culls the cosmetic group; the silhouette and
+ * any held weapon stay, so a distant player still reads as a person and as
+ * armed. No-op when the entity is already in the requested state.
+ */
+export function setCitizenDetail(citizen: pc.Entity, on: boolean) {
+  const detail = citizen.findByName("detail");
+  if (detail && detail.enabled !== on) detail.enabled = on;
 }
 
 function addLimb(

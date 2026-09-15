@@ -9,9 +9,9 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@colyseus/core": "0.16.21",
-    "@colyseus/schema": "^3.0.76",
-    "@colyseus/ws-transport": "0.16.5",
+    "@colyseus/core": "0.18.14",
+    "@colyseus/schema": "^5.0.32",
+    "@colyseus/ws-transport": "0.18.2",
     "@supabase/supabase-js": "^2.49.1",
     "@the-block/shared": "file:../shared",
     "cors": "^2.8.5",

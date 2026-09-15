@@ -132,6 +132,23 @@ const gameServer = new Server({
 
 gameServer.define("world", WorldRoom);
 
+// Opt-in load diagnostics: event-loop delay is the honest measure of whether
+// the server is keeping up, independent of how busy any client happens to be.
+if (process.env.PERF_LOG === "true") {
+  const { monitorEventLoopDelay } = await import("node:perf_hooks");
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
+  setInterval(() => {
+    const ms = (n: number) => (n / 1e6).toFixed(1);
+    const mem = process.memoryUsage();
+    console.log(
+      `[perf] loop p50 ${ms(loop.percentile(50))}ms p99 ${ms(loop.percentile(99))}ms max ${ms(loop.max)}ms` +
+        ` | heap ${(mem.heapUsed / 1048576).toFixed(0)}MB rss ${(mem.rss / 1048576).toFixed(0)}MB`,
+    );
+    loop.reset();
+  }, 2000);
+}
+
 void gameServer.listen(port).then(() => {
   console.log(`[the-block] Colyseus listening on ws://localhost:${port}`);
   console.log(`[the-block] REST health at http://localhost:${port}/health`);

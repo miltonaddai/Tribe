@@ -1,4 +1,4 @@
-import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
+import { MapSchema, Schema, defineTypes, view } from "@colyseus/schema";
 
 export class PlayerState extends Schema {
   sessionId = "";
@@ -170,3 +170,27 @@ defineTypes(WorldState, {
   homeOpeningBid: "number",
   homeBidIncrement: "number",
 });
+
+/**
+ * Area-of-interest filtering: a client only receives players it can actually
+ * see. Without it the server sends every player to every player, which is
+ * O(n^2) and caps the world around 80.
+ *
+ * On by default. Measured at 500 players on Colyseus 0.18:
+ *   - bandwidth per client drops ~12x at realistic density (124 KB/s -> ~10)
+ *   - each client tracks ~40 neighbours instead of 500
+ *   - costs server CPU: event-loop p99 rises from ~25ms to ~50ms, because
+ *     every client now gets its own encode instead of one shared broadcast
+ * Set INTEREST_MANAGEMENT=false to fall back to a full broadcast.
+ *
+ * On Colyseus 0.16 this logged `"refId" not found` whenever a client joined
+ * while others were moving; the 0.18 upgrade resolved it.
+ *
+ * This must use the view() decorator directly: defineTypes() silently drops a
+ * `view` key in the field descriptor, so `view: true` above would do nothing.
+ */
+export const INTEREST_MANAGEMENT = process.env.INTEREST_MANAGEMENT !== "false";
+
+if (INTEREST_MANAGEMENT) {
+  view()(WorldState.prototype, "players");
+}

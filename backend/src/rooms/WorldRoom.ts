@@ -21,7 +21,7 @@ import {
   type CityId,
   type WalletChainId,
 } from "@the-block/shared";
-import { PlayerState, VehicleState, ChatLine, HomeState, WorldState } from "../schema/index";
+import { PlayerState, VehicleState, ChatLine, HomeState, WorldState, INTEREST_MANAGEMENT } from "../schema/index";
 import {
   auctionSeconds,
   bidIncrement,
@@ -44,7 +44,9 @@ import {
   savePlayerVehicle,
   writeCredits,
 } from "../services/db";
-import { CREDIT_CAP } from "../services/liveEnv";
+import { CREDIT_CAP, envNumber } from "../services/liveEnv";
+import { AOI_IN, SpatialGrid, shouldSee } from "./interest";
+import { StateView } from "@colyseus/schema";
 import { loadMessages, markMessagesRead, saveMessage, type MessageKind } from "../services/messages";
 import { createRequest, loadFriends, removeFriend, respondToRequest } from "../services/friends";
 
@@ -129,17 +131,35 @@ function vehiclesOverlap(
   return true;
 }
 
-export class WorldRoom extends Room<WorldState> {
-  maxClients = 80;
+/**
+ * There is exactly one world. Colyseus would otherwise spin up a second room
+ * when the first fills, quietly splitting players into parallel cities that
+ * cannot see each other and that both write the same auction rows.
+ */
+let liveWorlds = 0;
+
+// 0.18 takes an options object as the Room generic rather than the bare state type.
+export class WorldRoom extends Room<{ state: WorldState }> {
+  maxClients = Math.max(1, envNumber("WORLD_MAX_PLAYERS", 500));
   patchRate = 50;
   private punchAt = new Map<string, number>();
   private vehicleMotion = new Map<string, { x: number; z: number; at: number }>();
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
   private chains = new Map<string, WalletChainId>();
+  /** wallet -> their accepted friends' wallets, so join/leave can refresh the
+      right people without hitting the database. */
+  private friendsOf = new Map<string, Set<string>>();
+  private playerGrid = new SpatialGrid<PlayerState>();
   private vehicleChains = new Map<string, WalletChainId>();
 
   onCreate() {
+    if (liveWorlds > 0) {
+      // Surfaces to the client as a matchmaking failure, which it renders as
+      // "the world is full" rather than dropping the player into a copy.
+      throw new Error("WORLD_FULL");
+    }
+    liveWorlds++;
     this.setState(new WorldState());
     this.clock.start();
     void this.restoreAuctions();
@@ -166,7 +186,7 @@ export class WorldRoom extends Room<WorldState> {
       const zone = cityAtPosition(data.x, data.z);
       const walled = insideCityWalls(data.x, data.z);
       if (zone === "void") return;
-      if (!player.inBuilding && this.vehicleBlocksPlayerMove(player.x, player.z, data.x, data.z)) return;
+      if (!player.inBuilding && this.vehicleBlocksPlayerMove(player.x, player.z, data.x, data.z, player.city)) return;
 
       // Gating applies at the wall line, matching the client. The ring road
       // between the wall and the district edge is open to everyone.
@@ -561,6 +581,25 @@ export class WorldRoom extends Room<WorldState> {
       void this.dropFriend(client, String(data.wallet ?? ""));
     });
 
+    // The world map shows the whole city, but interest management means the
+    // client only holds nearby players. Send a snapshot on demand rather than
+    // streaming 500 positions to everyone continuously.
+    this.onMessage("request-roster", (client) => {
+      const roster: { sessionId: string; name: string; wallet: string; x: number; z: number; city: string; indoors: boolean }[] = [];
+      this.state.players.forEach((p, sessionId) => {
+        roster.push({
+          sessionId,
+          name: p.name,
+          wallet: p.wallet,
+          x: p.x,
+          z: p.z,
+          city: p.city,
+          indoors: p.inBuilding,
+        });
+      });
+      client.send("roster", { roster, at: Date.now() });
+    });
+
     this.onMessage("messages-read", (client) => {
       const player = this.state.players.get(client.sessionId);
       if (player?.wallet) void markMessagesRead(player.wallet, this.chainFor(client.sessionId));
@@ -572,12 +611,58 @@ export class WorldRoom extends Room<WorldState> {
       });
     }, 200);
 
+    // 5Hz is plenty: AOI_OUT sits 25 units beyond AOI_IN, which is far more
+    // than anyone covers in 200ms, so nobody pops in late.
+    if (INTEREST_MANAGEMENT) this.clock.setInterval(() => this.syncViews(), 200);
+
     this.clock.setInterval(() => {
       // Re-read each tick so .env edits take effect without a restart.
       this.state.homeOpeningBid = openingBid();
       this.state.homeBidIncrement = bidIncrement();
       this.settleAuctions();
     }, 1000);
+  }
+
+  /**
+   * Recomputes what each client can see. Every client gets its own player
+   * unconditionally — a view-filtered map shows nothing that is not added, so
+   * forgetting this would leave people unable to see themselves.
+   */
+  private syncViews() {
+    if (this.state.players.size === 0) return;
+    this.playerGrid.rebuild(this.state.players.values());
+    for (const client of this.clients) this.syncViewFor(client);
+  }
+
+  /**
+   * Recomputes what one client can see. Every client gets its own player
+   * unconditionally — a view-filtered map shows nothing that is not added, so
+   * forgetting this would leave people unable to see themselves.
+   *
+   * Called synchronously on join as well as on the timer: a client whose view
+   * is still empty when the first patch goes out can receive a reference to an
+   * entity it was never told about, and the decoder rejects the whole patch.
+   */
+  private syncViewFor(client: Client) {
+    const me = this.state.players.get(client.sessionId);
+    if (!me) return;
+    const view = client.view ?? (client.view = new StateView());
+
+    // Only add once. Re-adding a visible ref every tick queues duplicate ADD
+    // operations and the client decoder trips over them.
+    if (!view.has(me)) view.add(me);
+
+    for (const other of this.playerGrid.near(me.x, me.z, AOI_IN)) {
+      if (other === me) continue;
+      const d = Math.hypot(other.x - me.x, other.z - me.z);
+      const visible = view.has(other);
+      if (shouldSee(d, visible)) {
+        if (!visible) view.add(other);
+      } else if (visible) {
+        view.remove(other);
+      }
+    }
+
   }
 
   private sendBag(sessionId: string, player: PlayerState) {
@@ -595,7 +680,15 @@ export class WorldRoom extends Room<WorldState> {
     const client = this.clients.find((c) => c.sessionId === sessionId);
     if (!player?.wallet || !client) return;
     const friends = await loadFriends(player.wallet, this.chainFor(sessionId));
-    client.send("friend-sync", { friends });
+    this.friendsOf.set(
+      player.wallet,
+      new Set(friends.filter((f) => f.status === "friend").map((f) => f.wallet)),
+    );
+    // Presence comes from the server: interest management means the client can
+    // only see nearby players, so it cannot work this out for itself.
+    client.send("friend-sync", {
+      friends: friends.map((f) => ({ ...f, online: Boolean(this.playerByWallet(f.wallet)) })),
+    });
   }
 
   private async sendFriendRequest(client: Client, toSession: string) {
@@ -681,6 +774,15 @@ export class WorldRoom extends Room<WorldState> {
     await this.syncFriends(client.sessionId);
     const theirSession = this.playerByWallet(wallet);
     if (theirSession) await this.syncFriends(theirSession.sessionId);
+  }
+
+  /** Refresh presence for everyone online who counts this wallet as a friend. */
+  private refreshFriendsOf(wallet: string) {
+    if (!wallet) return;
+    this.state.players.forEach((other, sessionId) => {
+      if (!other.wallet || other.wallet === wallet) return;
+      if (this.friendsOf.get(other.wallet)?.has(wallet)) void this.syncFriends(sessionId);
+    });
   }
 
   private async deliverInbox(client: Client, player: PlayerState) {
@@ -1247,6 +1349,12 @@ export class WorldRoom extends Room<WorldState> {
     // invisible to the other and the stale tab could spend it twice.
     this.evictOtherSessions(player.wallet, client.sessionId);
     this.state.players.set(client.sessionId, player);
+    if (INTEREST_MANAGEMENT) {
+      client.view = new StateView();
+      // Build the full view before the first patch, not on the next 200ms tick.
+      this.playerGrid.rebuild(this.state.players.values());
+      this.syncViewFor(client);
+    }
     console.log(`[world] ${player.name} joined ${city} (tier ${player.accessTier})`);
 
     // The stored balance is authoritative: it already has any auction escrow
@@ -1254,6 +1362,7 @@ export class WorldRoom extends Room<WorldState> {
     void this.adoptStoredCredits(client, player);
     void this.deliverInbox(client, player);
     void this.syncFriends(client.sessionId);
+    this.refreshFriendsOf(player.wallet);
 
     const supabase = getSupabase();
     if (supabase) {
@@ -1272,7 +1381,20 @@ export class WorldRoom extends Room<WorldState> {
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
     this.chains.delete(client.sessionId);
+    const leaving = this.state.players.get(client.sessionId);
+    const leavingWallet = leaving?.wallet ?? "";
+    // Drop them from every view that still holds them, so no client is left
+    // referencing an entity that no longer exists.
+    if (leaving && INTEREST_MANAGEMENT) {
+      for (const other of this.clients) other.view?.remove(leaving);
+    }
     this.state.players.delete(client.sessionId);
+    this.friendsOf.delete(leavingWallet);
+    this.refreshFriendsOf(leavingWallet);
+  }
+
+  onDispose() {
+    liveWorlds = Math.max(0, liveWorlds - 1);
   }
 
   private releaseVehicle(sessionId: string) {
@@ -1347,10 +1469,13 @@ export class WorldRoom extends Room<WorldState> {
     });
   }
 
-  private vehicleBlocksPlayerMove(fromX: number, fromZ: number, toX: number, toZ: number) {
+  private vehicleBlocksPlayerMove(fromX: number, fromZ: number, toX: number, toZ: number, city?: string) {
     let blocked = false;
     this.state.vehicles.forEach((vehicle) => {
       if (blocked) return;
+      // Cars in another district cannot be in your way, and this runs on every
+      // move message, so skipping them early is the whole optimisation.
+      if (city && vehicle.city !== city) return;
       const depthAt = (x: number, z: number) => {
         const dx = x - vehicle.x;
         const dz = z - vehicle.z;

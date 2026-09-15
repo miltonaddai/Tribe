@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import { getStateCallbacks, type Room } from "colyseus.js";
+import { getStateCallbacks, type Room } from "@colyseus/sdk";
 import {
   CITIES,
   CITY_BOUNDS,
@@ -30,7 +30,7 @@ import {
   type ItemId,
   type PetId,
 } from "@the-block/shared";
-import { joinWorld } from "../lib/colyseus";
+import { joinWorld, type JoinFailure } from "../lib/colyseus";
 import { loadCharacter, saveCharacter } from "../lib/storage";
 import { loadWallet } from "../lib/wallet";
 import { VoiceChat } from "../lib/voiceChat";
@@ -46,6 +46,8 @@ const TALK_RANGE = 8;
 const VOICE_RANGE = 22;
 const NAMETAG_RANGE = 48;
 const HOME_BID_RANGE = 13;
+/** Past this, a remote player is not drawn at all. */
+const REMOTE_RENDER_RANGE = 70;
 const HOME_SALE_LABEL_RANGE = 26;
 const PUNCH_RANGE = 2.45;
 const PUNCH_MS = 320;
@@ -141,6 +143,16 @@ export type WhisperLine = {
   at: number;
 };
 
+export type RosterEntry = {
+  sessionId: string;
+  name: string;
+  wallet: string;
+  x: number;
+  z: number;
+  city: string;
+  indoors: boolean;
+};
+
 export type MapCitizen = {
   sessionId: string;
   name: string;
@@ -181,6 +193,10 @@ export type HudState = {
   messages: PlayerMessage[];
   unreadMessages: number;
   sessionEnded: string | null;
+  /** "full" means the world is at capacity; "offline" means no backend. */
+  joinFailure: JoinFailure | null;
+  /** Whole-world snapshot for the map, refreshed on demand. */
+  roster: MapCitizen[];
   ownedHomes: OwnedHome[];
   ownedCars: OwnedCar[];
   friends: Friend[];
@@ -262,6 +278,7 @@ export class GameEngine {
   private lastCycleKey = "";
   private lastDt = 0.016;
   private lastHud = 0;
+  private lastMoveSync = 0;
   private gateUntil = 0;
   private gateMessage: string | null = null;
   private chat: { name: string; text: string }[] = [];
@@ -278,11 +295,13 @@ export class GameEngine {
   private homeOpeningBid = 250;
   private homeBidIncrement = 50;
   private wallet = "";
+  private joinFailure: JoinFailure | null = null;
+  private roster: MapCitizen[] = [];
   private pendingListing: { id: string; suggested: number; suggestedMinutes: number } | null = null;
   private pendingOffer: { id: string; bid: number; bidder: string; decideBy: number } | null = null;
   private messages: PlayerMessage[] = [];
   private ownedCars = new Map<string, OwnedCar>();
-  private friends: { wallet: string; name: string; status: Friend["status"] }[] = [];
+  private friends: { wallet: string; name: string; status: Friend["status"]; online?: boolean }[] = [];
   private vehicleOwners = new Map<string, string>();
   private vehicleLocks = new Map<string, boolean>();
   private sessionEnded: string | null = null;
@@ -353,7 +372,7 @@ export class GameEngine {
     this.app.on("update", (dt: number) => this.update(dt));
 
     this.wallet = character.wallet;
-    this.room = await joinWorld({
+    const joined = await joinWorld({
       name: character.displayName,
       wallet: character.wallet,
       chain: loadWallet()?.chain ?? DEFAULT_CHAIN,
@@ -374,6 +393,8 @@ export class GameEngine {
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
     });
+    this.room = joined.room;
+    this.joinFailure = joined.reason ?? null;
     if (this.room) this.voice = new VoiceChat(this.room);
     this.bindRoom();
     this.emitHud();
@@ -665,7 +686,22 @@ export class GameEngine {
       this.room = null;
     });
 
-    room.onMessage("friend-sync", (msg: { friends?: { wallet: string; name: string; status: Friend["status"] }[] }) => {
+    room.onMessage("roster", (msg: { roster?: RosterEntry[] }) => {
+      const friendWallets = new Set(
+        this.friends.filter((f) => f.status === "friend").map((f) => f.wallet),
+      );
+      this.roster = (msg.roster ?? []).map((r) => ({
+        sessionId: r.sessionId,
+        name: r.name,
+        x: r.x,
+        z: r.z,
+        you: r.sessionId === this.room?.sessionId,
+        indoors: r.indoors,
+        friend: friendWallets.has(r.wallet),
+      }));
+    });
+
+    room.onMessage("friend-sync", (msg: { friends?: { wallet: string; name: string; status: Friend["status"]; online?: boolean }[] }) => {
       this.friends = msg.friends ?? [];
     });
     room.onMessage("friend-result", (msg: { ok?: boolean; reason?: string }) => {
@@ -797,6 +833,44 @@ export class GameEngine {
 
   closeOffer() {
     this.pendingOffer = null;
+  }
+
+  /** Used by the full-world queue screen to try again without reloading. */
+  async retryJoin(): Promise<boolean> {
+    const character = loadCharacter();
+    if (!character) return false;
+    const joined = await joinWorld({
+      name: character.displayName,
+      wallet: character.wallet,
+      chain: loadWallet()?.chain ?? DEFAULT_CHAIN,
+      city: character.homeCity,
+      accessTier: character.accessTier,
+      bodyType: character.bodyType,
+      skinTone: character.skinTone,
+      outfit: character.outfit,
+      pantsColor: character.pantsColor,
+      shoe: character.shoe,
+      shoeColor: character.shoeColor,
+      headwear: character.headwear,
+      accessories: (character.accessories ?? []).join(","),
+      health: this.health,
+      brokemeter: this.health,
+      credits: this.credits,
+      inventory: encodeInventory(this.inventory),
+      gun: this.gun ?? "",
+      pet: this.petKind ?? "",
+    });
+    this.room = joined.room;
+    this.joinFailure = joined.reason ?? null;
+    if (!this.room) return false;
+    this.voice = new VoiceChat(this.room);
+    this.bindRoom();
+    return true;
+  }
+
+  /** Called when the world map opens; the snapshot arrives as a "roster" message. */
+  requestRoster() {
+    this.room?.send("request-roster", {});
   }
 
   markMessagesRead() {
@@ -1028,7 +1102,11 @@ export class GameEngine {
     const groundedY = player.sitting || player.inBuilding ? player.y ?? WALK_Y : Math.max(player.y || 0, WALK_Y);
     body.setPosition(player.x, groundedY, player.z);
     body.setEulerAngles(0, (player.rotY * 180) / Math.PI, 0);
-    body.enabled = !player.inBuilding || this.inBuilding?.id === player.buildingId;
+    // Distance cull: in a 452-unit world most players are nowhere near you,
+    // and each one is 30-64 boxes with no batching.
+    const here = this.player?.getPosition();
+    const inRange = !here || Math.hypot(player.x - here.x, player.z - here.z) <= REMOTE_RENDER_RANGE;
+    body.enabled = inRange && (!player.inBuilding || this.inBuilding?.id === player.buildingId);
     this.remoteNames.set(sessionId, player.name || "citizen");
     if (player.wallet) this.remoteWallets.set(sessionId, player.wallet);
     const pet = this.remotePets.get(sessionId);
@@ -1069,7 +1147,12 @@ export class GameEngine {
     this.syncVoiceProximity();
     if (this.inBuilding?.interiorKind === "hospital") this.health = 100;
     this.warnHealth();
-    this.syncMove();
+    // Match patchRate (20Hz). Anything faster is encoded and thrown away.
+    this.lastMoveSync += dt;
+    if (this.lastMoveSync >= 0.05) {
+      this.lastMoveSync = 0;
+      this.syncMove();
+    }
     this.lastHud += dt;
     if (this.lastHud > 0.04) {
       this.lastHud = 0;
@@ -1709,6 +1792,8 @@ export class GameEngine {
       messages: this.messages,
       unreadMessages: this.messages.reduce((n, m) => n + (m.read ? 0 : 1), 0),
       sessionEnded: this.sessionEnded,
+      joinFailure: this.joinFailure,
+      roster: this.roster,
       ownedHomes: [...this.homes.values()]
         .filter((home) => home.owner === this.wallet)
         .map((home) => ({
@@ -1723,12 +1808,14 @@ export class GameEngine {
         })),
       ownedCars: [...this.ownedCars.values()],
       friends: this.friends.map((f) => {
+        // Presence is authoritative from the server; `here` only tells us
+        // whether they are close enough to be in our view right now.
         const here = online.get(f.wallet);
         return {
           wallet: f.wallet,
           name: f.name,
           status: f.status,
-          online: Boolean(here),
+          online: f.online ?? Boolean(here),
           sessionId: here?.sessionId ?? null,
           city: here?.city ?? null,
         };

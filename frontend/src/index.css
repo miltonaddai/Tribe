@@ -1849,6 +1849,16 @@ button {
   text-align: center;
 }
 
+.queue-status {
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
 .session-ended-body {
   font-size: 14px;
   line-height: 1.55;

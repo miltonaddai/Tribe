@@ -49,7 +49,59 @@ const EMPTY: HudState = {
   heading: 0,
   accessTier: 1,
   aimTarget: null,
+  joinFailure: null,
+  roster: [],
 };
+
+/** Shown when the single world is at capacity. Retries on a timer so the
+    player is queueing rather than refreshing by hand. */
+function WorldFullScreen({ onRetry }: { onRetry: () => Promise<boolean> }) {
+  const [seconds, setSeconds] = useState(10);
+  const [attempts, setAttempts] = useState(0);
+  const [trying, setTrying] = useState(false);
+
+  useEffect(() => {
+    if (trying) return;
+    if (seconds <= 0) {
+      setTrying(true);
+      void onRetry().then((ok) => {
+        if (ok) return;
+        setAttempts((n) => n + 1);
+        setSeconds(10);
+        setTrying(false);
+      });
+      return;
+    }
+    const t = window.setTimeout(() => setSeconds((n) => n - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [seconds, trying, onRetry]);
+
+  return (
+    <div className="session-ended">
+      <div className="session-ended-card">
+        <p className="list-kicker">THE BLOCK IS FULL</p>
+        <p className="session-ended-body">
+          Every slot in the city is taken right now. You are in line and will be let in as soon as someone
+          leaves.
+        </p>
+        <p className="queue-status">
+          {trying ? "Trying now…" : `Next try in ${seconds}s`}
+          {attempts > 0 && ` · ${attempts} ${attempts === 1 ? "attempt" : "attempts"} so far`}
+        </p>
+        <div className="list-actions">
+          <button
+            className="btn btn-accent"
+            type="button"
+            disabled={trying}
+            onClick={() => setSeconds(0)}
+          >
+            Try now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function GamePage() {
   const nav = useNavigate();
@@ -197,6 +249,13 @@ export function GamePage() {
     setListPrice(String(hud.listPrompt.suggested));
     setListMinutes(String(hud.listPrompt.suggestedMinutes));
   }, [hud.listPrompt?.id]);
+
+  useEffect(() => {
+    if (!mapOpen) return;
+    engineRef.current?.requestRoster();
+    const t = window.setInterval(() => engineRef.current?.requestRoster(), 3000);
+    return () => window.clearInterval(t);
+  }, [mapOpen]);
 
   useEffect(() => {
     if (inboxOpen && inboxTab === "messages") engineRef.current?.markMessagesRead();
@@ -448,7 +507,7 @@ export function GamePage() {
         <WorldMap
           youCity={hud.city}
           accessTier={hud.accessTier}
-          citizens={hud.citizens}
+          citizens={hud.roster.length > 0 ? hud.roster : hud.citizens}
           homes={hud.ownedHomes}
           cars={hud.ownedCars}
           heading={hud.heading}
@@ -582,6 +641,8 @@ export function GamePage() {
           </div>
         </form>
       )}
+
+      {hud.joinFailure === "full" && <WorldFullScreen onRetry={() => engineRef.current?.retryJoin() ?? Promise.resolve(false)} />}
 
       {hud.sessionEnded && (
         <div className="session-ended">

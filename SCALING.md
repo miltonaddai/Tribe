@@ -14,8 +14,11 @@ The original estimates below are kept for context; this section is measured.
 | ✅ | Phase 2: interest management via Colyseus `StateView` + spatial grid, with hysteresis (in 70 / out 95) |
 | ✅ | Friend presence and the world-map roster moved server-side, so filtering does not hide them |
 | ✅ | Colyseus 0.16 → 0.18 (`@colyseus/core` 0.18.14, schema 5.x, client `colyseus.js` → `@colyseus/sdk`) |
-| ⬜ | Phase 3: client render batching / LOD |
+| ✅ | Phase 3: citizen level-of-detail and entity pooling (60-66% fewer draw calls in a crowd) |
+| ✅ | Server-side movement speed check (token bucket), closing the client-authoritative movement exploit |
 | ⬜ | Phase 4: shard by district, multi-process |
+| ⬜ | Move store purchases server-side (credits still originate on the client) |
+| ⬜ | Browser verification — all load testing used the Node SDK, never a real browser |
 
 ### Measured at 500 concurrent players
 
@@ -43,6 +46,21 @@ not a comfortable operating point. Phase 4 (sharding) is what buys real headroom
 On 0.16, `StateView` filtering logged `"refId" not found` whenever a client joined while others
 were moving — reproduced on every run. The same test on 0.18 passed three runs and a 500-player
 load with zero decoder errors.
+
+### Client draw calls at 40 neighbours
+
+Cosmetics sit under one `detail` child culled past 34 units (restored inside 26).
+Measured on a headless PlayCanvas app:
+
+| Scene | Before | After | Saved |
+| --- | --- | --- | --- |
+| Valhalla crowd (crowned, kitted) | 2,520 | 854 | 66% |
+| Mixed crowd | 1,600 | 648 | 60% |
+| Plain crowd | 640 | 436 | 32% |
+
+A fully kitted citizen is 63 boxes and drops to 14; the crown alone is 22 of them.
+The silhouette and any held gun stay at every distance, so a distant player still
+reads as a person and as armed.
 
 ### Things learned the hard way
 

@@ -92,6 +92,16 @@ const PUNCH_COOLDOWN_MS = 520;
 const VOICE_SIGNAL_RANGE = 24;
 const VEHICLE_HIT_MIN_SPEED = 5;
 const VEHICLE_MAX_SPEED = 22;
+/** Walk is 9, sprint 13.95. Anything faster than this on foot is not the game. */
+const PLAYER_MAX_SPEED = 14;
+/**
+ * Distance budget, in units, a player may spend in one burst. Refills at
+ * PLAYER_MAX_SPEED. A budget rather than a per-message allowance because a
+ * per-message one is farmable: send moves twice as often, travel twice as far.
+ */
+const MOVE_BURST = 6;
+/** Teleports the server performs itself — spawn, doors, leaving a car. */
+const MOVE_GRACE_MS = 1200;
 
 function isHospital(buildingId: string) {
   return buildingId.includes("hospital");
@@ -147,6 +157,8 @@ export class WorldRoom extends Room<{ state: WorldState }> {
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
   private chains = new Map<string, WalletChainId>();
+  private moveBudget = new Map<string, { budget: number; at: number }>();
+  private moveGraceUntil = new Map<string, number>();
   /** wallet -> their accepted friends' wallets, so join/leave can refresh the
       right people without hitting the database. */
   private friendsOf = new Map<string, Set<string>>();
@@ -186,6 +198,22 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       const zone = cityAtPosition(data.x, data.z);
       const walled = insideCityWalls(data.x, data.z);
       if (zone === "void") return;
+
+      // Movement is otherwise client-authoritative: without this you can walk
+      // as fast as you like, including straight through a tier gate.
+      const now = Date.now();
+      if (now > (this.moveGraceUntil.get(client.sessionId) ?? 0)) {
+        const tracked = this.moveBudget.get(client.sessionId) ?? { budget: MOVE_BURST, at: now };
+        const elapsed = Math.max(0, Math.min(1, (now - tracked.at) / 1000));
+        const budget = Math.min(MOVE_BURST, tracked.budget + PLAYER_MAX_SPEED * elapsed);
+        const travelled = Math.hypot(data.x - player.x, data.z - player.z);
+        if (travelled > budget) {
+          this.moveBudget.set(client.sessionId, { budget, at: now });
+          client.send("move-correction", { x: player.x, y: player.y, z: player.z });
+          return;
+        }
+        this.moveBudget.set(client.sessionId, { budget: budget - travelled, at: now });
+      }
       if (!player.inBuilding && this.vehicleBlocksPlayerMove(player.x, player.z, data.x, data.z, player.city)) return;
 
       // Gating applies at the wall line, matching the client. The ring road
@@ -262,6 +290,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
         return;
       }
       if (vehicle.driver) return;
+      this.allowTeleport(client.sessionId);
       vehicle.driver = client.sessionId;
       player.inVehicle = true;
       player.vehicleId = vehicle.id;
@@ -288,12 +317,14 @@ export class WorldRoom extends Room<{ state: WorldState }> {
         return;
       }
 
+      this.allowTeleport(client.sessionId);
       player.inBuilding = true;
       player.buildingId = id;
       if (isHospital(id)) player.health = 100;
     });
 
     this.onMessage("exit-building", (client) => {
+      this.allowTeleport(client.sessionId);
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       player.inBuilding = false;
@@ -1344,6 +1375,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
     player.gun = options.gun ?? "";
     player.pet = options.pet ?? "";
     this.chains.set(client.sessionId, options.chain ?? DEFAULT_CHAIN);
+    this.allowTeleport(client.sessionId);
     // One live session per wallet. Two tabs on the same wallet would each hold
     // their own copy of the credit balance, so escrow taken from one would be
     // invisible to the other and the stale tab could spend it twice.
@@ -1381,6 +1413,8 @@ export class WorldRoom extends Room<{ state: WorldState }> {
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
     this.chains.delete(client.sessionId);
+    this.moveBudget.delete(client.sessionId);
+    this.moveGraceUntil.delete(client.sessionId);
     const leaving = this.state.players.get(client.sessionId);
     const leavingWallet = leaving?.wallet ?? "";
     // Drop them from every view that still holds them, so no client is left
@@ -1397,7 +1431,14 @@ export class WorldRoom extends Room<{ state: WorldState }> {
     liveWorlds = Math.max(0, liveWorlds - 1);
   }
 
+  /** Suspends the speed check briefly, for movement the server itself causes. */
+  private allowTeleport(sessionId: string) {
+    this.moveGraceUntil.set(sessionId, Date.now() + MOVE_GRACE_MS);
+    this.moveBudget.delete(sessionId);
+  }
+
   private releaseVehicle(sessionId: string) {
+    this.allowTeleport(sessionId);
     const player = this.state.players.get(sessionId);
     if (player) {
       player.inVehicle = false;

@@ -694,6 +694,16 @@ export class GameEngine {
       this.room = null;
     });
 
+    // The server rejected a move as too fast and is telling us where we really
+    // are. Snap back rather than drifting out of sync with everyone else.
+    room.onMessage("move-correction", (msg: { x?: number; y?: number; z?: number }) => {
+      if (!this.player || this.inVehicle) return;
+      if (typeof msg.x !== "number" || typeof msg.z !== "number") return;
+      const current = this.player.getPosition();
+      this.player.setPosition(msg.x, typeof msg.y === "number" ? msg.y : current.y, msg.z);
+      this.vy = 0;
+    });
+
     room.onMessage("roster", (msg: { roster?: RosterEntry[] }) => {
       const friendWallets = new Set(
         this.friends.filter((f) => f.status === "friend").map((f) => f.wallet),

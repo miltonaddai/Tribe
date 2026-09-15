@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.local
+*.log
+.vite
+coverage
+.turbo
+.idea
+.vscode/*
+!.vscode/extensions.json
+frontend/dist
+backend/dist

@@ -1,0 +1,12 @@
+{
+  "name": "the-block",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Block — a crypto-native Roblox-style social game",
+  "scripts": {
+    "install:all": "yarn --cwd frontend install && yarn --cwd backend install",
+    "dev:web": "yarn --cwd frontend dev",
+    "dev:backend": "yarn --cwd backend dev",
+    "build": "yarn --cwd frontend build && yarn --cwd backend build"
+  }
+}

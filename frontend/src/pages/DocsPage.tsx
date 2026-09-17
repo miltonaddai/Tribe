@@ -1,21 +1,38 @@
 import { useEffect, useMemo } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { CURRENCY, CITIES, CITY_ORDER } from "@tribe/shared";
+import {
+  CATALOG,
+  CURRENCY,
+  CITIES,
+  CITY_ORDER,
+  DEALER_STOCK,
+  DEFAULT_TRIBE_CITY_THRESHOLDS,
+  HOME_PRICE,
+} from "@tribe/shared";
 import { Header } from "../components/Header";
 
 const SECTIONS = [
   { id: "how-to-play", label: "How to Play" },
   { id: "overview", label: "Overview" },
   { id: "cities", label: "The Four Cities" },
-  { id: "moving", label: "Moving Between Cities" },
+  { id: "access", label: "Access & $TRIBE" },
+  { id: "market", label: "Buying & Selling" },
+  { id: "property", label: "Homes & Cars" },
   { id: "governance", label: "City Governance" },
   { id: "health", label: "Health" },
 ];
 
+/** Old links still land somewhere sensible. */
+const ALIASES: Record<string, string> = {
+  moving: "access",
+  brokemeter: "health",
+  store: "market",
+};
+
 export function DocsPage() {
   const { section = "how-to-play" } = useParams();
   const { hash } = useLocation();
-  const active = SECTIONS.some((s) => s.id === section) ? section : section === "brokemeter" ? "health" : "how-to-play";
+  const active = SECTIONS.some((s) => s.id === section) ? section : (ALIASES[section] ?? "how-to-play");
   const body = useMemo(() => content(active), [active]);
 
   useEffect(() => {
@@ -55,41 +72,53 @@ export function DocsPage() {
   );
 }
 
+/** Docs list what the store sells, so retired items are left out. */
+function priceList(kind: string) {
+  return CATALOG.filter((i) => i.kind === kind && i.listed !== false);
+}
+
+const n = (v: number) => v.toLocaleString();
+
+/** Read from the game rather than written out, so retuning cannot strand the docs. */
+function gateFor(city: string) {
+  return DEFAULT_TRIBE_CITY_THRESHOLDS.find((t) => t.city === city)?.min ?? 0;
+}
+
+/** The base price is the smallest home in a district; the largest is twice it. */
+function homeRange(city: keyof typeof HOME_PRICE) {
+  const base = HOME_PRICE[city];
+  return `${n(base)} to ${n(base * 2)}`;
+}
+
 function content(id: string) {
   if (id === "overview") {
     return (
       <>
         <h1>Overview</h1>
         <p>
-          Tribe is a crypto-native social city. You do not rent an apartment from a studio. You connect a
-          wallet, mint a look, and drop into a district that already knows what kind of bag you showed up with.
-          Native Crypto Twitter language shapes the four cities — Trench City, Gas City, The Real World, and
-          Valhalla — each with its own sky, architecture, vehicles, and temperament.
+          Tribe is a crypto-native social city. You connect a wallet, build a character, and drop into one of
+          four districts. Everything you own — the clothes in your bag, the car at the kerb, the house with
+          your name over the door — is bought with ${CURRENCY}, the same token you hold in your wallet.
         </p>
-        <h2>An onchain city, built block by block</h2>
+        <h2>One token, one economy</h2>
         <p>
-          The pitch is simple: claim a block, team up with your neighbors, and live in a city that is actually
-          owned by the people walking it. No landlords. No pay-to-skip gates after you spawn. Your tribe is
-          whoever is standing on the same sidewalk.
-        </p>
-        <p>
-          Under the jokes, Tribe is a live multiplayer street. Citizens walk, drive, duck into buildings,
-          whisper when they get close, and keep their health off empty. The map is one connected world
-          — four districts around a gated plaza — so a Valhalla whale can slum it in the Trench, but a trenchrat
-          cannot stroll into gold towers until they have put in the work.
+          There is no separate game currency to top up and no exchange rate to learn. The balance on your HUD
+          is your actual ${CURRENCY} balance, read from the chain. When you buy something, your wallet asks
+          you to sign a transfer, and the item is yours once that transaction confirms. Nothing is held on
+          your behalf, and nothing can be spent without you approving it.
         </p>
         <h2>What you actually do</h2>
         <ul>
-          <li>Walk the grid, hop a car, and learn the four civic buildings in every city.</li>
-          <li>Talk in city chat, or press Enter next to someone for a real-time whisper.</li>
-          <li>Press I for inventory. Walk into a Store to buy guns, accessories, and pets.</li>
-          <li>Punch other citizens with F or a left click. Walk into a hospital to refill health.</li>
-          <li>Climb districts the long way. Wallet size only picks your first spawn.</li>
-          <li>Lighting follows your local clock: day outside is day in-game, night is night. Override it in Settings.</li>
+          <li>Walk the grid, drive, and duck into the four civic buildings every district has.</li>
+          <li>Buy clothes, pets and weapons from a Store. Buy a car from a dealership. Buy a house.</li>
+          <li>Name your house, lock it, or put it back on the market at a price you set.</li>
+          <li>Talk in city chat, whisper to whoever is standing next to you, or turn on proximity voice.</li>
+          <li>Send friend requests, trade items, and see who is online on the map.</li>
+          <li>Throw a punch. Carry a gun if you would rather not. Hospitals patch you up.</li>
         </ul>
         <div className="docs-note">
-          Your starting city is a passport stamp, not a caste forever. The chain decides where you land. The
-          sidewalk decides who you become.
+          Your district is decided by how much ${CURRENCY} you hold, and it is checked continuously — not
+          stamped once at sign-in. Buy more and the gates open. Spend it all and they close again.
         </div>
       </>
     );
@@ -100,10 +129,10 @@ function content(id: string) {
       <>
         <h1>The Four Cities</h1>
         <p>
-          The world is one connected map, ordered by wealth. Each district is a 4×4 block grid with brick
-          sidewalks, asphalt roads, and a gated border. Every city has the same civic spine — a Town Hall, a
-          Hospital, a Police Station, and a Store — dressed in local colors so you always know where to go, even when
-          the sky changes.
+          The world is one connected map, ordered by wealth. Each district is a 6×6 grid of lots with brick
+          sidewalks, asphalt roads, and a wall with gates. Every city has the same civic spine — a Town Hall,
+          a Hospital, a Police Station, a Store, a car dealership and a park — dressed in local colours so
+          you always know where to go, even when the sky changes.
         </p>
         <p>
           Architecture is the lore. Trench builds low and loud. Gas leaves lots empty on purpose. The Real
@@ -122,93 +151,256 @@ function content(id: string) {
             );
           })}
         </div>
-
         <h2 id="trench">Trench City — the degen floor</h2>
         <p>
-          Most wallets wake up here. The Trench is purple, cramped, and proud of it. Buildings squat at one to
-          three floors, lots fill in at random, and nobody pretends the skyline is a flex. This is where rugs
-          are folklore, copium is a public utility, and the funniest nights on the map tend to start.
+          Low-rise, dense, and busy. Homes here run {homeRange("trench")} {CURRENCY} — the cheapest doors on
+          the map, and where most people start. No holding requirement at all.
         </p>
-        <p>
-          Citizens here are loud on the sidewalk and generous with a wave. If you are new, learn the Town Hall
-          clock and the hospital first. Everything else — cars, whispers, the walk up to Gas — comes after you
-          can find your own block without spinning.
-        </p>
-
         <h2 id="gas">Gas City — quiet, paid, still hungry</h2>
         <p>
-          Gas City is the commute after the casino. The lots are sparse, the fog sits a little heavier, and the
-          people who live here already paid the fee to leave the Trench. It is not pretty in a Valhalla way. It
-          is calm because everyone is working.
+          Wider lots, fewer buildings, more sky. Homes run {homeRange("gas")} {CURRENCY}. You need{" "}
+          {n(gateFor("gas"))} {CURRENCY} in your wallet to walk through the gate.
         </p>
-        <p>
-          Expect fewer buildings, more sky, and neighbors who will actually sit on a bench. Hardworking
-          citizens, low drama, second-city money. If Trench is a group chat at 3am, Gas is the group chat that
-          made it to morning.
-        </p>
-
         <h2 id="realworld">The Real World — neon after dark</h2>
         <p>
-          The Real World is the night market of the map. Dark sky, green glass, orderly streets, and a booming
-          unofficial economy that never clocks out. The name is a joke that stuck: touch grass, but make it
-          emissive.
+          The district that never turns the lights off. Homes run {homeRange("realworld")} {CURRENCY}, and the
+          gate wants {n(gateFor("realworld"))} {CURRENCY} held.
         </p>
-        <p>
-          Citizens here keep to the lanes and still flash. If you can pass the gate, you will feel the jump in
-          polish immediately — taller habits, tighter fashion, and a hospital that looks like it actually has a
-          budget.
-        </p>
-
         <h2 id="valhalla">Valhalla — the bag that made it</h2>
         <p>
-          Valhalla is the wealthiest district and it wants you to know. Gold towers, four to ten floors,
-          fancy cars, street lamps that cost more than a Trench block. The population is old in the crypto
-          sense: they have been here, they remember previous cycles, and they do not need to yell.
-        </p>
-        <p>
-          It takes a lot to spawn here and even more to belong. Visit from below if your tier allows it. Stay
-          if you can keep your health honest in a city that assumes you already ate.
+          Gold towers, four to ten storeys, and the most expensive property in the game at{" "}
+          {homeRange("valhalla")} {CURRENCY}. The gate opens at {n(gateFor("valhalla"))} {CURRENCY}.
         </p>
       </>
     );
   }
 
-  if (id === "moving") {
+  if (id === "access") {
     return (
       <>
-        <h1>Moving Between Cities</h1>
+        <h1>Access &amp; ${CURRENCY}</h1>
         <p>
-          Your connected wallet balance decides where you spawn. After that, the only way into a wealthier
-          city is in-game work — you cannot buy a gate pass, mint a VIP lanyard, or wire a second wallet to
-          skip the line. The chain is the bouncer for night one. Your access tier is the bouncer forever after.
+          Which districts you can enter depends on how much ${CURRENCY} you hold. It is read from the chain,
+          it is checked while you play, and it is the only thing that decides. There is no pass to buy, no
+          allowlist, and no way to talk your way through a gate.
         </p>
-        <h2>Spawn is a stamp, not a ceiling</h2>
+        <h2>The four tiers</h2>
+        <table className="docs-table">
+          <thead>
+            <tr>
+              <th>District</th>
+              <th>${CURRENCY} held</th>
+            </tr>
+          </thead>
+          <tbody>
+            {CITY_ORDER.map((cid) => (
+              <tr key={cid}>
+                <td>{CITIES[cid].name}</td>
+                <td>{gateFor(cid) === 0 ? "Anyone — no minimum" : n(gateFor(cid))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <h2>It updates while you play</h2>
         <p>
-          Your EVM wallet balance on Robinhood Chain is read at sign-in and mapped onto the four tiers. A heavy bag
-          can wake up in Valhalla. A fresh wallet starts in the Trench. That stamp becomes your access tier.
-          It does not update when you ape a candle later that afternoon.
+          Your holdings are re-read about once a minute, so buying more ${CURRENCY} opens a gate without
+          reconnecting. The reverse is also true: spend down past a threshold and the district you are
+          standing in is no longer yours to re-enter. Wealth here is a state you are in, not a badge you were
+          handed on your first night.
         </p>
-        <ul>
-          <li>Citizens of higher-tier cities may always travel down to poorer districts.</li>
-          <li>Citizens of lower-tier cities cannot pass a gate into a richer district.</li>
-          <li>Order of wealth: Trench City → Gas City → The Real World → Valhalla.</li>
-        </ul>
         <h2>How the gates work</h2>
         <p>
-          The four cities sit around a shared plaza. Between them is a belt of gate posts — no overhead bars,
-          just a line you feel when the game stops you. Walk toward a richer skyline without the tier and you
-          get the message: not yet. Walk the other way and the sidewalk stays open. Whales are allowed to
-          visit the Trench. Trenchrats are not allowed to wander Valhalla on vibes.
-        </p>
-        <p>
-          Climbing is slow on purpose. Keep your health up, and treat every district as a
-          neighborhood you might actually live in — not a loading screen to skip. When your access rises, the
-          same roads you were blocked on become ordinary streets.
+          The four cities sit around a shared plaza, each behind a wall with one or two gates. Walk toward a
+          richer skyline without the holdings and the game stops you and says so. Walk the other way and the
+          road is always open — a Valhalla wallet is welcome in the Trench, but a Trench wallet is not
+          wandering Valhalla on vibes.
         </p>
         <div className="docs-note">
-          Higher can always go lower. Lower cannot buy higher. If you want Valhalla from the Trench, you walk
-          it the same way everyone else did: one honest job at a time.
+          Higher can always go lower. Lower cannot pass. What you spend in the Store or on a house leaves your
+          wallet — which means a big enough shopping trip can cost you a district.
         </div>
+      </>
+    );
+  }
+
+  if (id === "market") {
+    const guns = priceList("gun");
+    const accessories = priceList("accessory");
+    const pets = priceList("pet");
+    return (
+      <>
+        <h1>Buying &amp; Selling</h1>
+        <p>
+          Everything is priced in ${CURRENCY} and paid for from your own wallet. When you buy, your wallet
+          opens and asks you to sign a transfer for the exact amount. Approve it and the item arrives once the
+          transaction confirms; reject it and nothing happens. You will need a little ETH on Robinhood Chain
+          for gas, the same as any other transaction.
+        </p>
+        <div className="docs-note">
+          Nothing is ever taken from your wallet without you signing for it, and the game holds no balance on
+          your behalf. Every purchase also leaves a receipt in your inbox — press N.
+        </div>
+
+        <h2>The Store</h2>
+        <p>
+          Every district has one. Walk in, press I, and the shop replaces your bag. Some items need a higher
+          access tier before they will sell to you.
+        </p>
+        <h3>Accessories</h3>
+        <table className="docs-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Price</th>
+              <th>Needs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accessories.map((i) => (
+              <tr key={i.id}>
+                <td>{i.name}</td>
+                <td>
+                  {i.price.toLocaleString()} {CURRENCY}
+                </td>
+                <td>Tier {i.tier}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <h3>Weapons</h3>
+        <table className="docs-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Price</th>
+              <th>Needs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {guns.map((i) => (
+              <tr key={i.id}>
+                <td>{i.name}</td>
+                <td>
+                  {i.price.toLocaleString()} {CURRENCY}
+                </td>
+                <td>Tier {i.tier}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <h3>Pets</h3>
+        <table className="docs-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Price</th>
+              <th>Needs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pets.map((i) => (
+              <tr key={i.id}>
+                <td>{i.name}</td>
+                <td>
+                  {i.price.toLocaleString()} {CURRENCY}
+                </td>
+                <td>Tier {i.tier}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p>
+          Equip anything you own from the inventory panel. A pet follows you around. A gun changes what your
+          hands do — see Health for what that means on the receiving end.
+        </p>
+
+        <h2>Cars</h2>
+        <p>
+          Every district has a dealership. Stand on the forecourt, walk up to the car you want, and press E.
+        </p>
+        <table className="docs-table">
+          <thead>
+            <tr>
+              <th>Car</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DEALER_STOCK.map((c) => (
+              <tr key={c.kind}>
+                <td>{c.name}</td>
+                <td>
+                  {c.price.toLocaleString()} {CURRENCY}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p>
+          <strong>One car per player</strong>, and there are only ever 150 privately owned cars in the world.
+          When they are gone, they are gone — the dealership will tell you so. The handful of unowned cars
+          parked on the street belong to nobody and anyone can drive them.
+        </p>
+
+        <h2>Houses</h2>
+        <p>
+          Any house without an owner is for sale at a fixed price. Walk up to the door and press B to buy it
+          outright — there is no bidding, no auction clock, and no waiting. The price depends on the district
+          and on how big the building is, from {n(HOME_PRICE.trench)} {CURRENCY} for a small Trench house to{" "}
+          {n(HOME_PRICE.valhalla * 2)} {CURRENCY} for a Valhalla tower.
+        </p>
+        <h2>Selling your house</h2>
+        <p>
+          Stand at your own door and press B to list it. You name the asking price — there is no ceiling, and
+          the only floor is 1,000 {CURRENCY}. The listing stands until somebody pays it or you withdraw it,
+          which you can do at any time by pressing B again.
+        </p>
+      </>
+    );
+  }
+
+  if (id === "property") {
+    return (
+      <>
+        <h1>Homes &amp; Cars</h1>
+        <p>
+          Property is tied to your wallet, not to your session. Log out, come back next week, connect the same
+          wallet, and your house and car are exactly where you left them.
+        </p>
+
+        <h2>Your house</h2>
+        <p>
+          Buying a house gives you the door. Walk in with E, and press{" "}
+          <strong>H</strong> to give the place a name — it appears on the sign over your door, in your
+          inventory, and on the map.
+        </p>
+        <p>
+          Interiors are not all the same. A cheap house is a single room with a bed, a sofa and a kitchen
+          counter. As the price climbs the room gets larger and the ceiling higher, and the furnishings grow
+          with it: a dining set and a bookshelf, then a fireplace and a chandelier, and at the top a glass
+          wall, a bar with stools and rather a lot of gold.
+        </p>
+
+        <h2>Locks</h2>
+        <p>
+          Press <strong>L</strong> at your own door, or in your own car, to lock or unlock it. Locked means
+          nobody else gets in. Unlocked means anyone can walk into your house or drive your car — and it stays
+          yours either way. Lending is not losing.
+        </p>
+
+        <h2>Your car</h2>
+        <p>
+          Press E to get in, W A S D to drive, E again to get out. It stays where you parked it, including
+          between sessions. Locking works the same as a house: an unlocked car is one a friend can borrow, not
+          one they can take.
+        </p>
+
+        <h2>Keeping track</h2>
+        <p>
+          Press I and look at the Property column for everything you own and whether it is locked. Press M for
+          the map — your house and car are drawn on it, so you never have to remember which street you left
+          the thing on.
+        </p>
       </>
     );
   }
@@ -219,51 +411,26 @@ function content(id: string) {
         <h1>City Governance</h1>
         <p>
           Each city runs itself. The Town Hall is not scenery — it is the biggest interior on the map, with a
-          public aisle, a dais, and a seal on the back wall. That is where the city pretends to be a republic
-          and occasionally succeeds.
+          public aisle, a raised dais and a seal on the back wall. That is where the city pretends to be a
+          republic and occasionally succeeds.
+        </p>
+        <h2>The floor is yours</h2>
+        <p>
+          Walk up onto the dais and you are standing above the room, behind the speaker's desk, facing the
+          benches. Turn on proximity voice and the people in front of you can hear you. There is no permission
+          system and no queue — whoever is standing on the dais is the one talking.
         </p>
         <h2>The council of 12</h2>
         <p>
           Every district seats a council of twelve. They vote on the boring things that keep a city standing:
           which lots get lighting, whether the hospital wing gets another bay, how aggressive the police desk
-          should be about loitering near the gate. Council terms are social, not onchain yet — show up, be
-          known, and the room notices.
+          should be about loitering near the gate. Council terms are social rather than on-chain for now —
+          show up, be known, and the room notices.
         </p>
-        <p>
-          Council votes are local. A Gas City lighting bill does not need Valhalla&apos;s gold. A Trench
-          festival does not need The Real World&apos;s neon committee. Neighbors first, skyline second.
-        </p>
-        <h2>The constitution</h2>
-        <p>
-          Each city keeps a short constitution: who can stand for council, how a gate upgrade gets proposed,
-          and what counts as a civic building versus a regular home. Amendments only pass if citizens vote on
-          the proposed change. No silent patches to the social contract. If the rules move, the sidewalk voted.
-        </p>
-        <h2>Four cities, one map</h2>
-        <p>
-          Leaders of all four cities can vote on new city concepts — extra districts, seasonal plazas, a fifth
-          temperament if the culture earns it. That vote is the only time Valhalla and the Trench have to sit
-          at the same table. The Hospital and Police Station stay under local control. The Town Hall is where
-          those arguments get a roof.
-        </p>
-        <ul>
-          <li>
-            <strong>Town Hall</strong> — public seating, a raised desk, the city seal. Come here to feel like
-            the district has a spine.
-          </li>
-          <li>
-            <strong>Hospital</strong> — waiting room, bays, a desk that never clocks out. The civic answer to
-            a health scare.
-          </li>
-          <li>
-            <strong>Police Station</strong> — front glass, a holding cell, lockers. Order, or the performance
-            of it, depending on the city.
-          </li>
-          <li>
-            <strong>Store</strong> — shelves, a till, neon. Buy guns, accessories, and pets with{" "}
-            {CURRENCY}. Press I while you are inside.
-          </li>
-        </ul>
+        <div className="docs-note">
+          Governance is the part of Tribe that is still being built. The hall, the dais and the voice are
+          real; the voting is currently whatever the people in the room agree it is.
+        </div>
       </>
     );
   }
@@ -273,30 +440,23 @@ function content(id: string) {
       <>
         <h1>Health</h1>
         <p>
-          Health is your lifeline. It starts full and stays there until someone lands a punch. The bar at the
-          top of the screen is the only HUD that tells you whether you can still throw hands — or whether you
-          need a hospital.
+          The bar at the bottom of your screen is your health. It only moves when another citizen decides it
+          should, and it is the one thing in Tribe that costs you nothing to fix.
         </p>
         <h2>How it moves</h2>
         <p>
-          Get close to another citizen, face them, and press F or left-click. A clean hit knocks a chunk off
-          their bar and shoves them back. You cannot punch someone who is already inside a hospital. You
-          cannot punch if your own health is gone.
+          A punch takes a little. A weapon takes more, and a Street Rifle takes considerably more than a Lead
+          Pipe. Getting hit knocks you back and interrupts what you were doing. Nothing you own is lost when
+          you go down — no dropped items, no stolen car, no repossessed house.
         </p>
-        <ul>
-          <li>Walk into any Hospital landmark. Health refills on its own while you are inside.</li>
-          <li>At zero you are down — you can still limp, just not fight. The hospital is the fix.</li>
-          <li>Low-health warnings can be toggled in Settings.</li>
-        </ul>
-        <h2>What zero means</h2>
+        <h2>Fixing it</h2>
         <p>
-          Hitting empty does not delete your character or seize the wallet. It means you got dropped on the
-          sidewalk. Other citizens will still talk to you. The gate still cares about tier, not about whether
-          you can throw a punch. The honest fix is the same in every district: walk to the Hospital, step
-          inside, walk back out with a full bar.
+          Every district has a Hospital. Walk through the door and your health refills on its own while you
+          are inside. There is nothing to pay and nobody to talk to.
         </p>
         <div className="docs-note">
-          If the bar is red, you are not roleplaying hurt. You are one doorway from a refill. Go inside.
+          Violence in Tribe is social, not economic. Someone can ruin your afternoon. Nobody can take your
+          property.
         </div>
       </>
     );
@@ -306,15 +466,21 @@ function content(id: string) {
     <>
       <h1>How to Play</h1>
       <p>
-        Connect a wallet, make a citizen, and drop into the city your bag qualifies you for. From there it is
-        a street game: walk, look, talk, punch, and get to a hospital if the bar goes red.
+        Tribe runs in the browser. Connect a wallet, make a character, and you are on the street. No download,
+        no launcher.
       </p>
 
       <h2>Get in</h2>
       <ol className="docs-ol">
-        <li>Hit Start Playing and connect an EVM wallet on Robinhood Chain.</li>
-        <li>Build a look — name, clothes, shoes, a little headwear if you have taste.</li>
-        <li>Spawn in your home city. The stamp on your passport is the wallet balance at sign-in.</li>
+        <li>Hit Start Playing and connect an EVM wallet — MetaMask, Phantom, Coinbase Wallet or Zerion.</li>
+        <li>Approve the signature. You will be switched to Robinhood Chain automatically.</li>
+        <li>
+          Build a look — name, body, clothes, shoes, headwear. Your display name has to be unique, and the
+          page tells you while you type.
+        </li>
+        <li>
+          Spawn in the best district your ${CURRENCY} balance allows. Hold more and the gates open as you go.
+        </li>
       </ol>
 
       <h2>Controls</h2>
@@ -331,8 +497,15 @@ function content(id: string) {
             <td>Walk. A/D turn. Hold Shift to sprint. In a car, this is drive and steer.</td>
           </tr>
           <tr>
-            <td>Hold right mouse</td>
-            <td>Look around. Let go and you are back to walking as normal.</td>
+            <td>Mouse</td>
+            <td>
+              Look around. With a gun equipped the mouse aims it as soon as you move — you do not need to hold
+              a button. Otherwise, hold right mouse to look.
+            </td>
+          </tr>
+          <tr>
+            <td>Left click / F</td>
+            <td>Punch, or fire the gun you are holding.</td>
           </tr>
           <tr>
             <td>Space</td>
@@ -340,80 +513,105 @@ function content(id: string) {
           </tr>
           <tr>
             <td>E</td>
-            <td>Enter or exit a building or vehicle.</td>
+            <td>Enter or leave a building or car, and buy a car at a dealership.</td>
+          </tr>
+          <tr>
+            <td>B</td>
+            <td>At a house: buy it, list your own for sale, or withdraw the listing.</td>
+          </tr>
+          <tr>
+            <td>H</td>
+            <td>Name a house you own.</td>
+          </tr>
+          <tr>
+            <td>L</td>
+            <td>Lock or unlock your house or your car.</td>
           </tr>
           <tr>
             <td>C</td>
-            <td>Sit — only when you are next to a chair or bench. You snap onto the seat. WASD or C again to stand.</td>
-          </tr>
-          <tr>
-            <td>F / left click</td>
-            <td>Punch the citizen in front of you. Knocks health down. A gun in your bag hits harder. Hospitals refill it.</td>
+            <td>Sit, when you are next to a chair or bench. WASD or C again to stand.</td>
           </tr>
           <tr>
             <td>I</td>
-            <td>Open inventory. Inside a Store, this is also the shop.</td>
+            <td>Inventory. Inside a Store this is also the shop.</td>
           </tr>
           <tr>
-            <td>Enter</td>
-            <td>Whisper if someone is in range. Otherwise open city chat.</td>
+            <td>M</td>
+            <td>Map. Shows the districts, your property, and who is online.</td>
+          </tr>
+          <tr>
+            <td>N</td>
+            <td>Inbox — purchase receipts, sales, and friend requests.</td>
+          </tr>
+          <tr>
+            <td>G</td>
+            <td>Send a friend request to whoever is standing next to you.</td>
           </tr>
           <tr>
             <td>T</td>
-            <td>Open trade and offer an item from your inventory when you are standing next to another citizen.</td>
+            <td>Offer an item from your bag to the citizen beside you.</td>
+          </tr>
+          <tr>
+            <td>Enter</td>
+            <td>Whisper if someone is in range, otherwise open city chat.</td>
           </tr>
           <tr>
             <td>Esc</td>
-            <td>Pause. Release look-around first if you are holding right mouse.</td>
+            <td>Pause, and release the mouse if a gun has hold of it.</td>
           </tr>
         </tbody>
       </table>
 
       <h2>The street</h2>
       <p>
-        Each city is a grid of lots, roads, and sidewalks. Regular buildings are homes — sofa, kitchen, a bed
-        in the corner. Four landmarks show up in every district:
+        Each district is a grid of lots, roads and sidewalks. Most buildings are houses, and any without an
+        owner can be bought on the spot. Six places show up in every city:
       </p>
       <ul>
         <li>
-          <strong>Town Hall</strong> — the biggest interior. Columns, benches, a dais. Sit with C for
-          meetings. Civic business and showing off that you found the door.
+          <strong>Town Hall</strong> — the biggest interior. Columns, benches and a dais you can stand on.
         </li>
         <li>
-          <strong>Hospital</strong> — waiting chairs, exam bays, a desk under a red cross. Step inside and
-          health refills on its own.
+          <strong>Hospital</strong> — walk in and your health refills on its own.
         </li>
         <li>
           <strong>Police Station</strong> — glass desk, lockers, a cell with bars. Do not live there.
         </li>
         <li>
-          <strong>Store</strong> — neon awning, glass front. Press I inside to buy guns, accessories, and
-          pets with {CURRENCY}.
+          <strong>Store</strong> — clothes, pets and weapons. Press I inside.
+        </li>
+        <li>
+          <strong>Dealership</strong> — the forecourt where cars are sold. Press E at the one you want.
+        </li>
+        <li>
+          <strong>Park</strong> — trees, benches, and no reason to be there other than being there.
         </li>
       </ul>
       <p>
-        Names float over the civic buildings so you do not have to squint at a facade. Hold right mouse and
-        look up if a tower is being dramatic about it.
+        Streetlamps come on at dusk and light the roads. The clock follows your own — day outside is day
+        in-game. Override it in Settings if you would rather it were always night.
       </p>
 
       <h2>Other people</h2>
       <p>
-        Real players get nametags. NPCs walk the sidewalks, wave, and sit on benches — they will not open a
-        whisper, but they will take a punch. Get close to a citizen, press Enter, and talk in real time. Click
-        a nametag in range to do the same. City chat is the loud channel when nobody is next to you. Press T
-        to offer an item from your inventory if you are feeling generous or suspicious. Press I to open your
-        bag. Press F to throw a punch if you are not.
+        Real players have nametags. NPCs walk the sidewalks, wave and sit on benches — they will not whisper
+        back, but they will take a punch. Stand near someone and press Enter to whisper, or click their
+        nametag. City chat is the loud channel when nobody is close.
+      </p>
+      <p>
+        Turn on proximity voice from the HUD and you can talk to anyone nearby — it fades with distance and
+        cuts out entirely once you walk away. The speaker button beside it picks which device you hear it on,
+        and lights up when somebody near you is talking.
       </p>
 
       <h2>Stay alive, stay moving</h2>
       <p>
-        Watch the health bar. If it dips, find the Hospital nametag and walk through the door — it fills
-        while you are inside. Higher-tier gates will bounce you if your access is too low; poorer districts
-        are always open if you can already stand in a richer one. Pause from the HUD if you need settings,
-        docs, or a clean disconnect.
+        Watch the health bar, and find a Hospital if it dips. Gates to richer districts will turn you away if
+        your ${CURRENCY} balance is short; poorer districts are always open. Pause from the HUD for settings,
+        these docs, or a clean way out.
       </p>
       <p style={{ marginTop: 24, color: "#777", fontSize: 14 }}>
-        City lore, gates, councils, and health have their own pages in the sidebar.
+        Cities, access, the market and health each have their own page in the sidebar.
       </p>
     </>
   );

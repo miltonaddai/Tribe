@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CURRENCY, CITIES, HOME_NAME_MAX, gunSpec } from "@tribe/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, gunSpec } from "@tribe/shared";
 import type { GameSettings } from "@tribe/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
@@ -9,6 +9,8 @@ import { SettingsModal } from "./SettingsModal";
 import { WorldMap } from "../components/WorldMap";
 import { InventoryPanel, itemName } from "../components/InventoryPanel";
 import { FriendsTab } from "../components/FriendsTab";
+import { TradePanel } from "../components/TradePanel";
+import { CrimeBoard } from "../components/CrimeBoard";
 import { MiniMap, zoneLabel } from "../components/MiniMap";
 import { AudioOutputPicker } from "../components/AudioOutputPicker";
 import { loadOutputDevice } from "../lib/voiceChat";
@@ -33,15 +35,20 @@ const EMPTY: HudState = {
   tribute: 0,
   inventory: [],
   inStore: false,
+  inStation: false,
+  inTownhall: false,
+  crimeReports: [],
   gun: null,
   pet: null,
   accessories: [],
-  pendingTrade: null,
+  tradeInvite: null,
+  trade: null,
   voiceLevel: 0,
   nearbyVoiceLevel: 0,
   notice: null,
   listPrompt: null,
   namePrompt: null,
+  carListPrompt: null,
   offerPrompt: null,
   messages: [],
   unreadMessages: 0,
@@ -56,6 +63,31 @@ const EMPTY: HudState = {
   joinFailure: null,
   roster: [],
 };
+
+/**
+ * Asks the engine to save, without ever leaving the caller hanging.
+ *
+ * `engine?.saveSpot()` is not enough. Optional chaining guards the engine being
+ * null, not the method being absent - and absent is exactly what happens during
+ * development, because the engine is constructed once in an effect while Vite's
+ * HMR keeps swapping the module underneath it. The live object is then an
+ * instance of the previous class, missing anything added since, and the call
+ * throws after the button has already been put into its "saving" state, leaving
+ * it stuck there with nothing logged.
+ *
+ * Reloading fixes that, but the button should say so rather than hang.
+ */
+function requestSave(engine: GameEngine | null): Promise<{ ok: boolean; text: string }> {
+  if (!engine) return Promise.resolve({ ok: false, text: "Not connected." });
+  if (typeof engine.saveSpot !== "function") {
+    return Promise.resolve({ ok: false, text: "Game code is out of date — reload the page." });
+  }
+  try {
+    return engine.saveSpot();
+  } catch (err) {
+    return Promise.resolve({ ok: false, text: err instanceof Error ? err.message : "Could not save." });
+  }
+}
 
 /** Shown when the single world is at capacity. Retries on a timer so the
     player is queueing rather than refreshing by hand. */
@@ -116,6 +148,10 @@ export function GamePage() {
   const engineRef = useRef<GameEngine | null>(null);
   const [hud, setHud] = useState<HudState>(EMPTY);
   const [paused, setPaused] = useState(false);
+  // Reset every time the menu opens: a tick from five minutes and a hundred
+  // metres ago would read as "your current spot is saved", which it is not.
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const [saveNote, setSaveNote] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatText, setChatText] = useState("");
@@ -123,15 +159,14 @@ export function GamePage() {
   const [whisperTarget, setWhisperTarget] = useState<{ sessionId: string; name: string } | null>(null);
   const [whisperText, setWhisperText] = useState("");
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [crimeOpen, setCrimeOpen] = useState(false);
   const [invOpen, setInvOpen] = useState(false);
   const [listPrice, setListPrice] = useState("");
   const [homeName, setHomeName] = useState("");
+  const [carPrice, setCarPrice] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [inboxTab, setInboxTab] = useState<"messages" | "friends">("messages");
-  // Cheapest item in the catalog, so the dropdown opens on something most
-  // players actually have.
-  const [tradeItem, setTradeItem] = useState<string>("glasses");
   const [buyError, setBuyError] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [voiceState, setVoiceState] = useState<"off" | "requesting" | "on" | "error">("off");
@@ -159,7 +194,9 @@ export function GamePage() {
   // Any open panel hands the cursor back. With a gun out the pointer is captured
   // for aiming, and a trapped cursor cannot click Buy.
   const anyPanelOpen =
-    invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused;
+    invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused ||
+    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen ||
+    Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt);
   useEffect(() => {
     // Tell the engine either way: it must not grab the cursor back while a
     // panel is open, and it may resume aiming once one closes.
@@ -199,6 +236,7 @@ export function GamePage() {
         setInvOpen((open) => !open);
         setBuyError(null);
       }
+      if (e.key === "r" || e.key === "R") setCrimeOpen((open) => !open);
       if (e.key === "m" || e.key === "M") setMapOpen((open) => !open);
       if (e.key === "n" || e.key === "N") setInboxOpen((open) => !open);
       if (e.key === "Escape") {
@@ -252,8 +290,24 @@ export function GamePage() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [hud.whispers, whisperOpen]);
 
+  // Pull the board when it opens, and again whenever you walk back into a
+  // station with it open. New reports also arrive unprompted, pushed by the
+  // server to everyone currently at a desk.
+  useEffect(() => {
+    if (crimeOpen && hud.inStation) engineRef.current?.requestCrimeReports();
+  }, [crimeOpen, hud.inStation]);
+
+  // Walking out closes it: the board is a thing you read at the desk.
+  useEffect(() => {
+    if (!hud.inStation) setCrimeOpen(false);
+  }, [hud.inStation]);
+
   useEffect(() => {
     if (paused && document.pointerLockElement) document.exitPointerLock();
+    if (paused) {
+      setSaveState("idle");
+      setSaveNote("");
+    }
   }, [paused]);
 
   function setPad(x: number, z: number) {
@@ -264,6 +318,10 @@ export function GamePage() {
   useEffect(() => {
     if (hud.namePrompt) setHomeName(hud.namePrompt.current);
   }, [hud.namePrompt?.id]);
+
+  useEffect(() => {
+    if (hud.carListPrompt) setCarPrice(String(hud.carListPrompt.suggested || MIN_ASKING_PRICE));
+  }, [hud.carListPrompt?.id]);
 
   useEffect(() => {
     if (!hud.listPrompt) return;
@@ -603,6 +661,42 @@ export function GamePage() {
         </form>
       )}
 
+      {hud.carListPrompt && (
+        <form
+          className="list-panel"
+          onSubmit={(e) => {
+            e.preventDefault();
+            engineRef.current?.listCar(Number(carPrice));
+          }}
+        >
+          <p className="list-kicker">SELL YOUR CAR</p>
+          <label htmlFor="car-price">ASKING PRICE</label>
+          <div className="list-input-row">
+            <input
+              id="car-price"
+              className="input"
+              type="number"
+              min={MIN_ASKING_PRICE}
+              step={100}
+              value={carPrice}
+              onChange={(e) => setCarPrice(e.target.value)}
+            />
+            <span className="list-unit">{CURRENCY}</span>
+          </div>
+          <p className="list-note">
+            Anyone without a car can buy it at this price. It stays yours and driveable until somebody pays.
+          </p>
+          <div className="list-actions">
+            <button className="btn btn-accent" type="submit">
+              List for sale
+            </button>
+            <button className="btn" type="button" onClick={() => engineRef.current?.cancelCarListing()}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
       {hud.namePrompt && (
         <form
           className="list-panel"
@@ -611,7 +705,17 @@ export function GamePage() {
             engineRef.current?.nameHome(hud.namePrompt!.id, homeName);
           }}
         >
-          <p className="list-kicker">NAME YOUR HOME</p>
+          <p className="list-kicker">
+            {hud.namePrompt.boughtFrom ? "THE PLACE IS YOURS" : "NAME YOUR HOME"}
+          </p>
+          {hud.namePrompt.boughtFrom && (
+            <p className="list-note" style={{ marginBottom: 10 }}>
+              You bought this home from {hud.namePrompt.boughtFrom}.
+              {hud.namePrompt.inheritedName
+                ? ` The sign still reads “${hud.namePrompt.inheritedName}” — give it a name of your own.`
+                : " Give it a name of your own."}
+            </p>
+          )}
           <label htmlFor="home-name">SIGN ABOVE THE DOOR</label>
           <div className="list-input-row">
             <input
@@ -632,7 +736,7 @@ export function GamePage() {
               Save name
             </button>
             <button className="btn" type="button" onClick={() => engineRef.current?.cancelHomeName()}>
-              Cancel
+              {hud.namePrompt.boughtFrom ? "Later" : "Cancel"}
             </button>
           </div>
         </form>
@@ -643,7 +747,7 @@ export function GamePage() {
           className="list-panel"
           onSubmit={(e) => {
             e.preventDefault();
-            engineRef.current?.listHome(Number(listPrice), 0);
+            engineRef.current?.listHome(Number(listPrice));
           }}
         >
           <p className="list-kicker">SELL YOUR HOME</p>
@@ -653,8 +757,10 @@ export function GamePage() {
               id="asking-price"
               className="input"
               type="number"
-              min={1}
-              max={99999}
+              // No max: sellers name any price they like and the market decides.
+              // The floor mirrors the server's, so the browser never accepts a
+              // number the server will turn around and reject.
+              min={MIN_ASKING_PRICE}
               step={1}
               value={listPrice}
               onChange={(e) => setListPrice(e.target.value)}
@@ -794,55 +900,78 @@ export function GamePage() {
         />
       )}
 
-      {hud.pendingTrade && (
+      {hud.tradeInvite && !hud.trade && (
         <div className="trade-panel" style={{ left: 18, top: 80, padding: 16, width: 280 }}>
-          <h3 style={{ fontStretch: "140%", marginBottom: 8 }}>Incoming trade</h3>
+          <h3 style={{ fontStretch: "140%", marginBottom: 8 }}>Trade request</h3>
           <p style={{ color: "#aaa", marginBottom: 10 }}>
-            {hud.pendingTrade.fromName} offered you {itemName(hud.pendingTrade.item)}.
+            {hud.tradeInvite.fromName} wants to trade with you.
           </p>
-          <button className="btn btn-accent" type="button" onClick={() => engineRef.current?.respondTrade(true)}>
-            Accept
+          <button className="btn btn-accent" type="button" onClick={() => engineRef.current?.answerTradeInvite(true)}>
+            Open trade
           </button>
           <button
             className="btn btn-outline"
             type="button"
             style={{ marginTop: 8, width: "100%" }}
-            onClick={() => engineRef.current?.respondTrade(false)}
+            onClick={() => engineRef.current?.answerTradeInvite(false)}
           >
             Decline
           </button>
         </div>
       )}
 
-      {tradeOpen && (
+      {/* Signage rather than a modal: it is telling you to hang out, so it must
+          not be something you have to dismiss before you can. Non-interactive,
+          so it never takes the cursor or blocks a click behind it. */}
+      {hud.inTownhall && (
+        <aside className="townhall-notice" aria-live="polite">
+          <p className="townhall-kicker">NOTICE FROM THE CLERK</p>
+          <h3>Voting &amp; elections are coming</h3>
+          <p>
+            Official elections, ballots and council seats are being built. Nothing to vote on yet —
+            the chamber is open in the meantime.
+          </p>
+          <p className="townhall-hang">Take a seat, meet your district, and hang out.</p>
+        </aside>
+      )}
+
+      {crimeOpen && hud.inStation && (
+        <CrimeBoard
+          reports={hud.crimeReports}
+          nearby={engineRef.current?.nearbyNames() ?? []}
+          onFile={(offence, accused, note) => engineRef.current?.reportCrime(offence, accused, note)}
+          onClose={() => setCrimeOpen(false)}
+        />
+      )}
+
+      {hud.trade && (
+        <TradePanel
+          trade={hud.trade}
+          inventory={hud.inventory}
+          onOffer={(items) => engineRef.current?.setTradeOffer(items)}
+          onLock={(locked) => engineRef.current?.lockTrade(locked)}
+          onCancel={() => engineRef.current?.cancelTrade()}
+        />
+      )}
+
+      {tradeOpen && !hud.trade && (
         <div className="trade-panel" style={{ right: 18, top: 80, padding: 16, width: 280 }}>
           <h3 style={{ fontStretch: "140%", marginBottom: 8 }}>Trade</h3>
           <p style={{ color: "#aaa", marginBottom: 10 }}>
-            {hud.nearbyPlayer ? `Offer an item to ${hud.nearbyPlayer.name}` : "Get close to another citizen to trade."}
+            {hud.nearbyPlayer
+              ? `Invite ${hud.nearbyPlayer.name} to trade. You will both choose what to offer.`
+              : "Get close to another citizen to trade."}
           </p>
-          <select
-            className="select"
-            style={{ width: "100%", marginBottom: 10 }}
-            value={tradeItem}
-            onChange={(e) => setTradeItem(e.target.value)}
-          >
-            {hud.inventory.map((stack) => (
-              <option key={stack.id} value={stack.id}>
-                {itemName(stack.id)}
-                {stack.qty > 1 ? ` ×${stack.qty}` : ""}
-              </option>
-            ))}
-          </select>
           <button
             className="btn btn-accent"
             type="button"
-            disabled={!hud.nearbyPlayer || hud.inventory.length === 0}
+            disabled={!hud.nearbyPlayer}
             onClick={() => {
-              if (hud.nearbyPlayer) engineRef.current?.sendTrade(hud.nearbyPlayer.sessionId, tradeItem);
+              if (hud.nearbyPlayer) engineRef.current?.inviteTrade(hud.nearbyPlayer.sessionId);
               setTradeOpen(false);
             }}
           >
-            Offer item
+            Send trade request
           </button>
           <button className="btn btn-outline" type="button" style={{ marginTop: 8, width: "100%" }} onClick={() => setTradeOpen(false)}>
             Close
@@ -855,13 +984,37 @@ export function GamePage() {
           <button className="btn btn-accent" type="button" onClick={() => setPaused(false)}>
             Resume
           </button>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            disabled={saveState === "saving"}
+            onClick={() => {
+              setSaveState("saving");
+              void requestSave(engineRef.current).then((result) => {
+                setSaveState(result.ok ? "saved" : "failed");
+                setSaveNote(result.text);
+              });
+            }}
+          >
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Location saved ✓" : "Save location"}
+          </button>
+          {saveState === "failed" && <p className="pause-note">{saveNote}</p>}
           <button className="btn btn-ghost" type="button" onClick={() => setSettingsOpen(true)}>
             Settings
           </button>
           <button className="btn btn-ghost" type="button" onClick={() => nav("/docs")}>
             Docs
           </button>
-          <button className="btn btn-outline" type="button" onClick={() => nav("/")}>
+          <button
+            className="btn btn-outline"
+            type="button"
+            onClick={() => {
+              // Save before tearing the room down. Leaving saves too, but that
+              // depends on the socket closing cleanly; doing it here first
+              // means a killed tab or a dropped connection cannot lose the spot.
+              void requestSave(engineRef.current).finally(() => nav("/"));
+            }}
+          >
             Disconnect
           </button>
         </div>

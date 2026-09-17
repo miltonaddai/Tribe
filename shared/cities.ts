@@ -243,6 +243,33 @@ export function insideCityWalls(x: number, z: number): CityId | null {
 }
 
 /**
+ * The city a move would carry you *into*, or null when it would not cross a
+ * wall inward - including any move that stays within the city you are already
+ * standing in.
+ *
+ * Gating has to be a test on the crossing rather than on the destination. When
+ * it tested the destination, a player whose balance fell while they were inside
+ * a district had every move refused, in every direction, because every point
+ * around them was still inside the walls. They were imprisoned by the gate
+ * meant to keep them out, with no way back to the road and no way to recover
+ * short of reloading the page.
+ *
+ * Testing the crossing instead makes the rule mean what it says: you may not
+ * come *in*. Walking out, and walking around while you are in there, are both
+ * fine - and once you are out, the same rule quietly keeps you out.
+ */
+export function cityEntered(
+  fromX: number,
+  fromZ: number,
+  toX: number,
+  toZ: number,
+): CityId | null {
+  const to = insideCityWalls(toX, toZ);
+  if (!to) return null;
+  return insideCityWalls(fromX, fromZ) === to ? null : to;
+}
+
+/**
  * Which edges of a district have a gate through the wall. Both face the middle
  * of the map. Shared so the map draws the openings the world actually builds.
  */

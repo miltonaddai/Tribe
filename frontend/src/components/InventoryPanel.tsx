@@ -13,7 +13,15 @@ type OwnedHome = {
   locked: boolean;
 };
 
-type OwnedCar = { id: string; kind: string; color: string; city: string; locked: boolean };
+type OwnedCar = {
+  id: string;
+  kind: string;
+  color: string;
+  city: string;
+  locked: boolean;
+  forSale: boolean;
+  askingPrice: number;
+};
 
 function cityName(id: string) {
   return CITIES[id as CityId]?.shortName ?? id;
@@ -55,9 +63,11 @@ export function InventoryPanel({
   homes: OwnedHome[];
   cars: OwnedCar[];
 }) {
-  // Everything is listed, so you can see what exists and what it takes to
-  // carry it. Only your access tier decides what you can actually buy.
-  const stock = CATALOG;
+  // Every item still on sale is shown, above your tier included, so you can
+  // see what exists and what it takes to carry it - only your access tier
+  // decides what you can actually buy. Retired items are the exception: they
+  // cannot be bought at any tier, so listing them would only mislead.
+  const stock = CATALOG.filter((item) => item.listed !== false);
   const equipped = new Set<string>([...accessories, gun ?? "", pet ?? ""].filter(Boolean));
 
   return (
@@ -136,7 +146,10 @@ export function InventoryPanel({
                   <div>
                     <strong>{car.kind.charAt(0).toUpperCase() + car.kind.slice(1)}</strong>
                     <span>
-                      parked in {cityName(car.city)} · {car.locked ? "locked" : "unlocked"}
+                      {car.forSale
+                        ? `listed at ${car.askingPrice} ${CURRENCY}`
+                        : `parked in ${cityName(car.city)}`}{" "}
+                      · {car.locked ? "locked" : "unlocked"}
                     </span>
                   </div>
                 </div>

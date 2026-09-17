@@ -323,6 +323,8 @@ export type PlayerVehicleRow = {
   z: number;
   rotY: number;
   locked: boolean;
+  forSale: boolean;
+  askingPrice: number;
 };
 
 export async function loadPlayerVehicles(): Promise<PlayerVehicleRow[]> {
@@ -341,6 +343,8 @@ export async function loadPlayerVehicles(): Promise<PlayerVehicleRow[]> {
     z: Number(row.z ?? 0),
     rotY: Number(row.rot_y ?? 0),
     locked: row.locked == null ? true : Boolean(row.locked),
+    forSale: Boolean(row.for_sale),
+    askingPrice: Number(row.asking_price ?? 0),
   }));
 }
 
@@ -359,6 +363,8 @@ export async function savePlayerVehicle(row: PlayerVehicleRow) {
       z: row.z,
       rot_y: row.rotY,
       locked: row.locked,
+      for_sale: row.forSale,
+      asking_price: Math.max(0, Math.round(row.askingPrice)),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -397,4 +403,56 @@ export async function claimPayment(payment: {
   // 23505 is unique_violation: this payment has already bought something.
   if (error.code !== "23505") logError("claim payment", error);
   return false;
+}
+
+export type LastSpot = { city: CityId; x: number; z: number };
+
+/**
+ * Where this wallet was last standing.
+ *
+ * Null when it has never been saved, which is what gives a new player the
+ * district spawn rather than dropping them at the world origin.
+ */
+export async function fetchLastSpot(address: string, chain: WalletChainId): Promise<LastSpot | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("wallets")
+    .select("last_city,last_x,last_z")
+    .eq("address", normalizeAddress(address, chain))
+    .eq("chain", chain)
+    .maybeSingle();
+  logError("fetch last spot", error);
+  if (!data || data.last_x == null || data.last_z == null) return null;
+  const x = Number(data.last_x);
+  const z = Number(data.last_z);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { city: (data.last_city ?? "trench") as CityId, x, z };
+}
+
+/** True when the spot actually reached the database, so an explicit save can say so. */
+export async function saveLastSpot(
+  address: string,
+  chain: WalletChainId,
+  spot: LastSpot,
+): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase || !address) return false;
+  // Upsert, not update. The wallet row is only created by /api/auth/verify, and
+  // a returning player with a cached session never calls it - so an update had
+  // nothing to match and the position was dropped in silence.
+  const { error } = await supabase.from("wallets").upsert(
+    {
+      address: normalizeAddress(address, chain),
+      chain,
+      symbol: "TRIBE",
+      last_city: spot.city,
+      last_x: Math.round(spot.x * 100) / 100,
+      last_z: Math.round(spot.z * 100) / 100,
+      last_seen_at: new Date().toISOString(),
+    },
+    { onConflict: "address,chain" },
+  );
+  logError("save last spot", error);
+  return !error;
 }

@@ -36,7 +36,6 @@ function parseChain(_raw: unknown): WalletChainId {
   return DEFAULT_CHAIN;
 }
 
-
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,

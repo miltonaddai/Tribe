@@ -42,6 +42,11 @@ export type SeatSpec = {
   z: number;
   yaw: number;
   top: number;
+  /**
+   * Lie down rather than sit. The body is laid flat along `yaw`, head first, so
+   * the yaw of a bed points at its pillow rather than at where a sitter looks.
+   */
+  lie?: boolean;
 };
 
 /**
@@ -70,15 +75,40 @@ export function interiorPlatforms(kind: InteriorKind): PlatformSpec[] {
  * walking through them looks wrong - a desk you can stand inside is worse than
  * no desk at all.
  */
-export function interiorObstacles(kind: InteriorKind): PlatformSpec[] {
+export function interiorObstacles(
+  kind: InteriorKind,
+  layout = interiorLayout(kind),
+): PlatformSpec[] {
   if (kind === "townhall") {
     // box("desk", [0, 1.15, -6.6], [5.4, 1.3, 1.6]).
     return [{ x: 0, z: -6.6, halfW: 2.7, halfD: 0.8, top: 1.8 }];
   }
+  if (kind === "home") {
+    // The three big pieces, each matching its box in buildHome. Half-extents
+    // are half the size passed there. Only these three: the rug and the coffee
+    // table are low enough to read as floor, and the smaller props would turn
+    // a studio into an obstacle course you cannot cross.
+    const w = layout.halfW;
+    return [
+      // box("bed", [-(w - 1.9), .., -2.4], [2.4, .., 3.2])
+      { x: -(w - 1.9), z: -2.4, halfW: 1.2, halfD: 1.6, top: 0.79 },
+      // box("sofa", [0, .., 1.6], [3.4, .., 1.1]) - deepened to take in the
+      // sofa-back behind it, which would otherwise be a thin wall of its own.
+      { x: 0, z: 1.75, halfW: 1.7, halfD: 0.7, top: 1.0 },
+      // box("counter", [w - 1.8, .., -0.4], [2.2, .., 3.6])
+      { x: w - 1.8, z: -0.4, halfW: 1.1, halfD: 1.8, top: 1.3 },
+    ];
+  }
   return [];
 }
 
-export function interiorSeats(kind: InteriorKind): SeatSpec[] {
+/**
+ * `layout` matters for homes only, where the bed is anchored to the side wall
+ * and therefore moves as the room grows with the owner's grade. Passing the
+ * same layout the geometry was built from is what keeps the lying spot on the
+ * mattress instead of beside a penthouse's bed.
+ */
+export function interiorSeats(kind: InteriorKind, layout = interiorLayout(kind)): SeatSpec[] {
   if (kind === "townhall") {
     const seats: SeatSpec[] = [];
     for (let row = 0; row < 3; row++) {
@@ -92,9 +122,15 @@ export function interiorSeats(kind: InteriorKind): SeatSpec[] {
     return seats;
   }
   if (kind === "home") {
+    // Kept in step with buildHome: the bed sits at x = -(halfW - 1.9), its
+    // mattress top at 0.79, with the pillow at the -z end. The lying spot is
+    // the foot of the bed, since the body is laid out from its feet towards
+    // the head - so yaw faces -z, at the pillow.
+    const bedX = -(layout.halfW - 1.9);
     return [
       { x: -0.9, z: -1.72, yaw: 0, top: 1.0 },
       { x: 0.9, z: -1.72, yaw: 0, top: 1.0 },
+      { x: bedX, z: -1.9, yaw: Math.PI, top: 0.79, lie: true },
     ];
   }
   if (kind === "hospital") {
@@ -146,10 +182,19 @@ function shell(
   box(root, "wall-s", [0, h / 2, layout.halfD], [w, h, 0.26], wall);
   box(root, "wall-e", [layout.halfW, h / 2, 0], [0.26, h, d], wall);
   box(root, "wall-w", [-layout.halfW, h / 2, 0], [0.26, h, d], wall);
-  box(root, "door", [0, 1.15, layout.halfD - 0.1], [1.6, 2.3, 0.14], "#1A1A1A");
+  // Stand the door clearly proud of the wall. At the old 0.04 of clearance the
+  // two faces were close enough to fight for the depth buffer, which is the
+  // flicker across the lower half of every doorway.
+  const doorW = 1.6;
+  box(root, "door", [0, 1.15, layout.halfD - 0.24], [doorW, 2.3, 0.12], "#1A1A1A");
   if (trim) {
     box(root, "base-n", [0, 0.18, -layout.halfD + 0.14], [w - 0.2, 0.28, 0.08], trim);
-    box(root, "base-s", [0, 0.18, layout.halfD - 0.14], [w - 0.2, 0.28, 0.08], trim);
+    // Broken either side of the doorway rather than run through it - skirting
+    // does not cross a door, and this one intersected it.
+    const side = (w - 0.2 - doorW) / 2;
+    const offset = doorW / 2 + side / 2;
+    box(root, "base-s-l", [-offset, 0.18, layout.halfD - 0.14], [side, 0.28, 0.08], trim);
+    box(root, "base-s-r", [offset, 0.18, layout.halfD - 0.14], [side, 0.28, 0.08], trim);
     box(root, "base-e", [layout.halfW - 0.14, 0.18, 0], [0.08, 0.28, d - 0.2], trim);
     box(root, "base-w", [-layout.halfW + 0.14, 0.18, 0], [0.08, 0.28, d - 0.2], trim);
   }

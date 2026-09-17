@@ -135,5 +135,18 @@ export const HOME_NAME_MAX = 24;
  * Returns "" when nothing usable is left, which clears the name.
  */
 export function cleanHomeName(raw: string): string {
-  return stripInvisible(raw.normalize("NFKC")).replace(/\s+/g, " ").trim().slice(0, HOME_NAME_MAX);
+  return cleanText(raw, HOME_NAME_MAX);
+}
+
+/**
+ * Normalizes a free-text field: no invisible characters, no runs of
+ * whitespace, trimmed, and hard-capped.
+ *
+ * Shared by every player-authored string that is shown to other people but is
+ * not an identity - home names, crime report notes. It does not judge content;
+ * it only guarantees the text occupies the space it appears to and cannot draw
+ * outside its box or smuggle direction overrides into a list.
+ */
+export function cleanText(raw: string, max: number): string {
+  return stripInvisible(raw.normalize("NFKC")).replace(/\s+/g, " ").trim().slice(0, max);
 }

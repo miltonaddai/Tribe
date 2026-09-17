@@ -19,6 +19,17 @@ export type CatalogItem = {
   price: number;
   tier: 1 | 2 | 3 | 4;
   unique: boolean;
+  /**
+   * Absent means on sale. `false` retires an item from the store without
+   * removing it from the game.
+   *
+   * The distinction matters: item ids are validated against this catalog, so
+   * deleting a row would make every copy already in a player's inventory an
+   * unknown id, and `parseInventory` would quietly drop it. People who paid for
+   * the thing would simply lose it. Retiring instead keeps it valid, equippable
+   * and tradeable for whoever owns one, and merely stops new sales.
+   */
+  listed?: boolean;
 };
 
 /**
@@ -80,7 +91,8 @@ export const CATALOG: CatalogItem[] = [
   { id: "visor", kind: "accessory", name: "Visor", blurb: "Night market energy. Zero UV.", price: 1500, tier: 2, unique: true },
   { id: "watch", kind: "accessory", name: "Watch", blurb: "You have places to be. Maybe.", price: 2000, tier: 3, unique: true },
   { id: "chain", kind: "accessory", name: "Gold Chain", blurb: "The smallest Valhalla flex that still counts.", price: 3000, tier: 3, unique: true },
-  { id: "pipe", kind: "gun", name: "Lead Pipe", blurb: "Not licensed. Very Trench.", price: 1500, tier: 1, unique: true },
+  // Retired from the store. Still valid for anyone who already bought one.
+  { id: "pipe", kind: "gun", name: "Lead Pipe", blurb: "Not licensed. Very Trench.", price: 1500, tier: 1, unique: true, listed: false },
   { id: "pistol", kind: "gun", name: "Sidearm", blurb: "Holds in the right hand. Hits harder.", price: 3000, tier: 1, unique: true },
   { id: "rifle", kind: "gun", name: "Street Rifle", blurb: "Long, loud, and a little extra.", price: 5000, tier: 4, unique: true },
   { id: "mutt", kind: "pet", name: "Block Mutt", blurb: "Follows you. Judges nobody.", price: 2500, tier: 1, unique: true },
@@ -110,8 +122,14 @@ export function isPetId(id: string): id is PetId {
   return PETS.some((p) => p.id === id);
 }
 
+/** What the store will actually sell you. Retired items never appear. */
 export function storeStock(tier: number) {
-  return CATALOG.filter((item) => item.tier <= tier);
+  return CATALOG.filter((item) => item.listed !== false && item.tier <= tier);
+}
+
+/** Whether the store may still sell this. Re-checked server-side on purchase. */
+export function isForSale(id: string): boolean {
+  return catalogItem(id)?.listed !== false;
 }
 
 export function parseInventory(raw: unknown): InventoryStack[] {

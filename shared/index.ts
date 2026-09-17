@@ -3,4 +3,5 @@ export * from "./types";
 export * from "./items";
 export * from "./homes";
 export * from "./names";
+export * from "./crimes";
 export * from "./dealer";

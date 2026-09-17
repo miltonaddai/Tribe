@@ -1,4 +1,14 @@
 import { Room, type Client } from "@colyseus/core";
+import { fileReport, recentReports } from "../services/crimes";
+import {
+  otherSide,
+  ownSide,
+  sanitizeStake,
+  settleTrade,
+  TRADE_IDLE_MS,
+  TRADE_RANGE,
+  type TradeSession,
+} from "../services/trade";
 import { CURRENCY,
   cleanHomeName,
   catalogItem,
@@ -6,10 +16,10 @@ import { CURRENCY,
   CITY_BOUNDS,
   CITIES,
   canEnterCity,
+  cityEntered,
   DEFAULT_CHAIN,
   cityAtPosition,
   gunSpec,
-  insideCityWalls,
   addItem,
   decodeInventory,
   encodeInventory,
@@ -33,6 +43,9 @@ import {
 import { getSupabase } from "../services/supabase";
 import {
   claimPayment,
+  fetchLastSpot,
+  saveLastSpot,
+  type LastSpot,
   fetchTribute,
   loadHomeAuctions,
   loadPlayerVehicles,
@@ -105,6 +118,11 @@ function isHospital(buildingId: string) {
   return buildingId.includes("hospital");
 }
 
+/** Building ids are `${city}-${kind}`, so the kind is readable off the id. */
+function isStation(buildingId: string) {
+  return buildingId.includes("police");
+}
+
 function vehicleHalfExtents(kind: string) {
   if (kind === "sport") return { halfWidth: 1.025, halfLength: 2.45 };
   if (kind === "suv") return { halfWidth: 1.14, halfLength: 2.75 };
@@ -157,6 +175,16 @@ const HOLDINGS_CACHE_MS = 60_000;
 
 type Holdings = { tier: number; balance: number };
 
+/**
+ * The outcome of writing a spot down, so an explicit save from the pause menu
+ * can say what happened rather than silently appearing to work. The automatic
+ * saves ignore it - "offline" is the database being unreachable, the rest are
+ * the player not standing anywhere worth remembering.
+ */
+type SpotSave =
+  | { ok: true; city: CityId }
+  | { ok: false; reason: "no-wallet" | "indoors" | "nowhere" | "offline" };
+
 let liveWorlds = 0;
 
 // 0.18 takes an options object as the Room generic rather than the bare state type.
@@ -167,6 +195,9 @@ export class WorldRoom extends Room<{ state: WorldState }> {
   private vehicleMotion = new Map<string, { x: number; z: number; at: number }>();
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
+  /** Live trade sessions, and an index from each participant to their session. */
+  private trades = new Map<string, TradeSession>();
+  private tradeOf = new Map<string, string>();
   private chains = new Map<string, WalletChainId>();
   private moveBudget = new Map<string, { budget: number; at: number }>();
   private moveGraceUntil = new Map<string, number>();
@@ -203,13 +234,12 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.state.vehicles.set(v.id, v);
     });
 
-    this.onMessage("move", (client, data: { x: number; y: number; z: number; rotY: number; sitting?: boolean }) => {
+    this.onMessage("move", (client, data: { x: number; y: number; z: number; rotY: number; sitting?: boolean; lying?: boolean }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.inVehicle) return;
       if ((this.knockedUntil.get(client.sessionId) ?? 0) > Date.now()) return;
 
       const zone = cityAtPosition(data.x, data.z);
-      const walled = insideCityWalls(data.x, data.z);
       if (zone === "void") return;
 
       // Movement is otherwise client-authoritative: without this you can walk
@@ -230,11 +260,13 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       if (!player.inBuilding && this.vehicleBlocksPlayerMove(player.x, player.z, data.x, data.z, player.city)) return;
 
       // Gating applies at the wall line, matching the client. The ring road
-      // between the wall and the district edge is open to everyone.
-      if (walled && !canEnterCity(player.accessTier, walled)) {
+      // between the wall and the district edge is open to everyone, and the
+      // test is on crossing in - never on where you already are.
+      const entering = cityEntered(player.x, player.z, data.x, data.z);
+      if (entering && !this.mayEnter(player, entering)) {
         client.send("gate-denied", {
-          city: walled,
-          requiredTier: CITIES[walled].tier,
+          city: entering,
+          requiredTier: CITIES[entering].tier,
           yourTier: player.accessTier,
         });
         return;
@@ -246,6 +278,18 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       player.z = data.z;
       player.rotY = data.rotY;
       player.sitting = Boolean(data.sitting);
+      // Lying only ever accompanies sitting; on its own it would leave a body
+      // flat on the floor wherever they happened to stop.
+      player.lying = player.sitting && Boolean(data.lying);
+    });
+
+    // An explicit save from the pause menu. The position is already written on
+    // leave and on the holdings tick, so this exists to be *sure* before
+    // closing the tab - and, unlike those, it reports back.
+    this.onMessage("save-spot", (client) => {
+      void this.rememberSpot(client.sessionId).then((result) => {
+        client.send("spot-saved", result);
+      });
     });
 
     this.onMessage("vehicle-move", (client, data: { id: string; x: number; z: number; rotY: number; speed?: number }) => {
@@ -260,8 +304,8 @@ export class WorldRoom extends Room<{ state: WorldState }> {
 
       const zone = cityAtPosition(x, z);
       if (zone === "void") return;
-      const walledZone = insideCityWalls(x, z);
-      if (walledZone && !canEnterCity(player.accessTier, walledZone)) return;
+      const entering = cityEntered(vehicle.x, vehicle.z, x, z);
+      if (entering && !this.mayEnter(player, entering)) return;
       if (this.vehicleIntersectsVehicle(vehicle.id, x, z, rotY, vehicle.kind)) {
         client.send("vehicle-correction", { id: vehicle.id, x: vehicle.x, z: vehicle.z, rotY: vehicle.rotY });
         this.vehicleMotion.set(vehicle.id, { x: vehicle.x, z: vehicle.z, at: Date.now() });
@@ -429,54 +473,129 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       },
     );
 
-    this.onMessage("trade-request", (client, data: { toSession: string; item: string }) => {
-      const from = this.state.players.get(client.sessionId);
-      const toSession = String(data.toSession ?? "");
-      const to = this.state.players.get(toSession);
-      const item = String(data.item ?? "");
-      if (!from || !to || toSession === client.sessionId || !isItemId(item)) return;
-      if (!hasItem(decodeInventory(from.inventory), item)) return;
-      const dist = Math.hypot(from.x - to.x, from.z - to.z);
-      if (dist > 16) return;
-      this.clients.find((c) => c.sessionId === toSession)?.send("trade-request", {
-        fromSession: client.sessionId,
-        fromName: from.name,
-        item,
+    // Both sides of the blotter are gated on actually standing in a station.
+    // The check is server-side because "inside the police station" is the whole
+    // access rule - a client that simply did not open the door could otherwise
+    // read and write the board from anywhere in the city.
+    this.onMessage("crime-report", (client, data: { offence?: string; accused?: string; note?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      if (!player.inBuilding || !isStation(player.buildingId)) {
+        client.send("crime-result", { ok: false, reason: "You have to be in a police station." });
+        return;
+      }
+      void fileReport({
+        city: player.city,
+        offence: String(data.offence ?? ""),
+        accusedName: String(data.accused ?? ""),
+        note: String(data.note ?? ""),
+        reporterWallet: player.wallet,
+        reporterChain: this.chainFor(client.sessionId),
+        reporterName: player.name,
+      }).then((result) => {
+        if (!result.ok) {
+          client.send("crime-result", { ok: false, reason: result.reason });
+          return;
+        }
+        client.send("crime-result", { ok: true });
+        // Everyone currently at a station in this city sees it arrive, rather
+        // than finding it on their next manual refresh.
+        this.broadcastBlotter(player.city);
       });
     });
 
-    this.onMessage("trade-respond", (client, data: { fromSession: string; accept: boolean; item?: string }) => {
-      const to = this.state.players.get(client.sessionId);
+    this.onMessage("crime-list", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      if (!player.inBuilding || !isStation(player.buildingId)) return;
+      void recentReports(player.city).then((reports) => {
+        client.send("crime-list", { reports });
+      });
+    });
+
+    // An invitation carries no items. What each side stakes is decided inside
+    // the session, where both can see the other's offer before committing.
+    this.onMessage("trade-invite", (client, data: { toSession: string }) => {
+      const from = this.state.players.get(client.sessionId);
+      const toSession = String(data.toSession ?? "");
+      const to = this.state.players.get(toSession);
+      if (!from || !to || toSession === client.sessionId) return;
+      if (Math.hypot(from.x - to.x, from.z - to.z) > TRADE_RANGE) return;
+      if (this.tradeOf.has(client.sessionId)) {
+        client.send("trade-closed", { reason: "You are already trading." });
+        return;
+      }
+      if (this.tradeOf.has(toSession)) {
+        client.send("trade-closed", { reason: `${to.name} is already trading.` });
+        return;
+      }
+      this.clients
+        .find((c) => c.sessionId === toSession)
+        ?.send("trade-invite", { fromSession: client.sessionId, fromName: from.name });
+    });
+
+    this.onMessage("trade-accept", (client, data: { fromSession: string; accept: boolean }) => {
       const fromSession = String(data.fromSession ?? "");
       const from = this.state.players.get(fromSession);
-      const item = String(data.item ?? "");
+      const to = this.state.players.get(client.sessionId);
+      const inviter = this.clients.find((c) => c.sessionId === fromSession);
       if (!from || !to) return;
-      if (!data.accept || !isItemId(item)) {
-        this.clients.find((c) => c.sessionId === fromSession)?.send("trade-result", {
-          toSession: client.sessionId,
-          accept: false,
-          item,
-        });
+      if (!data.accept) {
+        inviter?.send("trade-closed", { reason: `${to.name} declined.` });
         return;
       }
-      const taken = takeItem(decodeInventory(from.inventory), item);
-      if (!taken) {
-        client.send("trade-result", { toSession: fromSession, accept: false, item, reason: "gone" });
+      if (this.tradeOf.has(fromSession) || this.tradeOf.has(client.sessionId)) {
+        client.send("trade-closed", { reason: "That trade is no longer open." });
         return;
       }
-      from.inventory = encodeInventory(taken);
-      to.inventory = encodeInventory(addItem(decodeInventory(to.inventory), item));
-      if (from.gun === item) from.gun = "";
-      if (from.pet === item) from.pet = "";
-      const bagFrom = { inventory: from.inventory, tribute: from.tribute, gun: from.gun, pet: from.pet, accessories: from.accessories };
-      const bagTo = { inventory: to.inventory, tribute: to.tribute, gun: to.gun, pet: to.pet, accessories: to.accessories };
-      this.clients.find((c) => c.sessionId === fromSession)?.send("bag-sync", bagFrom);
-      client.send("bag-sync", bagTo);
-      this.clients.find((c) => c.sessionId === fromSession)?.send("trade-result", {
-        toSession: client.sessionId,
-        accept: true,
-        item,
-      });
+      if (Math.hypot(from.x - to.x, from.z - to.z) > TRADE_RANGE) {
+        client.send("trade-closed", { reason: "Too far apart to trade." });
+        return;
+      }
+      const session: TradeSession = {
+        id: `${fromSession}:${client.sessionId}`,
+        a: { sessionId: fromSession, items: [], locked: false },
+        b: { sessionId: client.sessionId, items: [], locked: false },
+        touchedAt: Date.now(),
+      };
+      this.trades.set(session.id, session);
+      this.tradeOf.set(fromSession, session.id);
+      this.tradeOf.set(client.sessionId, session.id);
+      this.sendTradeState(session);
+    });
+
+    this.onMessage("trade-offer", (client, data: { items?: unknown }) => {
+      const session = this.tradeFor(client.sessionId);
+      const player = this.state.players.get(client.sessionId);
+      if (!session || !player) return;
+      const mine = ownSide(session, client.sessionId);
+      if (!mine) return;
+      mine.items = sanitizeStake(data.items, player.inventory);
+      // Any change to either stake drops both locks. Without this, locking in
+      // against an offer is meaningless: the other side could swap theirs out
+      // underneath a commitment already made.
+      session.a.locked = false;
+      session.b.locked = false;
+      session.touchedAt = Date.now();
+      this.sendTradeState(session);
+    });
+
+    this.onMessage("trade-lock", (client, data: { locked?: boolean }) => {
+      const session = this.tradeFor(client.sessionId);
+      if (!session) return;
+      const mine = ownSide(session, client.sessionId);
+      if (!mine) return;
+      mine.locked = Boolean(data.locked);
+      session.touchedAt = Date.now();
+      if (session.a.locked && session.b.locked) this.settleTradeSession(session);
+      else this.sendTradeState(session);
+    });
+
+    this.onMessage("trade-cancel", (client) => {
+      const session = this.tradeFor(client.sessionId);
+      if (!session) return;
+      const name = this.state.players.get(client.sessionId)?.name ?? "They";
+      this.closeTrade(session, `${name} cancelled the trade.`);
     });
 
     this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string }) => {
@@ -528,6 +647,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
 
       to.health = Math.max(0, to.health - spec.damage);
       to.sitting = false;
+      to.lying = false;
 
       this.broadcast("gunshot", {
         fromSession: client.sessionId,
@@ -558,6 +678,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       const melee = gunSpec(from.gun);
       to.health = Math.max(0, to.health - (melee && !melee.ranged ? melee.damage : 18));
       to.sitting = false;
+      to.lying = false;
       if (dist > 0.05) {
         const nx = (to.x - from.x) / dist;
         const nz = (to.z - from.z) / dist;
@@ -596,7 +717,38 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       client.send("lock-result", { kind: "home", id, locked, name: `home in ${home.city}` });
     });
 
-    this.onMessage("buy-item", (client, data: { id?: string; txHash?: string }) => {
+this.onMessage("car-list", (client, data: { id?: string; list?: boolean; price?: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      const vehicle = this.state.vehicles.get(String(data.id ?? ""));
+      if (!player || !vehicle) return;
+      const fail = (reason: string) => client.send("car-result", { id: vehicle.id, ok: false, reason });
+      if (!player.wallet || vehicle.owner !== player.wallet) return fail("You do not own that car.");
+      // Somebody behind the wheel would have the car move out from under them.
+      if (vehicle.driver) return fail("Get out of it first.");
+
+      if (data.list === false) {
+        vehicle.forSale = false;
+        vehicle.askingPrice = 0;
+        void savePlayerVehicle(this.vehicleRow(vehicle));
+        return client.send("car-result", { id: vehicle.id, ok: true, reason: "Listing withdrawn" });
+      }
+      const asking = clampAskingPrice(data.price);
+      if (asking == null) return fail(`Set an asking price of at least ${MIN_ASKING_PRICE} ${CURRENCY}.`);
+      vehicle.forSale = true;
+      vehicle.askingPrice = asking;
+      void savePlayerVehicle(this.vehicleRow(vehicle));
+      client.send("car-result", {
+        id: vehicle.id,
+        ok: true,
+        reason: `Listed at ${asking} ${CURRENCY} — first buyer takes it`,
+      });
+    });
+
+    this.onMessage("car-buy", (client, data: { id?: string; txHash?: string }) => {
+      void this.buyListedCar(client, String(data.id ?? ""), String(data.txHash ?? ""));
+    });
+
+        this.onMessage("buy-item", (client, data: { id?: string; txHash?: string }) => {
       void this.buyItem(client, String(data.id ?? ""), String(data.txHash ?? ""));
     });
 
@@ -673,6 +825,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // One RPC per distinct wallet per cycle, matching the holdings cache so a
     // refresh never re-reads something still fresh.
     this.clock.setInterval(() => void this.refreshHoldings(), HOLDINGS_CACHE_MS);
+    this.clock.setInterval(() => this.sweepTrades(), 2000);
 
   }
 
@@ -725,6 +878,12 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       gun: player.gun,
       pet: player.pet,
       accessories: player.accessories,
+      // The client gates movement locally to keep walking responsive, so it
+      // needs the tier the server is actually using. Without this it kept the
+      // value it joined with: a balance that fell mid-session left the client
+      // predicting "allowed" on every step while the server refused them, and
+      // the player rubber-banded instead of being told why.
+      accessTier: player.accessTier,
     });
   }
 
@@ -909,6 +1068,13 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const client = this.clients.find((c) => c.sessionId === sessionId);
       // Say why before the socket closes; onLeave alone gives the client no reason.
       client?.send("session-replaced", {});
+      this.endTradeFor(sessionId, "The other citizen signed in elsewhere.");
+      // Before the state entry goes, not after: onLeave fires once the socket
+      // closes, and by then this lookup would find nothing and save nothing.
+      // A page refresh always lands here rather than in a clean leave - the
+      // browser opens the new socket before closing the old one - so without
+      // this the position was thrown away on every single refresh.
+      void this.rememberSpot(sessionId);
       this.releaseVehicle(sessionId);
       this.punchAt.delete(sessionId);
       this.knockedUntil.delete(sessionId);
@@ -917,6 +1083,164 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       client?.leave(SESSION_REPLACED);
       console.log(`[world] wallet ${wallet} signed in again — dropped session ${sessionId}`);
     }
+  }
+
+  /**
+   * Whether this player may cross into a district.
+   *
+   * Holdings are the usual key, but owning property there is a second one that
+   * does not expire with the token price. A player who qualified for Gas City,
+   * bought a home and then watched their balance fall still owns that home -
+   * locking them out would strand an asset they paid for behind a door they
+   * cannot open, and they would have no way to reach it even to sell it.
+   *
+   * Ownership is read from live room state rather than the database: homes are
+   * replicated in full to every client, so this is the same information the
+   * client gates on, and the two cannot drift.
+   */
+  private mayEnter(player: PlayerState, city: CityId): boolean {
+    return this.mayEnterAs(player.wallet, player.accessTier, city);
+  }
+
+  /** The same rule during onJoin, before there is a PlayerState to ask. */
+  private mayEnterAs(wallet: string, tier: number, city: CityId): boolean {
+    if (canEnterCity(tier, city)) return true;
+    return this.ownsHomeIn(wallet, city);
+  }
+
+  private ownsHomeIn(wallet: string, city: CityId): boolean {
+    if (!wallet) return false;
+    for (const home of this.state.homes.values()) {
+      if (home.city === city && home.owner === wallet) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Closes sessions nobody is touching, and ones where the two have walked
+   * apart. Without it a player who opened a trade and wandered off stays
+   * flagged as trading and cannot start another one.
+   */
+  private sweepTrades() {
+    const now = Date.now();
+    for (const session of [...this.trades.values()]) {
+      const a = this.state.players.get(session.a.sessionId);
+      const b = this.state.players.get(session.b.sessionId);
+      if (!a || !b) {
+        this.closeTrade(session, "The other citizen left.");
+        continue;
+      }
+      if (Math.hypot(a.x - b.x, a.z - b.z) > TRADE_RANGE) {
+        this.closeTrade(session, "You walked too far apart.");
+        continue;
+      }
+      if (now - session.touchedAt > TRADE_IDLE_MS) {
+        this.closeTrade(session, "Trade timed out.");
+      }
+    }
+  }
+
+  /** Pushes the board to everyone standing in a station in that city. */
+  private broadcastBlotter(city: string) {
+    void recentReports(city).then((reports) => {
+      for (const [sessionId, player] of this.state.players) {
+        if (player.city !== city || !player.inBuilding || !isStation(player.buildingId)) continue;
+        this.clients.find((c) => c.sessionId === sessionId)?.send("crime-list", { reports });
+      }
+    });
+  }
+
+  private tradeFor(sessionId: string): TradeSession | null {
+    const id = this.tradeOf.get(sessionId);
+    return id ? this.trades.get(id) ?? null : null;
+  }
+
+  /**
+   * Each side is told its own stake and the other's, from its own point of
+   * view, so neither client has to work out which half of the session it is.
+   */
+  private sendTradeState(session: TradeSession) {
+    for (const side of [session.a, session.b]) {
+      const them = otherSide(session, side.sessionId);
+      const themPlayer = them ? this.state.players.get(them.sessionId) : null;
+      if (!them) continue;
+      this.clients.find((c) => c.sessionId === side.sessionId)?.send("trade-state", {
+        withSession: them.sessionId,
+        withName: themPlayer?.name ?? "citizen",
+        yourItems: side.items,
+        theirItems: them.items,
+        youLocked: side.locked,
+        theyLocked: them.locked,
+      });
+    }
+  }
+
+  /**
+   * Moves both stakes at once, or moves nothing.
+   *
+   * Everything is validated against live inventories before a single item is
+   * written, because the stakes were chosen earlier and a player may have sold
+   * or traded one of them in between.
+   */
+  private settleTradeSession(session: TradeSession) {
+    const a = this.state.players.get(session.a.sessionId);
+    const b = this.state.players.get(session.b.sessionId);
+    if (!a || !b) {
+      this.closeTrade(session, "The other citizen left.");
+      return;
+    }
+    if (Math.hypot(a.x - b.x, a.z - b.z) > TRADE_RANGE) {
+      this.closeTrade(session, "Too far apart to trade.");
+      return;
+    }
+
+    const result = settleTrade(a.inventory, session.a.items, b.inventory, session.b.items);
+    if (!result.ok) {
+      this.closeTrade(session, result.reason);
+      return;
+    }
+
+    a.inventory = encodeInventory(result.aInventory);
+    b.inventory = encodeInventory(result.bInventory);
+    // Anything handed over cannot stay equipped on the player who gave it up.
+    for (const [player, given] of [
+      [a, session.a.items],
+      [b, session.b.items],
+    ] as const) {
+      for (const id of given) {
+        if (player.gun === id && !hasItem(decodeInventory(player.inventory), id)) player.gun = "";
+        if (player.pet === id && !hasItem(decodeInventory(player.inventory), id)) player.pet = "";
+      }
+    }
+
+    this.sendBag(session.a.sessionId, a);
+    this.sendBag(session.b.sessionId, b);
+    const names = { [session.a.sessionId]: b.name, [session.b.sessionId]: a.name };
+    for (const side of [session.a, session.b]) {
+      this.clients
+        .find((c) => c.sessionId === side.sessionId)
+        ?.send("trade-closed", { reason: `Traded with ${names[side.sessionId]}.`, done: true });
+    }
+    this.forgetTrade(session);
+  }
+
+  private closeTrade(session: TradeSession, reason: string) {
+    for (const side of [session.a, session.b]) {
+      this.clients.find((c) => c.sessionId === side.sessionId)?.send("trade-closed", { reason });
+    }
+    this.forgetTrade(session);
+  }
+
+  private forgetTrade(session: TradeSession) {
+    this.trades.delete(session.id);
+    this.tradeOf.delete(session.a.sessionId);
+    this.tradeOf.delete(session.b.sessionId);
+  }
+
+  /** Called when a player leaves or is evicted; a half-open trade helps nobody. */
+  private endTradeFor(sessionId: string, reason: string) {
+    const session = this.tradeFor(sessionId);
+    if (session) this.closeTrade(session, reason);
   }
 
   /** Exactly one session per wallet is live, so this is unambiguous. */
@@ -986,6 +1310,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       z: vehicle.z,
       rotY: vehicle.rotY,
       locked: vehicle.locked,
+      forSale: vehicle.forSale,
+      askingPrice: vehicle.askingPrice,
     };
   }
 
@@ -1003,6 +1329,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       vehicle.kind = row.kind;
       vehicle.owner = row.ownerWallet;
       vehicle.locked = row.locked;
+      vehicle.forSale = row.forSale;
+      vehicle.askingPrice = row.askingPrice;
       // Nobody is behind the wheel after a restart.
       vehicle.driver = "";
       this.vehicleChains.set(row.id, row.ownerChain);
@@ -1072,15 +1400,15 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       kind: "listed",
       homeId: id,
       body: list
-        ? `You listed a home in ${home.city} at ${home.askingPrice} ${CURRENCY} for ${WorldRoom.describeDuration(home.durationSeconds)}.`
-        : `You withdrew your listing in ${home.city}.`,
+        ? `You listed your ${CITIES[home.city as CityId]?.name ?? home.city} home at ${home.askingPrice} ${CURRENCY}. It sells to the first buyer who pays.`
+        : `You withdrew your listing in ${CITIES[home.city as CityId]?.name ?? home.city}.`,
     });
     client.send("home-result", {
       id,
       ok: true,
       listed: list,
       reason: list
-        ? `Listed — bidding opens at ${home.askingPrice} tribute`
+        ? `Listed at ${home.askingPrice} ${CURRENCY} — first buyer takes it`
         : "Listing withdrawn",
     });
   }
@@ -1120,6 +1448,10 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
 
     const item = catalogItem(id);
     if (!item) return fail("No such item.");
+    // Retired stock is hidden from the store, but the id is still valid - it
+    // has to be, or existing owners would lose theirs - so the sale is refused
+    // here rather than relying on the client not to ask.
+    if (item.listed === false) return fail(`${item.name} is no longer sold.`);
     if (item.tier > player.accessTier) return fail(`${item.name} needs tier ${item.tier}.`);
 
     const inventory = decodeInventory(player.inventory);
@@ -1161,6 +1493,71 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       if (vehicle.owner) sold++;
     });
     this.broadcast("fleet", { sold, cap: MAX_PLAYER_VEHICLES });
+  }
+
+/**
+   * Buys a car another player has listed.
+   *
+   * Ownership moves, the fleet does not grow, so the world cap is untouched -
+   * but the one-car rule still applies to the buyer, and the seller is freed to
+   * buy again.
+   */
+  private async buyListedCar(client: Client, id: string, txHash: string) {
+    const player = this.state.players.get(client.sessionId);
+    const vehicle = this.state.vehicles.get(id);
+    if (!player || !vehicle) return;
+    const fail = (reason: string) => client.send("car-result", { id, ok: false, reason });
+
+    if (!player.wallet) return fail("Connect a wallet to buy a car.");
+    if (!vehicle.owner || !vehicle.forSale) return fail("That car is not for sale.");
+    if (vehicle.owner === player.wallet) return fail("You already own it.");
+    if (vehicle.driver) return fail("Somebody is driving it.");
+
+    let owned = 0;
+    this.state.vehicles.forEach((v) => {
+      if (v.owner && v.owner === player.wallet) owned++;
+    });
+    if (owned > 0) return fail("You already own a car. One each.");
+
+    const price = vehicle.askingPrice;
+    if (player.tribute < price) {
+      return fail(`That car costs ${price} ${CURRENCY}. You have ${player.tribute}.`);
+    }
+
+    const chain = this.chainFor(client.sessionId);
+    const unpaid = await this.requirePayment(player, chain, {
+      txHash,
+      price,
+      purpose: "car-resale",
+      itemId: vehicle.id,
+    });
+    if (unpaid) return fail(unpaid);
+
+    const seller = vehicle.owner;
+    const sellerChain = this.vehicleChains.get(vehicle.id) ?? DEFAULT_CHAIN;
+    vehicle.owner = player.wallet;
+    vehicle.forSale = false;
+    vehicle.askingPrice = 0;
+    vehicle.locked = true;
+    this.vehicleChains.set(vehicle.id, chain);
+    await savePlayerVehicle(this.vehicleRow(vehicle));
+
+    if (!tokenConfigured()) {
+      await this.moveTribute(player.wallet, chain, -price);
+      if (seller) await this.moveTribute(seller, sellerChain, price);
+    }
+
+    client.send("car-result", { id, ok: true, reason: `Bought for ${price} ${CURRENCY}.` });
+    await this.notify(player.wallet, chain, {
+      kind: "bought",
+      body: `You bought a ${vehicle.kind} for ${price} ${CURRENCY}.`,
+    });
+    if (seller) {
+      await this.notify(seller, sellerChain, {
+        kind: "sold",
+        body: `${player.name} bought your ${vehicle.kind} for ${price} ${CURRENCY}.`,
+      });
+    }
   }
 
   private async buyVehicle(client: Client, kind: string, city?: CityId, txHash?: string) {
@@ -1437,6 +1834,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.holdingsCache.delete(`${chain}:${player.wallet.toLowerCase()}`);
       const { tier, balance } = await this.resolveHoldings(player.wallet, chain);
       player.accessTier = tier;
+      // Same cadence as the holdings read: a killed process never runs onLeave.
+      void this.rememberSpot(sessionId);
       if (player.tribute === balance) continue;
       player.tribute = balance;
       this.sendBag(sessionId, player);
@@ -1448,13 +1847,37 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // Never options.accessTier. The client asks to spawn somewhere; holdings decide.
     const { tier: accessTier, balance } = await this.resolveHoldings(options.wallet ?? "", chain);
     const requested = (options.city && CITY_BOUNDS[options.city] ? options.city : "trench") as CityId;
-    const city = canEnterCity(accessTier, requested) ? requested : "trench";
-    const spawn = CITY_BOUNDS[city].spawn;
+    const wallet = options.wallet ?? "";
+    const city = this.mayEnterAs(wallet, accessTier, requested) ? requested : "trench";
+
+    // Back where they left off, if they can still stand there. Holdings may have
+    // fallen since, so a saved spot inside a district they no longer reach falls
+    // back to the spawn rather than dropping them somewhere they cannot leave.
+    // The previous session is usually still live at this point, because a page
+    // refresh opens the new socket before the old one closes. Its in-memory
+    // position is both exact and available now; the save it is about to make
+    // lands after this read, so going to the database first would return the
+    // spot from the session before last.
+    const live = options.wallet ? this.playerByWallet(options.wallet) : null;
+    const saved: LastSpot | null =
+      live && !live.player.inBuilding
+        ? { city: live.player.city as CityId, x: live.player.x, z: live.player.z }
+        : options.wallet
+          ? await fetchLastSpot(options.wallet, chain)
+          : null;
+    const savedCity = saved ? cityAtPosition(saved.x, saved.z) : "void";
+    const canStand =
+      saved !== null &&
+      savedCity !== "void" &&
+      (savedCity === "gate" || this.mayEnterAs(wallet, accessTier, savedCity as CityId));
+    const spawn = canStand ? ([saved.x, CITY_BOUNDS[city].spawn[1], saved.z] as const) : CITY_BOUNDS[city].spawn;
     const player = new PlayerState();
     player.sessionId = client.sessionId;
     player.name = (options.name || "citizen").slice(0, 16);
     player.wallet = options.wallet ?? "";
-    player.city = city;
+    // The district they are actually standing in, which is not always the one
+    // they asked to spawn in once a saved spot is restored.
+    player.city = canStand && savedCity !== "gate" ? (savedCity as CityId) : city;
     player.accessTier = accessTier;
     player.x = spawn[0];
     player.y = spawn[1];
@@ -1511,8 +1934,32 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     }
   }
 
+/**
+   * Writes down where a player is standing, so signing back in returns them
+   * there rather than to the district spawn.
+   *
+   * Indoors is skipped: interiors live far above the map, and saving that would
+   * put them inside a building they may no longer own. The last outdoor spot is
+   * the useful one.
+   */
+  private rememberSpot(sessionId: string): Promise<SpotSave> {
+    const player = this.state.players.get(sessionId);
+    if (!player?.wallet) return Promise.resolve({ ok: false, reason: "no-wallet" });
+    if (player.inBuilding) return Promise.resolve({ ok: false, reason: "indoors" });
+    const city = cityAtPosition(player.x, player.z);
+    if (city === "void") return Promise.resolve({ ok: false, reason: "nowhere" });
+    const where = (city === "gate" ? player.city : city) as CityId;
+    return saveLastSpot(player.wallet, this.chainFor(sessionId), {
+      city: where,
+      x: player.x,
+      z: player.z,
+    }).then((ok) => (ok ? { ok: true, city: where } : { ok: false, reason: "offline" }));
+  }
+
   onLeave(client: Client) {
     this.sendToNearbyVoiceClients(client, "voice-left", { sessionId: client.sessionId });
+    this.endTradeFor(client.sessionId, "The other citizen left.");
+    void this.rememberSpot(client.sessionId);
     this.releaseVehicle(client.sessionId);
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
@@ -1599,6 +2046,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.knockedUntil.set(targetSession, now + knockedMs);
       target.health = Math.max(0, target.health - damage);
       target.sitting = false;
+      target.lying = false;
       target.x += dirX * knockDistance;
       target.z += dirZ * knockDistance;
       this.broadcast("vehicle-hit", {

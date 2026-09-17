@@ -24,6 +24,8 @@ export class PlayerState extends Schema {
   inBuilding = false;
   buildingId = "";
   sitting = false;
+  /** Lying down rather than sitting, so onlookers see a sleeper not a stander. */
+  lying = false;
   /** The wallet's $TRIBE balance, pushed by the server. Never seeded here. */
   tribute = 0;
   inventory = "[]";
@@ -54,6 +56,7 @@ defineTypes(PlayerState, {
   inBuilding: "boolean",
   buildingId: "string",
   sitting: "boolean",
+  lying: "boolean",
   tribute: "number",
   inventory: "string",
   gun: "string",
@@ -74,6 +77,10 @@ export class VehicleState extends Schema {
   owner = "";
   /** Owner-controlled. Unlocking lets anyone drive it; it stays theirs. */
   locked = false;
+  /** Owner has put it up for sale at askingPrice. */
+  forSale = false;
+  /** What the owner is asking. 0 when it is not for sale. */
+  askingPrice = 0;
 }
 defineTypes(VehicleState, {
   id: "string",
@@ -87,6 +94,8 @@ defineTypes(VehicleState, {
   driver: "string",
   owner: "string",
   locked: "boolean",
+  forSale: "boolean",
+  askingPrice: "number",
 });
 
 export class ChatLine extends Schema {

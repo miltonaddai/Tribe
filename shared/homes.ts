@@ -172,3 +172,11 @@ export function homeGradeById(id: string): { grade: number; luxury: number } {
   if (!lot) return { grade: 0, luxury: 0 };
   return { grade: homeGrade(lot.city, lot.gx, lot.gz), luxury: homeLuxury(lot.city, lot.gx, lot.gz) };
 }
+
+/**
+ * Floor on an owner's asking price, in Tribute. 1,000 is about $1 at a $1M cap:
+ * enough that a listing means something, not enough to price anyone out.
+ *
+ * Shared so the sell panel and the server cannot disagree about what is valid.
+ */
+export const MIN_ASKING_PRICE = 1_000;

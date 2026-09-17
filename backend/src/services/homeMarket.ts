@@ -1,4 +1,4 @@
-import { HOME_PRICE, type CityId } from "@tribe/shared";
+import { HOME_PRICE, MIN_ASKING_PRICE, type CityId } from "@tribe/shared";
 
 /**
  * Homes are bought outright: one price, one payment, instant transfer.
@@ -15,13 +15,6 @@ export function cityHomePrice(city: CityId) {
 }
 
 /**
- * Floor on an owner's resale listing, in Tribute. 1,000 Tribute is $1 at a $1M
- * cap, so this is a $1 floor: high enough that a listing means something, low
- * enough not to price anyone out of selling.
- */
-export const MIN_ASKING_PRICE = 1_000;
-
-/**
  * Sellers name any price they like - there is deliberately no ceiling. The only
  * limit is TRIBUTE_CAP, which is what a wallet can physically hold.
  */
@@ -36,4 +29,5 @@ export function clampAskingPrice(value: unknown) {
  * membership test: the server derives the same lot set the client builds, so a
  * junk id cannot name a home that does not exist.
  */
-export { isHomeId } from "@tribe/shared";
+// Re-exported so callers keep importing market rules from one place.
+export { isHomeId, MIN_ASKING_PRICE } from "@tribe/shared";

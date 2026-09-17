@@ -950,10 +950,16 @@ button {
 }
 
 .settings-panel {
-  width: min(1100px, 100%);
+  /* 1100px was written for a 1920px viewport, but a 1080p screen at 150% display
+     scaling reports about 1280 CSS pixels - where that panel covers 86% of the
+     window. Capped against the viewport as well as in absolute terms. */
+  width: min(880px, 92vw);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
   background: #0a0a0a;
   border: 1px solid #222;
-  padding: 28px;
+  padding: 22px 24px;
 }
 
 .settings-head {
@@ -964,8 +970,11 @@ button {
 }
 
 .settings-head h1 {
-  font-size: 42px;
+  /* Scales with the viewport, and tops out well short of the old 42px - at
+     150% scaling that read like a billboard. */
+  font-size: clamp(22px, 4vw, 30px);
   font-stretch: 155%;
+  line-height: 1.05;
 }
 
 .settings-grid {
@@ -977,7 +986,7 @@ button {
 .settings-card {
   background: #141414;
   border: 1px solid #262626;
-  padding: 16px 18px;
+  padding: 14px 16px 6px;
   overflow: visible;
   position: relative;
   z-index: 1;
@@ -1000,8 +1009,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
-  min-height: 32px;
+  margin-bottom: 10px;
+  min-height: 28px;
   position: relative;
   z-index: 1;
 }
@@ -1025,7 +1034,7 @@ button {
 }
 
 .slider {
-  width: 180px;
+  width: min(180px, 100%);
   accent-color: var(--accent);
 }
 
@@ -1550,6 +1559,9 @@ button {
 
 .world-map-panel {
   width: min(920px, 96vw);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
   background: rgba(10, 10, 10, 0.96);
   border: 1px solid #2a2a2a;
   padding: 16px 18px 18px;
@@ -1729,7 +1741,7 @@ button {
   top: 70px;
   transform: translateX(-50%);
   width: min(760px, 92vw);
-  max-height: min(70vh, 640px);
+  max-height: min(70vh, 640px, calc(100dvh - 96px));
   overflow: auto;
   z-index: 14;
   background: rgba(10, 10, 10, 0.94);
@@ -1887,7 +1899,7 @@ button {
 .chat-panel {
   left: 18px;
   bottom: 210px;
-  width: 280px;
+  width: min(280px, calc(100vw - 36px));
   padding: 10px;
 }
 
@@ -2005,6 +2017,9 @@ button {
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(340px, 92vw);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
   background: rgba(10, 10, 10, 0.96);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2203,7 +2218,7 @@ button {
   right: 18px;
   top: 70px;
   width: min(380px, calc(100vw - 36px));
-  max-height: min(60vh, 460px);
+  max-height: min(60vh, 460px, calc(100dvh - 96px));
   display: flex;
   flex-direction: column;
   background: rgba(10, 10, 10, 0.96);
@@ -2274,10 +2289,42 @@ button {
   padding: 10px 8px 4px;
 }
 
-.friend-row {
-  display: flex;
+/*
+ * Doubled up on purpose. .inbox-item sets a two-column grid and comes later in
+ * this file, so a bare .friend-row lost the cascade and the third child - the
+ * dismiss button - dropped onto a second row under the name. Matching both
+ * classes wins on specificity regardless of order.
+ */
+.inbox-item.friend-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 8px;
+}
+
+/* Sits at the right end of the row, quiet until pointed at. */
+.friend-x {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #6f6f6f;
+  cursor: pointer;
+}
+
+.friend-x:hover {
+  border-color: #4a2a2a;
+  background: rgba(220, 80, 80, 0.12);
+  color: #e88;
+}
+
+.friend-x:focus-visible {
+  outline: 2px solid #6fd39a;
+  outline-offset: 1px;
 }
 
 .friend-name {
@@ -2397,7 +2444,7 @@ button {
 }
 
 .whisper-panel {
-  width: 300px;
+  width: min(300px, calc(100vw - 32px));
 }
 
 .whisper-head {
@@ -2441,6 +2488,14 @@ button {
   padding: 22px;
   display: grid;
   gap: 10px;
+}
+
+/* Why a save did not take. Sits in the grid gap under the button it explains. */
+.pause-note {
+  margin: -4px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #e88;
 }
 
 .fps {
@@ -2780,5 +2835,448 @@ button {
   }
   .segmented.motions {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Phones. The existing breakpoints stop at 720px, but a modal with 24px of
+   overlay padding and 28px of its own loses a third of a 360px screen to
+   margins before any content is drawn. */
+@media (max-width: 520px) {
+  .settings-overlay,
+  .world-map-overlay,
+  .wallet-overlay {
+    padding: 10px;
+  }
+
+  .settings-panel {
+    padding: 16px;
+    max-height: calc(100dvh - 20px);
+  }
+
+  .world-map-panel {
+    width: 100%;
+    padding: 12px;
+    max-height: calc(100dvh - 20px);
+  }
+
+  .wallet-modal {
+    padding: 16px;
+  }
+
+  .inv-panel {
+    top: 58px;
+    width: calc(100vw - 16px);
+    padding: 12px 12px 16px;
+    max-height: calc(100dvh - 76px);
+  }
+
+  .inbox-panel {
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-height: calc(100dvh - 76px);
+  }
+
+  .list-panel {
+    width: calc(100vw - 20px);
+    padding: 14px;
+  }
+
+  /* The map's side list under the map rather than beside it, and the map itself
+     shorter so both still fit. */
+  .world-map {
+    max-height: 46vh;
+  }
+
+  .world-map-list {
+    max-height: 30vh;
+    overflow: auto;
+  }
+
+  /* The top-right button cluster is absolutely positioned at fixed offsets and
+     runs off the left edge on a narrow screen. */
+  .audio-picker {
+    right: 178px;
+  }
+
+  .hud-btn.voice {
+    right: 124px;
+  }
+
+  .bag-btn {
+    right: 70px;
+  }
+
+  .inbox-btn {
+    right: 16px;
+  }
+
+  .hud-btn.menu {
+    top: 66px;
+    right: 16px;
+  }
+}
+
+/* Settings on a narrow screen. Each row is a label beside a control, which
+   works until neither has room; below this the control drops under its label
+   and takes the full width. */
+@media (max-width: 560px) {
+  .settings-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .settings-card {
+    padding: 12px 12px 6px;
+  }
+
+  .settings-grid {
+    gap: 10px;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .setting-row > span {
+    color: #9a9a9a;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+  }
+
+  /* Controls fill the row now that they own the whole width. */
+  .setting-row .slider,
+  .setting-row .dropdown,
+  .setting-row .wallet-chip {
+    width: 100%;
+  }
+
+  .setting-row .toggle {
+    align-self: flex-start;
+  }
+
+  .settings-actions {
+    flex-direction: column-reverse;
+  }
+
+  .settings-actions .btn {
+    width: 100%;
+  }
+}
+
+/* ---- Trade window -------------------------------------------------------
+   The live two-sided trade. Centred rather than tucked in a corner: both
+   stakes have to be read carefully before committing, and a panel at the edge
+   of the screen invites a glance instead. */
+.trade-window {
+  position: absolute;
+  z-index: 14;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(80dvh, 620px);
+  overflow-y: auto;
+  padding: 18px;
+  background: rgba(10, 10, 10, 0.95);
+  border: 1px solid #2a2a2a;
+}
+
+.trade-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.trade-window-head h3 {
+  font-stretch: 140%;
+}
+
+.trade-close {
+  width: auto;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+/* Side by side while there is room; stacked on a phone, where two columns of
+   item names would wrap to one word each. */
+.trade-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 460px) {
+  .trade-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.trade-col h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+
+.trade-tag {
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  border: 1px solid #3a3a3a;
+  color: #8a8a8a;
+}
+
+.trade-tag.locked {
+  border-color: #2f7d4f;
+  color: #6fd39a;
+}
+
+.trade-stake,
+.trade-pool {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 62px;
+  align-content: flex-start;
+  padding: 8px;
+  border: 1px dashed #2f2f2f;
+}
+
+.trade-pool {
+  min-height: 0;
+  margin-bottom: 12px;
+}
+
+.trade-stake button,
+.trade-pool button,
+.trade-theirs {
+  display: inline-block;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 12px;
+  background: #191919;
+  border: 1px solid #333;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.trade-theirs {
+  cursor: default;
+}
+
+.trade-stake button:hover:not(:disabled),
+.trade-pool button:hover:not(:disabled) {
+  border-color: #6a6a6a;
+}
+
+.trade-stake button:disabled,
+.trade-pool button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.trade-empty {
+  font-size: 12px;
+  color: #6a6a6a;
+}
+
+.trade-sub {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+
+.trade-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #9a9a9a;
+}
+
+/* ---- Police station blotter ---------------------------------------------
+   Reading comes first; the report form sits underneath, collapsed until
+   wanted, so walking in does not open with an accusation box. */
+.crime-board {
+  position: absolute;
+  z-index: 14;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(82dvh, 660px);
+  overflow-y: auto;
+  padding: 18px;
+  background: rgba(10, 12, 18, 0.96);
+  border: 1px solid #263248;
+}
+
+.crime-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.crime-head h2 {
+  font-stretch: 140%;
+}
+
+.crime-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #8892a4;
+}
+
+.crime-x {
+  width: auto;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.crime-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  border-top: 1px solid #1d2532;
+}
+
+.crime-item {
+  padding: 9px 2px;
+  border-bottom: 1px solid #1d2532;
+}
+
+.crime-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.crime-offence {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7FB3FF;
+}
+
+.crime-when {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #6c7789;
+}
+
+.crime-who {
+  margin-top: 3px;
+  font-size: 13px;
+  color: #d7dce4;
+}
+
+.crime-note {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #97a0b0;
+}
+
+.crime-empty {
+  padding: 14px 2px;
+  font-size: 13px;
+  color: #6c7789;
+}
+
+.crime-form {
+  display: grid;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #1d2532;
+}
+
+.crime-form label {
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #7d8798;
+}
+
+.crime-count {
+  justify-self: end;
+  font-size: 11px;
+  color: #6c7789;
+}
+
+.crime-fineprint {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6c7789;
+}
+
+/* ---- Town hall notice ---------------------------------------------------
+   A placard on the wall, not a dialog. Pointer events off throughout: the
+   whole message is "carry on", so it must never intercept a click or pull the
+   cursor out of the game. */
+.townhall-notice {
+  position: absolute;
+  z-index: 11;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px 16px;
+  pointer-events: none;
+  background: rgba(14, 12, 8, 0.92);
+  border: 1px solid #4a3c22;
+  border-left: 3px solid #E8B34A;
+}
+
+.townhall-kicker {
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #E8B34A;
+}
+
+.townhall-notice h3 {
+  margin-bottom: 6px;
+  font-stretch: 140%;
+  font-size: 16px;
+  color: #F3ECDD;
+}
+
+.townhall-notice p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b3a992;
+}
+
+.townhall-hang {
+  margin-top: 8px;
+  color: #d8cbae !important;
+}
+
+@media (max-height: 560px) {
+  .townhall-notice {
+    top: 68px;
+    padding: 10px 12px;
   }
 }

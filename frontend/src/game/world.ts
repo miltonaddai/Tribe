@@ -19,7 +19,7 @@ import { CURRENCY,
   type CityTheme,
   type LandmarkKind,
 } from "@tribe/shared";
-import { aabbFrom, box, entityYaw, lightPool, type Aabb } from "./pcApp";
+import { aabbFrom, box, entityYaw, hitsAabb, lightPool, type Aabb } from "./pcApp";
 import { createCitizen, type Appearance } from "./character";
 import { applyCitizenMotion, type CitizenMotion } from "./motion";
 import {
@@ -85,6 +85,8 @@ export type Seat = {
   z: number;
   yaw: number;
   sitY: number;
+  /** A bed rather than a chair: lie flat along yaw instead of sitting upright. */
+  lie: boolean;
 };
 
 /** A streetlamp's position, so the engine can put real light near the player. */
@@ -101,6 +103,7 @@ export type WorldObjects = {
 };
 
 const ROAD_W = 10;
+/** Half-width used when testing a traffic car against building walls. */
 /** Usable width of a block once the surrounding roads are taken out. */
 const LOT_SIZE = CITY_SIZE / CITY_GRID - ROAD_W - 0.8;
 
@@ -134,7 +137,13 @@ export function buildWorld(app: pc.AppBase): WorldObjects {
   return { colliders, lamps, interactables, interiors, npcs, seats, nightWashes };
 }
 
-export function tickNpcs(npcs: NpcAgent[], dt: number, t: number, vehicleObstacles: VehicleObstacle[] = []) {
+export function tickNpcs(
+  npcs: NpcAgent[],
+  dt: number,
+  t: number,
+  vehicleObstacles: VehicleObstacle[] = [],
+  colliders: Aabb[] = [],
+) {
   const now = performance.now();
   const npcVehicleObstacles = npcs.flatMap((npc, index): VehicleObstacle[] => {
     if (!npc.vehicle) return [];
@@ -154,7 +163,7 @@ export function tickNpcs(npcs: NpcAgent[], dt: number, t: number, vehicleObstacl
     const npc = npcs[n];
     const phase = t + n * 0.71;
     if (npc.vehicle) {
-      tickNpcDrive(npc, dt, phase, npcs, vehicleObstacles);
+      tickNpcDrive(npc, dt, phase, npcs, vehicleObstacles, colliders);
       continue;
     }
     if (npc.health <= 0) {
@@ -253,6 +262,7 @@ function tickNpcDrive(
   phase: number,
   npcs: NpcAgent[],
   vehicleObstacles: VehicleObstacle[],
+  colliders: Aabb[],
 ) {
   const car = npc.vehicle;
   if (!car || npc.waypoints.length === 0) return;
@@ -270,6 +280,14 @@ function tickNpcDrive(
   const steer = 1 - Math.exp(-3.4 * dt);
 
   const blockerAt = (x: number, z: number, yaw: number) => {
+    // Buildings count as blockers too. Without this the detour manoeuvre below
+    // happily steers a car through a wall, which is how one ends up parked
+    // inside the hospital.
+    for (const wall of colliders) {
+      if (npcVehicleHitsWall(x, z, yaw, kind, wall)) {
+        return { x: (wall.minX + wall.maxX) / 2, z: (wall.minZ + wall.maxZ) / 2 };
+      }
+    }
     for (const other of npcs) {
       if (other === npc || !other.vehicle) continue;
       const q = other.vehicle.getPosition();
@@ -330,6 +348,18 @@ function tickNpcDrive(
     if (!blockerAt(rx, rz, yaw)) car.setPosition(rx, WALK_Y, rz);
   }
   if (blockedFor > 3.5) {
+    // A car that is already inside a wall is blocked whichever way it turns, so
+    // picking a new waypoint alone would leave it there for good. Put it back on
+    // its route, which is on a road by construction.
+    // Same oriented test as the movement check. With a centre-point circle this
+    // never fired for a car buried nose-first: its centre was clear of the wall,
+    // so the rescue decided it was not stuck and left it embedded for good.
+    const insideWall = colliders.some((wall) => npcVehicleHitsWall(pos.x, pos.z, yaw, kind, wall));
+    if (insideWall) {
+      const target = npc.waypoints[npc.i];
+      car.setPosition(target.x, WALK_Y, target.z);
+      npc.yaw = Math.atan2(target.x - pos.x, target.z - pos.z);
+    }
     npc.i = (npc.i + 1) % npc.waypoints.length;
     npc.blockedFor = 0;
     npc.detour = 0;
@@ -376,6 +406,45 @@ function npcVehicleHalfExtents(kind: string) {
   if (kind === "sport") return { halfWidth: 1.025, halfLength: 2.45 };
   if (kind === "suv") return { halfWidth: 1.14, halfLength: 2.75 };
   return { halfWidth: 1.075, halfLength: 2.6 };
+}
+
+/**
+ * Does this car, at this position and heading, overlap a building?
+ *
+ * Separating-axis test between the car's oriented box and the wall's
+ * axis-aligned one. It replaces a circle of radius 1.9 centred on the car,
+ * which was smaller than the car: a sedan reaches 2.6 forward and an SUV 2.75,
+ * so the test cleared positions where the front of the car was already three
+ * quarters of a metre inside the wall. Cars drove up to buildings and parked
+ * their noses in them, which is how one ended up embedded in the hospital.
+ *
+ * Four axes suffice in 2D - the wall's two, which are world X and Z, and the
+ * car's two.
+ */
+function npcVehicleHitsWall(x: number, z: number, yaw: number, kind: string, wall: Aabb) {
+  const { halfWidth, halfLength } = npcVehicleHalfExtents(kind);
+  const centreX = (wall.minX + wall.maxX) / 2;
+  const centreZ = (wall.minZ + wall.maxZ) / 2;
+  const wallHalfX = (wall.maxX - wall.minX) / 2;
+  const wallHalfZ = (wall.maxZ - wall.minZ) / 2;
+  const right = { x: Math.cos(yaw), z: -Math.sin(yaw) };
+  const forward = { x: Math.sin(yaw), z: Math.cos(yaw) };
+  const dx = centreX - x;
+  const dz = centreZ - z;
+
+  // The wall's own axes: project the car onto each.
+  const carOnX = halfWidth * Math.abs(right.x) + halfLength * Math.abs(forward.x);
+  if (Math.abs(dx) > wallHalfX + carOnX) return false;
+  const carOnZ = halfWidth * Math.abs(right.z) + halfLength * Math.abs(forward.z);
+  if (Math.abs(dz) > wallHalfZ + carOnZ) return false;
+
+  // The car's own axes: project the wall onto each.
+  const wallOnRight = wallHalfX * Math.abs(right.x) + wallHalfZ * Math.abs(right.z);
+  if (Math.abs(dx * right.x + dz * right.z) > halfWidth + wallOnRight) return false;
+  const wallOnForward = wallHalfX * Math.abs(forward.x) + wallHalfZ * Math.abs(forward.z);
+  if (Math.abs(dx * forward.x + dz * forward.z) > halfLength + wallOnForward) return false;
+
+  return true;
 }
 
 function npcVehiclesOverlap(
@@ -1105,8 +1174,18 @@ function placeLandmark(
     const h = 9.2;
     box(root, id, [x, h / 2, z], [w, h, d], "#F2F4F7");
     box(root, `${id}-wing`, [x + 7.4, 3.2, z], [4.2, 6.4, 8], "#E4E8EE");
-    box(root, `${id}-cross-h`, [x, h + 0.55, z], [3.4, 0.55, 0.7], "#E11D48", { emissive: "#FF4D6D", intensity: 4, glow: "sign" });
-    box(root, `${id}-cross-v`, [x, h + 0.55, z], [0.7, 0.55, 3.4], "#E11D48", { emissive: "#FF4D6D", intensity: 4, glow: "sign" });
+    // Rooftop cross, standing upright rather than lying flat. Laid out in the XZ
+    // plane it only read from directly overhead, which is not where anyone is.
+    const red = { emissive: "#FF4D6D", intensity: 4, glow: "sign" } as const;
+    box(root, `${id}-cross-h`, [x, h + 2.1, z], [3.4, 0.8, 0.34], "#E11D48", red);
+    box(root, `${id}-cross-v`, [x, h + 2.1, z], [0.8, 3.4, 0.34], "#E11D48", red);
+    box(root, `${id}-cross-post`, [x, h + 0.3, z], [0.5, 1.2, 0.5], "#D0D5DC");
+
+    // And one on the facade, at eye level from the street.
+    const face = z + d / 2 + 0.14;
+    box(root, `${id}-face-h`, [x, 7.1, face], [2.6, 0.72, 0.16], "#E11D48", red);
+    box(root, `${id}-face-v`, [x, 7.1, face], [0.72, 2.6, 0.16], "#E11D48", red);
+
     box(root, `${id}-bay`, [x - 5.2, 1.1, z + d / 2 + 0.7], [4.4, 2.2, 1.6], "#D0D5DC");
     box(root, `${id}-sign`, [x, 5.1, z + d / 2 + 0.12], [4.6, 0.9, 0.16], "#E11D48", {
       emissive: "#FF4D6D",
@@ -1114,6 +1193,10 @@ function placeLandmark(
     });
     addEnterable(root, theme, id, x, z, w, d, h, colliders, interactables, interiors, seats, "hospital", "Hospital", h + 2.4);
     colliders.push(aabbFrom([x + 7.4, 3.2, z], [4.2, 6.4, 8]));
+    // The ambulance bay juts out of the front and had no collider of its own,
+    // so it was solid to look at and empty to drive through. It sits well clear
+    // of the doorway at x, so making it solid blocks nobody's way in.
+    colliders.push(aabbFrom([x - 5.2, 1.1, z + d / 2 + 0.7], [4.4, 2.2, 1.6]));
     return;
   }
 
@@ -1144,9 +1227,13 @@ function placeLandmark(
     return;
   }
 
-  const w = 13;
-  const d = 11;
-  const h = 7.4;
+  // Bigger than the store it often sits near, smaller than the hospital, which
+  // stays the largest thing on a block. The detailing below is anchored to w, d
+  // and h rather than to fixed coordinates, so it grows with the shell - only
+  // the roof furniture keeps its own size, which is what roof furniture does.
+  const w = 15;
+  const d = 12;
+  const h = 8.2;
   box(root, id, [x, h / 2, z], [w, h, d], "#1E3A5F");
   box(root, `${id}-stripe`, [x, 2.4, z + d / 2 + 0.05], [w * 0.92, 0.35, 0.12], "#F8FAFC");
   box(root, `${id}-lights`, [x, h + 0.28, z], [4.6, 0.28, 0.7], "#111");
@@ -1303,7 +1390,7 @@ function attachInterior(
     radius,
     city: theme.id,
     interior: { x, y: y + 0.1, z },
-    obstacles: interiorObstacles(kind).map((s) => ({
+    obstacles: interiorObstacles(kind, layout).map((s) => ({
       minX: x + s.x - s.halfW,
       maxX: x + s.x + s.halfW,
       minZ: z + s.z - s.halfD,
@@ -1325,12 +1412,15 @@ function attachInterior(
     ceiling: layout.height,
     spawnZ: layout.spawnZ,
   });
-  for (const seat of interiorSeats(kind)) {
+  for (const seat of interiorSeats(kind, layout)) {
     seats.push({
       x: x + seat.x,
       z: z + seat.z,
       yaw: seat.yaw,
-      sitY: y + seat.top - SIT_HIP,
+      // Sitting drops the body so the hips meet the seat; lying puts the whole
+      // body on top of the surface, so the offset would sink it into the bed.
+      sitY: y + seat.top - (seat.lie ? 0 : SIT_HIP),
+      lie: Boolean(seat.lie),
     });
   }
 }
@@ -1515,6 +1605,7 @@ function addBench(root: pc.Entity, x: number, z: number, yaw: number, seats: Sea
     z: z - Math.cos(rad) * 0.08,
     yaw: rad,
     sitY: WALK_Y + 0.48 - SIT_HIP,
+    lie: false,
   });
 }
 

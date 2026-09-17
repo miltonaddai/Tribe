@@ -5,6 +5,25 @@ function cityName(id: string | null) {
   return id && CITIES[id as CityId] ? CITIES[id as CityId].shortName : null;
 }
 
+/**
+ * The dismiss control on a friend row.
+ *
+ * An icon rather than a worded button because the row already carries a name
+ * and a location, and a third block of text made it the loudest thing in the
+ * list - removing a friend is the rarest action here, not the main one. The
+ * label survives for screen readers and as a tooltip, where it can say who is
+ * being removed, which the X alone cannot.
+ */
+function DismissButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" className="friend-x" title={label} aria-label={label} onClick={onClick}>
+      <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false">
+        <path d="M1 1 L11 11 M11 1 L1 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
 export function FriendsTab({
   friends,
   onRespond,
@@ -45,7 +64,9 @@ export function FriendsTab({
       )}
 
       <section>
-        <h4>Friends</h4>
+        {/* Counted only once you have any: "Friends (0)" over the line telling
+            you how to make one is a worse way of saying the same thing. */}
+        <h4>Friends{accepted.length > 0 ? ` (${accepted.length})` : ""}</h4>
         {accepted.length === 0 && (
           <p className="inbox-empty">Nobody yet. Stand next to a citizen and press G to ask.</p>
         )}
@@ -59,9 +80,7 @@ export function FriendsTab({
               <span className="friend-where">
                 {f.online ? (cityName(f.city) ?? "online") : "offline"}
               </span>
-              <button type="button" className="btn btn-outline inv-mini" onClick={() => onRemove(f.wallet)}>
-                Remove
-              </button>
+              <DismissButton label={`Remove ${f.name}`} onClick={() => onRemove(f.wallet)} />
             </li>
           ))}
         </ul>
@@ -75,9 +94,7 @@ export function FriendsTab({
               <li key={f.wallet} className="inbox-item friend-row">
                 <span className="friend-name">{f.name}</span>
                 <span className="friend-where">waiting</span>
-                <button type="button" className="btn btn-outline inv-mini" onClick={() => onRemove(f.wallet)}>
-                  Cancel
-                </button>
+                <DismissButton label={`Cancel request to ${f.name}`} onClick={() => onRemove(f.wallet)} />
               </li>
             ))}
           </ul>

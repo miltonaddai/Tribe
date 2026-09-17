@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to The Block are listed here.
+All notable changes to Tribe are listed here.
 
 ## Unreleased — 2026-08-17
 

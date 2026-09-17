@@ -1,4 +1,4 @@
-# Scaling The Block — 80 → 500 players per world
+# Scaling Tribe — 80 → 500 players per world
 
 Capacity plan for the world server and client renderer.
 

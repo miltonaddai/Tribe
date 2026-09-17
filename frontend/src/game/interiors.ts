@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { CityTheme } from "@the-block/shared";
+import type { CityTheme } from "@tribe/shared";
 import { box, hexColor } from "./pcApp";
 
 export type InteriorKind = "home" | "hospital" | "police" | "townhall" | "store";
@@ -20,8 +20,21 @@ const LAYOUTS: Record<InteriorKind, InteriorLayout> = {
   store: { kind: "store", halfW: 8, halfD: 6.5, height: 4.2, spawnZ: 4.8 },
 };
 
-export function interiorLayout(kind: InteriorKind) {
-  return LAYOUTS[kind];
+/**
+ * `luxury` is 0-1 and only affects homes: a studio and a penthouse should not be
+ * the same room. Everything else has a fixed layout.
+ */
+export function interiorLayout(kind: InteriorKind, luxury = 0): InteriorLayout {
+  const base = LAYOUTS[kind];
+  if (kind !== "home") return base;
+  const t = Math.max(0, Math.min(1, luxury));
+  return {
+    ...base,
+    halfW: base.halfW + t * 5,
+    halfD: base.halfD + t * 4,
+    height: base.height + t * 2.8,
+    spawnZ: base.spawnZ + t * 3.2,
+  };
 }
 
 export type SeatSpec = {
@@ -30,6 +43,40 @@ export type SeatSpec = {
   yaw: number;
   top: number;
 };
+
+/**
+ * Raised surfaces inside a building that can be stood on.
+ *
+ * Interior geometry is decoration - nothing in it collides - so a dais was
+ * something you walked through rather than up onto. These are the exceptions,
+ * in coordinates local to the interior, and the engine raises the floor to the
+ * highest one you are standing over.
+ */
+export type PlatformSpec = { x: number; z: number; halfW: number; halfD: number; top: number };
+
+export function interiorPlatforms(kind: InteriorKind): PlatformSpec[] {
+  if (kind === "townhall") {
+    // The speaker's dais: box("dais", [0, 0.28, -7.6], [10, 0.5, 5.2]).
+    // Centre y plus half its height is the surface you stand on.
+    return [{ x: 0, z: -7.6, halfW: 5, halfD: 2.6, top: 0.28 + 0.25 }];
+  }
+  return [];
+}
+
+/**
+ * Solid things inside a building, in local coordinates.
+ *
+ * Interior props are decoration by default. These are the ones tall enough that
+ * walking through them looks wrong - a desk you can stand inside is worse than
+ * no desk at all.
+ */
+export function interiorObstacles(kind: InteriorKind): PlatformSpec[] {
+  if (kind === "townhall") {
+    // box("desk", [0, 1.15, -6.6], [5.4, 1.3, 1.6]).
+    return [{ x: 0, z: -6.6, halfW: 2.7, halfD: 0.8, top: 1.8 }];
+  }
+  return [];
+}
 
 export function interiorSeats(kind: InteriorKind): SeatSpec[] {
   if (kind === "townhall") {
@@ -42,7 +89,6 @@ export function interiorSeats(kind: InteriorKind): SeatSpec[] {
         }
       }
     }
-    seats.push({ x: 0, z: -9.57, yaw: 0, top: 0.61 });
     return seats;
   }
   if (kind === "home") {
@@ -67,9 +113,15 @@ export function interiorSeats(kind: InteriorKind): SeatSpec[] {
   ];
 }
 
-export function fillInterior(root: pc.Entity, kind: InteriorKind, theme: CityTheme): InteriorLayout {
-  const layout = LAYOUTS[kind];
-  if (kind === "home") buildHome(root, layout, theme);
+export function fillInterior(
+  root: pc.Entity,
+  kind: InteriorKind,
+  theme: CityTheme,
+  luxury = 0,
+  grade = 0,
+): InteriorLayout {
+  const layout = interiorLayout(kind, luxury);
+  if (kind === "home") buildHome(root, layout, theme, grade);
   else if (kind === "hospital") buildHospital(root, layout);
   else if (kind === "police") buildPolice(root, layout);
   else if (kind === "store") buildStore(root, layout, theme);
@@ -119,37 +171,101 @@ function windowPane(root: pc.Entity, name: string, pos: [number, number, number]
   box(root, name, pos, size, "#C9E7F5", { emissive: "#E8F6FF", intensity: 1.6 });
 }
 
-function buildHome(root: pc.Entity, layout: InteriorLayout, theme: CityTheme) {
-  shell(root, layout, "#7A5A3A", "#EFE6D6", "#F7F1E6", "#D9C7A8");
-  omni(root, "lamp", [0, 2.8, 0], "#FFE6B8", 1.35, 14);
+/**
+ * A home's interior, scaled by what it cost.
+ *
+ * Big pieces are anchored to the walls rather than placed at fixed coordinates,
+ * so a larger room puts the bed and kitchen against its own walls instead of
+ * leaving them stranded in the middle. `grade` 0-3 then adds furnishings: a
+ * studio gets the basics, a penthouse gets the lot.
+ */
+function buildHome(root: pc.Entity, layout: InteriorLayout, theme: CityTheme, grade: number) {
+  const w = layout.halfW;
+  const d = layout.halfD;
+  // Warmer materials as the price climbs.
+  const floor = grade >= 3 ? "#5A4632" : grade >= 2 ? "#6B5038" : "#7A5A3A";
+  const trim = grade >= 2 ? "#E8DCC8" : "#D9C7A8";
+  shell(root, layout, floor, "#EFE6D6", "#F7F1E6", trim);
+  omni(root, "lamp", [0, layout.height - 0.8, 0], "#FFE6B8", 1.35 + grade * 0.25, 14 + grade * 5);
 
-  box(root, "rug", [0, 0.1, 0.2], [4.2, 0.06, 3.2], "#7A2E2E");
-  box(root, "sofa", [0, 0.55, -1.6], [3.4, 0.9, 1.1], "#3E5A4C");
-  box(root, "sofa-back", [0, 0.95, -2.05], [3.4, 0.7, 0.28], "#345043");
-  box(root, "table", [0, 0.32, -0.2], [1.6, 0.42, 0.9], "#5C3B22");
-  box(root, "tv-stand", [0, 0.38, 3.6], [2.4, 0.55, 0.55], "#2A2118");
-  box(root, "tv", [0, 1.15, 3.72], [1.8, 0.95, 0.12], "#111", { emissive: "#3A6EA5", intensity: 2.2 });
+  // The living area faces the far wall. You enter at +z, so a TV on that wall
+  // was the thing you walked into, with the sofa turned away from the room to
+  // watch it. Offsetting it sideways instead puts it inside the bed in a small
+  // home, so it moves across the room rather than along the wall.
+  const lx = 0;
 
-  box(root, "bed", [-4.1, 0.38, -2.4], [2.4, 0.5, 3.2], "#8B1E3F");
-  box(root, "mattress", [-4.1, 0.68, -2.4], [2.2, 0.22, 3], "#F3E7D3");
-  box(root, "pillow", [-4.1, 0.86, -3.5], [1.4, 0.22, 0.7], "#F8F4EC");
-  box(root, "night", [-2.7, 0.4, -3.6], [0.7, 0.7, 0.7], "#5C3B22");
-  box(root, "night-lamp", [-2.7, 0.9, -3.6], [0.22, 0.35, 0.22], "#FFE7A0", { emissive: "#FFE7A0", intensity: 3 });
+  box(root, "rug", [lx, 0.1, 0.2], [4.2 + grade, 0.06, 3.2 + grade * 0.6], grade >= 2 ? "#5B2333" : "#7A2E2E");
+  // Turned to face the far wall, since that is where the TV is now.
+  box(root, "sofa", [lx, 0.55, 1.6], [3.4, 0.9, 1.1], "#3E5A4C");
+  box(root, "sofa-back", [lx, 0.95, 2.05], [3.4, 0.7, 0.28], "#345043");
+  box(root, "table", [lx, 0.32, 0.2], [1.6, 0.42, 0.9], "#5C3B22");
 
-  box(root, "counter", [4.2, 0.7, -0.4], [2.2, 1.2, 3.6], "#D9C7A8");
-  box(root, "sink", [4.2, 1.34, -0.2], [1.1, 0.12, 0.7], "#C5D0D8");
-  box(root, "fridge", [4.35, 1.2, 2.2], [1.3, 2.2, 1.1], "#E8EEF2");
-  box(root, "fridge-handle", [3.68, 1.2, 2.2], [0.08, 0.7, 0.08], "#888");
-  box(root, "cabinets", [4.2, 2.55, -0.6], [2.1, 0.7, 2.8], "#C4A574");
+  // Wall-anchored, so they stay against the wall as the room grows.
+  box(root, "tv-stand", [lx, 0.38, -d + 1.4], [2.4 + grade * 0.4, 0.55, 0.55], "#2A2118");
+  box(root, "tv", [lx, 1.15, -d + 1.28], [1.8 + grade * 0.5, 0.95, 0.12], "#111", { emissive: "#3A6EA5", intensity: 2.2 });
 
-  windowPane(root, "win-e", [layout.halfW - 0.12, 1.7, -1.4], [0.08, 1.4, 2.2]);
-  windowPane(root, "win-w", [-layout.halfW + 0.12, 1.7, 1.1], [0.08, 1.4, 2.2]);
-  box(root, "plant-pot", [4.4, 0.28, 3.8], [0.45, 0.4, 0.45], "#6B3F24");
-  box(root, "plant", [4.4, 0.85, 3.8], [0.7, 0.8, 0.7], "#2F9E44");
-  box(root, "accent-art", [0, 2.2, -layout.halfD + 0.14], [1.6, 1.1, 0.08], theme.accent, {
+  box(root, "bed", [-(w - 1.9), 0.38, -2.4], [2.4, 0.5, 3.2], "#8B1E3F");
+  box(root, "mattress", [-(w - 1.9), 0.68, -2.4], [2.2, 0.22, 3], "#F3E7D3");
+  box(root, "pillow", [-(w - 1.9), 0.86, -3.5], [1.4, 0.22, 0.7], "#F8F4EC");
+  box(root, "night", [-(w - 3.3), 0.4, -3.6], [0.7, 0.7, 0.7], "#5C3B22");
+  box(root, "night-lamp", [-(w - 3.3), 0.9, -3.6], [0.22, 0.35, 0.22], "#FFE7A0", { emissive: "#FFE7A0", intensity: 3 });
+
+  box(root, "counter", [w - 1.8, 0.7, -0.4], [2.2, 1.2, 3.6], trim);
+  box(root, "sink", [w - 1.8, 1.34, -0.2], [1.1, 0.12, 0.7], "#C5D0D8");
+  box(root, "fridge", [w - 1.65, 1.2, 2.2], [1.3, 2.2, 1.1], "#E8EEF2");
+  box(root, "fridge-handle", [w - 2.32, 1.2, 2.2], [0.08, 0.7, 0.08], "#888");
+  box(root, "cabinets", [w - 1.8, 2.55, -0.6], [2.1, 0.7, 2.8], grade >= 2 ? "#C9A227" : "#C4A574");
+
+  windowPane(root, "win-e", [w - 0.12, 1.7, -1.4], [0.08, 1.4, 2.2]);
+  windowPane(root, "win-w", [-w + 0.12, 1.7, 1.1], [0.08, 1.4, 2.2]);
+  box(root, "plant-pot", [w - 1.6, 0.28, d - 1.2], [0.45, 0.4, 0.45], "#6B3F24");
+  box(root, "plant", [w - 1.6, 0.85, d - 1.2], [0.7, 0.8, 0.7], "#2F9E44");
+  // Offset to the other side of the far wall, clear of the TV.
+  box(root, "accent-art", [2.8, 2.2, -d + 0.14], [1.6, 1.1, 0.08], theme.accent, {
     emissive: theme.accent,
     intensity: 0.8,
   });
+
+  // A flat: a proper dining set and more light.
+  if (grade >= 1) {
+    box(root, "dine-table", [-(w - 2.2), 0.72, d - 2.6], [2.2, 0.16, 1.4], "#6B4F32");
+    for (const side of [-1, 1]) {
+      box(root, `dine-leg-${side}`, [-(w - 2.2) + side * 0.9, 0.36, d - 2.6], [0.16, 0.72, 0.16], "#4A3524");
+      box(root, `dine-chair-${side}`, [-(w - 2.2) + side * 1.5, 0.45, d - 2.6], [0.6, 0.9, 0.6], "#5C3B22");
+    }
+    box(root, "shelf", [-w + 0.3, 1.6, 2.4], [0.4, 2.4, 2.6], "#5C3B22");
+    // Beside the TV rather than behind it.
+    windowPane(root, "win-n", [2.8, 1.9, -d + 0.12], [2.6, 1.8, 0.08]);
+  }
+
+  // A house: a hearth, a rug runner, better lighting.
+  if (grade >= 2) {
+    box(root, "hearth", [-(w - 0.5), 1.1, 2.6], [0.8, 2.2, 3.2], "#6E6A66");
+    box(root, "fire", [-(w - 0.9), 0.7, 2.6], [0.14, 0.9, 1.8], "#FF7A2F", { emissive: "#FF7A2F", intensity: 3.2 });
+    omni(root, "lamp-2", [w - 2.4, layout.height - 1.2, d - 2.4], "#FFE6B8", 1.1, 11);
+    box(root, "chandelier", [0, layout.height - 0.55, 0], [1.8, 0.28, 1.8], "#E8DCC8", {
+      emissive: "#FFE7A0",
+      intensity: 2.4,
+    });
+  }
+
+  // A penthouse: a glass wall, a bar, gold everywhere.
+  if (grade >= 3) {
+    windowPane(root, "win-wall", [0, layout.height / 2, d - 0.12], [w * 1.6, layout.height - 1.2, 0.08]);
+    box(root, "bar", [w - 2.2, 0.6, -d + 2.2], [3.2, 1.2, 1.1], "#3A2A1C");
+    box(root, "bar-top", [w - 2.2, 1.24, -d + 2.2], [3.4, 0.12, 1.3], "#C9A227");
+    for (const i of [-1, 0, 1]) {
+      box(root, `stool-${i}`, [w - 2.2 + i * 1.0, 0.5, -d + 3.6], [0.4, 1, 0.4], "#5C3B22");
+    }
+    box(root, "art-gold", [-2.6, 2.4, -d + 0.14], [1.2, 1.6, 0.08], "#C9A227", {
+      emissive: "#C9A227",
+      intensity: 1.2,
+    });
+    box(root, "art-gold-2", [2.6, 2.4, -d + 0.14], [1.2, 1.6, 0.08], "#C9A227", {
+      emissive: "#C9A227",
+      intensity: 1.2,
+    });
+  }
 }
 
 function buildHospital(root: pc.Entity, layout: InteriorLayout) {
@@ -247,12 +363,10 @@ function buildTownhall(root: pc.Entity, layout: InteriorLayout, theme: CityTheme
   }
 
   box(root, "dais", [0, 0.28, -7.6], [10, 0.5, 5.2], "#B7A48A");
-  box(root, "desk", [0, 1.15, -8.4], [5.4, 1.3, 1.6], "#6B4F32");
-  box(root, "desk-gold", [0, 1.82, -8.4], [5.6, 0.1, 1.7], "#C9A227");
-  box(root, "chair-seat", [0, 0.52, -9.45], [1.15, 0.18, 1.05], "#5C1A1A");
-  box(root, "chair-back", [0, 1.15, -9.88], [1.15, 1.1, 0.18], "#5C1A1A");
-  box(root, "chair-arm-l", [-0.58, 0.72, -9.45], [0.14, 0.5, 0.95], "#4A1515");
-  box(root, "chair-arm-r", [0.58, 0.72, -9.45], [0.14, 0.5, 0.95], "#4A1515");
+  // Desk near the front of the dais, with the chair gone: the speaker stands
+  // behind it to address the room, so the space behind matters more than a seat.
+  box(root, "desk", [0, 1.15, -6.6], [5.4, 1.3, 1.6], "#6B4F32");
+  box(root, "desk-gold", [0, 1.82, -6.6], [5.6, 0.1, 1.7], "#C9A227");
   box(root, "seal", [0, 4.6, -layout.halfD + 0.16], [2.4, 2.4, 0.1], theme.accent, {
     emissive: theme.accent,
     intensity: 1.4,

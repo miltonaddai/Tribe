@@ -1,11 +1,11 @@
-import type { CharacterRecord, GameSettings, WalletChainId } from "@the-block/shared";
-import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@the-block/shared";
+import type { CharacterRecord, GameSettings, WalletChainId } from "@tribe/shared";
+import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@tribe/shared";
 
-const CHAR = "the-block:character";
-const SETTINGS = "the-block:settings";
+const CHAR = "tribe:character";
+const SETTINGS = "tribe:settings";
 
 function normalizeWallet(address: string, chain?: WalletChainId) {
-  if (chain === "robinhood-testnet" || address.startsWith("0x")) return address.toLowerCase();
+  if (chain === "robinhood" || address.startsWith("0x")) return address.toLowerCase();
   return address;
 }
 
@@ -30,7 +30,7 @@ function parseCharacter(raw: unknown): CharacterRecord | null {
       shoe: parseShoe(parsed.shoe),
       shoeColor: parseHexColor(parsed.shoeColor, "#111111"),
       brokemeter: Number.isFinite(Number(parsed.brokemeter)) ? Math.min(100, Math.max(0, Number(parsed.brokemeter))) : 100,
-      credits: Number.isFinite(parsed.credits) ? parsed.credits : 500,
+      tribute: Number.isFinite(parsed.tribute) ? parsed.tribute : 0,
       inventory: seedInventory(accessories, parsed.inventory),
       equippedGun: isGunId(String(parsed.equippedGun ?? "")) ? parsed.equippedGun : null,
       equippedPet: isPetId(String(parsed.equippedPet ?? "")) ? parsed.equippedPet : null,
@@ -97,15 +97,48 @@ export function saveSettings(settings: GameSettings) {
   localStorage.setItem(SETTINGS, JSON.stringify(settings));
 }
 
-export async function persistCharacter(record: CharacterRecord, chain: WalletChainId) {
+/**
+ * Returns null on success, or a message to show the player.
+ *
+ * Names are unique, so this can legitimately refuse - and the caller must not
+ * save locally until it succeeds, or the browser ends up holding a name the
+ * server rejected.
+ */
+export async function persistCharacter(
+  record: CharacterRecord,
+  chain: WalletChainId,
+): Promise<string | null> {
   try {
-    await fetch("/api/characters", {
+    const res = await fetch("/api/characters", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...record, chain }),
     });
+    if (res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return body?.error ?? "Could not save your character.";
   } catch {
-    // Keep the local copy even if Supabase is down.
+    // Offline or the backend is down. The local copy still stands, and the name
+    // is checked again on the next successful save.
+    return null;
+  }
+}
+
+/** Live uniqueness check for the create page. */
+export async function checkNameAvailable(
+  name: string,
+  address: string,
+  chain: WalletChainId,
+): Promise<{ available: boolean; reason: string | null }> {
+  try {
+    const params = new URLSearchParams({ name, address, chain });
+    const res = await fetch(`/api/names/check?${params}`);
+    if (!res.ok) return { available: true, reason: null };
+    const body = (await res.json()) as { available: boolean; reason: string | null };
+    return body;
+  } catch {
+    // Do not block character creation because the check could not run.
+    return { available: true, reason: null };
   }
 }
 

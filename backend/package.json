@@ -1,5 +1,5 @@
 {
-  "name": "the-block-backend",
+  "name": "tribe-backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "@colyseus/schema": "^5.0.32",
     "@colyseus/ws-transport": "0.18.2",
     "@supabase/supabase-js": "^2.49.1",
-    "@the-block/shared": "file:../shared",
+    "@tribe/shared": "file:../shared",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

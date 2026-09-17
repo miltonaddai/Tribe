@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { CITIES, CITY_ORDER } from "@the-block/shared";
+import { CURRENCY, CITIES, CITY_ORDER } from "@tribe/shared";
 import { Header } from "../components/Header";
 
 const SECTIONS = [
@@ -48,7 +48,7 @@ export function DocsPage() {
         ))}
       </aside>
       <main className="docs-main">
-        <p className="docs-crumb">THE BLOCK — DOCS</p>
+        <p className="docs-crumb">TRIBE — DOCS</p>
         {body}
       </main>
     </div>
@@ -61,7 +61,7 @@ function content(id: string) {
       <>
         <h1>Overview</h1>
         <p>
-          The Block is a crypto-native social city. You do not rent an apartment from a studio. You connect a
+          Tribe is a crypto-native social city. You do not rent an apartment from a studio. You connect a
           wallet, mint a look, and drop into a district that already knows what kind of bag you showed up with.
           Native Crypto Twitter language shapes the four cities — Trench City, Gas City, The Real World, and
           Valhalla — each with its own sky, architecture, vehicles, and temperament.
@@ -73,7 +73,7 @@ function content(id: string) {
           whoever is standing on the same sidewalk.
         </p>
         <p>
-          Under the jokes, The Block is a live multiplayer street. Citizens walk, drive, duck into buildings,
+          Under the jokes, Tribe is a live multiplayer street. Citizens walk, drive, duck into buildings,
           whisper when they get close, and keep their health off empty. The map is one connected world
           — four districts around a gated plaza — so a Valhalla whale can slum it in the Trench, but a trenchrat
           cannot stroll into gold towers until they have put in the work.
@@ -82,7 +82,7 @@ function content(id: string) {
         <ul>
           <li>Walk the grid, hop a car, and learn the four civic buildings in every city.</li>
           <li>Talk in city chat, or press Enter next to someone for a real-time whisper.</li>
-          <li>Press I for inventory. Walk into a Store to buy guns, accessories, pets, and crates.</li>
+          <li>Press I for inventory. Walk into a Store to buy guns, accessories, and pets.</li>
           <li>Punch other citizens with F or a left click. Walk into a hospital to refill health.</li>
           <li>Climb districts the long way. Wallet size only picks your first spawn.</li>
           <li>Lighting follows your local clock: day outside is day in-game, night is night. Override it in Settings.</li>
@@ -260,8 +260,8 @@ function content(id: string) {
             of it, depending on the city.
           </li>
           <li>
-            <strong>Store</strong> — shelves, a till, neon. Buy guns, accessories, pets, and crates with
-            credits. Press I while you are inside.
+            <strong>Store</strong> — shelves, a till, neon. Buy guns, accessories, and pets with{" "}
+            {CURRENCY}. Press I while you are inside.
           </li>
         </ul>
       </>
@@ -312,7 +312,7 @@ function content(id: string) {
 
       <h2>Get in</h2>
       <ol className="docs-ol">
-        <li>Hit Start Playing and connect an EVM wallet on Robinhood Chain Testnet.</li>
+        <li>Hit Start Playing and connect an EVM wallet on Robinhood Chain.</li>
         <li>Build a look — name, clothes, shoes, a little headwear if you have taste.</li>
         <li>Spawn in your home city. The stamp on your passport is the wallet balance at sign-in.</li>
       </ol>
@@ -387,8 +387,8 @@ function content(id: string) {
           <strong>Police Station</strong> — glass desk, lockers, a cell with bars. Do not live there.
         </li>
         <li>
-          <strong>Store</strong> — neon awning, glass front. Press I inside to buy guns, accessories, pets,
-          and Mystery Crates with credits.
+          <strong>Store</strong> — neon awning, glass front. Press I inside to buy guns, accessories, and
+          pets with {CURRENCY}.
         </li>
       </ul>
       <p>

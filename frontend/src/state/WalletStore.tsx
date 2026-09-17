@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { DEFAULT_CHAIN, type WalletChainId } from "@the-block/shared";
+import { DEFAULT_CHAIN, type WalletChainId } from "@tribe/shared";
 import { listEvmWallets, onEvmWalletsChange, type DetectedWallet } from "../lib/evmWallets";
 import { loadCharacterForWallet } from "../lib/storage";
 import { clearWallet, connectChain, disconnectWallets, loadWallet, type WalletState } from "../lib/wallet";
@@ -103,7 +103,7 @@ function WalletPicker() {
         </div>
 
         <p className="wallet-lede">
-          Approve the connection and sign the message. You will be switched to Robinhood Chain Testnet
+          Approve the connection and sign the message. You will be switched to Robinhood Chain
           automatically.
         </p>
 
@@ -120,7 +120,7 @@ function WalletPicker() {
                 <WalletGlyph name={w.name} icon={w.icon} />
                 <span className="wallet-option-copy">
                   <strong>{w.name}</strong>
-                  <span>{connecting === w.id ? "Check your wallet…" : "Robinhood Chain Testnet"}</span>
+                  <span>{connecting === w.id ? "Check your wallet…" : "Robinhood Chain"}</span>
                 </span>
               </button>
             ) : (

@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@the-block/shared";
+import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@tribe/shared";
 import { isDevToolsEnabled } from "../lib/devTools";
 import { connectDemo } from "../lib/wallet";
 import { loadCharacter, saveCharacter } from "../lib/storage";
 import { useWallet } from "../state/WalletStore";
 
 const LOOKS: Record<CityId, { outfit: OutfitId; headwear: HeadwearId; name: string; balance: number }> = {
-  trench: { outfit: "hi-vis", headwear: "hardhat", name: "trenchrat", balance: 0.001 },
-  gas: { outfit: "hoodie", headwear: "beanie", name: "gasser", balance: 0.006 },
-  realworld: { outfit: "neon", headwear: "cap", name: "realone", balance: 0.011 },
-  valhalla: { outfit: "gold", headwear: "crown", name: "valhallan", balance: 0.02 },
+  trench: { outfit: "hi-vis", headwear: "hardhat", name: "trenchrat", balance: 0 },
+  gas: { outfit: "hoodie", headwear: "beanie", name: "gasser", balance: 150_000 },
+  realworld: { outfit: "neon", headwear: "cap", name: "realone", balance: 500_000 },
+  valhalla: { outfit: "gold", headwear: "crown", name: "valhallan", balance: 2_000_000 },
 };
 
 const PAGES = [
@@ -51,7 +51,7 @@ export function DevLauncher() {
       homeCity: city,
       accessTier: CITIES[city].tier,
       brokemeter: 100,
-      credits: existing?.credits ?? 500,
+      tribute: existing?.tribute ?? 0,
       inventory: existing?.inventory ?? seedInventory(existing?.accessories ?? []),
       equippedGun: existing?.equippedGun ?? null,
       equippedPet: existing?.equippedPet ?? null,

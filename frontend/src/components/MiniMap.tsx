@@ -1,3 +1,4 @@
+import { CarMarker, HomeMarker } from "./ItemArt";
 import {
   CITIES,
   CITY_BOUNDS,
@@ -9,7 +10,7 @@ import {
   lotCentre,
   parseHomeId,
   type CityId,
-} from "@the-block/shared";
+} from "@tribe/shared";
 import type { MapCitizen, OwnedCar, OwnedHome } from "../game/engine";
 
 const W = 218;
@@ -139,22 +140,15 @@ export function MiniMap({
           if (!visible(c.x, c.z)) return null;
           return (
             <g key={home.id} transform={`translate(${px(c.x)} ${pz(c.z)})`}>
-              <path d="M0 -5 L5 0 L0 5 L-5 0 Z" fill={theme.accent} stroke="#000" strokeWidth="0.6" />
+              <HomeMarker accent={theme.accent} />
             </g>
           );
         })}
         {cars.map((car) =>
           car.city === city && visible(car.x, car.z) ? (
-            <rect
-              key={car.id}
-              x={px(car.x) - 2.6}
-              y={pz(car.z) - 2.6}
-              width="5.2"
-              height="5.2"
-              fill={car.color}
-              stroke="#000"
-              strokeWidth="0.6"
-            />
+            <g key={car.id} transform={`translate(${px(car.x)} ${pz(car.z)})`}>
+              <CarMarker color={car.color} size={0.85} />
+            </g>
           ) : null,
         )}
 

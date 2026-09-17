@@ -13,11 +13,16 @@ export function openingBid() {
   return Math.max(1, envNumber("HOME_OPENING_BID", 250));
 }
 
-export const MIN_ASKING_PRICE = 1;
+/**
+ * Floor on a home listing, in Tribute. 1,000 Tribute is $1 at a $1M cap, so this
+ * is a $1 floor: high enough that a listing costs something to make, low enough
+ * not to price anyone out of selling.
+ */
+export const MIN_ASKING_PRICE = 1_000;
 
 /**
  * Sellers name any price they like — there is deliberately no ceiling. The
- * only limit is CREDIT_CAP, which is what a wallet can physically hold.
+ * only limit is TRIBUTE_CAP, which is what a wallet can physically hold.
  */
 export function clampAskingPrice(value: unknown) {
   const n = Math.round(Number(value));
@@ -69,4 +74,4 @@ export function nextBidFor(highBid: number, live: boolean, askingPrice = 0) {
  * a real membership test now — the server derives the same lot set the client
  * builds, so a junk id can no longer open an auction row.
  */
-export { isHomeId } from "@the-block/shared";
+export { isHomeId } from "@tribe/shared";

@@ -1,6 +1,8 @@
 import * as pc from "playcanvas";
 import { getStateCallbacks, type Room } from "@colyseus/sdk";
-import {
+import { CURRENCY,
+  homePrice,
+  parseHomeId,
   CITIES,
   CITY_BOUNDS,
   addItem,
@@ -29,12 +31,14 @@ import {
   type InventoryStack,
   type ItemId,
   type PetId,
-} from "@the-block/shared";
+} from "@tribe/shared";
 import { joinWorld, type JoinFailure } from "../lib/colyseus";
 import { loadCharacter, saveCharacter } from "../lib/storage";
 import { loadWallet } from "../lib/wallet";
-import { VoiceChat } from "../lib/voiceChat";
-import { createPcApp, destroyPcApp, hitsAabb, material, setCycleGlow } from "./pcApp";
+import { VoiceChat, loadOutputDevice, saveOutputDevice } from "../lib/voiceChat";
+import { payForPurchase, paymentsRequired } from "../lib/payments";
+import { playGunshot, setSfxVolume } from "../lib/sfx";
+import { createPcApp, destroyPcApp, entityYaw, hitsAabb, material, setCycleGlow } from "./pcApp";
 import { createCitizen, setCitizenDetail, type Appearance } from "./character";
 import { createVehicle } from "./vehicles";
 import { applyAimPose, applyCitizenMotion } from "./motion";
@@ -47,7 +51,28 @@ const VOICE_RANGE = 22;
 const NAMETAG_RANGE = 48;
 const HOME_BID_RANGE = 13;
 /** Past this, a remote player is not drawn at all. */
+/** Real lights near the player. Fixed count, so cost does not scale with the city. */
+const LAMP_LIGHTS = 5;
+const LAMP_RANGE = 14;
+/** Tallest rise you can walk straight up without jumping. */
+const STEP_UP = 0.75;
 const REMOTE_RENDER_RANGE = 70;
+/**
+ * Remote positions arrive at the 20Hz patch rate but we draw at 60Hz or more, so
+ * most frames see no change at all. Hold the walk cycle across the gap, or the
+ * body drops back to idle between updates and the limbs stutter.
+ */
+const REMOTE_WALK_HOLD_MS = 160;
+/** How fast a remote body closes on its last known position. */
+const REMOTE_LERP = 12;
+/** Past this a move is a teleport - spawn, a door, leaving a car - so snap. */
+const REMOTE_SNAP = 4;
+
+/** Cars travel further per patch than people, so they need more room before a snap. */
+const VEHICLE_SNAP = 12;
+const VEHICLE_LERP = 14;
+/** Degrees of wheel spin per unit travelled, matching the car you drive yourself. */
+const WHEEL_ROLL = 36;
 /** Cosmetic detail is culled between these two, with a gap so it cannot flicker. */
 const DETAIL_ON_RANGE = 26;
 const DETAIL_OFF_RANGE = 34;
@@ -110,6 +135,7 @@ export type OwnedCar = { id: string; kind: string; color: string; city: string; 
 
 export type OwnedHome = {
   id: string;
+  name: string;
   city: string;
   lastPrice: number;
   forSale: boolean;
@@ -124,6 +150,7 @@ export type HomeInfo = {
   city: string;
   owner: string;
   ownerName: string;
+  name: string;
   forSale: boolean;
   lastPrice: number;
   askingPrice: number;
@@ -182,7 +209,7 @@ export type HudState = {
   chat: { name: string; text: string }[];
   citizens: MapCitizen[];
   connected: boolean;
-  credits: number;
+  tribute: number;
   inventory: InventoryStack[];
   inStore: boolean;
   gun: GunId | null;
@@ -190,8 +217,11 @@ export type HudState = {
   accessories: string[];
   pendingTrade: { fromSession: string; fromName: string; item: string } | null;
   voiceLevel: number;
+  /** Loudest nearby player, 0-1, measured off the audio actually arriving. */
+  nearbyVoiceLevel: number;
   notice: string | null;
   listPrompt: { id: string; suggested: number; suggestedMinutes: number } | null;
+  namePrompt: { id: string; current: string } | null;
   offerPrompt: { id: string; bid: number; bidder: string; decideBy: number } | null;
   messages: PlayerMessage[];
   unreadMessages: number;
@@ -216,6 +246,15 @@ type VehicleHandle = {
   entity: pc.Entity;
   driver: string;
   kind: string;
+  /** Where the network says a car someone else is driving should be. */
+  target?: { x: number; z: number; rotY: number };
+  /**
+   * Eased heading in radians, kept as a number on purpose. getEulerAngles() is
+   * not the inverse of setEulerAngles(0, y, 0): past +-90 degrees it returns the
+   * same orientation expressed with x and z at 180 and a different y, so easing
+   * against a value read back from the entity never converges.
+   */
+  yaw?: number;
 };
 
 type KnockdownState = {
@@ -294,9 +333,22 @@ export class GameEngine {
   private vy = 0;
   private grounded = true;
   private remoteLast = new Map<string, { x: number; z: number }>();
+  private remoteMoveUntil = new Map<string, number>();
+  private lampLights: pc.Entity[] = [];
+  private lampSyncAt = 0;
+  /** True while a wallet prompt is open, so one click cannot open two. */
+  private paying = false;
+  private pendingHomeName: { id: string; current: string } | null = null;
+  private fleetSold = 0;
+  private fleetCap = 0;
+  private pointerLocked = false;
+  /** A panel is open, so the cursor belongs to the UI, not to aiming. */
+  private uiOpen = false;
+  private rightHeld = false;
+  private remoteYaw = new Map<string, number>();
   private localName = "citizen";
   private look: Appearance | null = null;
-  private credits = 500;
+  private tribute = 0;
   private homes = new Map<string, HomeInfo>();
   private homeOpeningBid = 250;
   private homeBidIncrement = 50;
@@ -332,6 +384,7 @@ export class GameEngine {
     onHud: (s: HudState) => void,
   ) {
     this.settings = settings;
+    setSfxVolume(settings.masterVolume, settings.sfx);
     this.onHud = onHud;
     this.accessTier = character.accessTier;
     this.city = character.homeCity;
@@ -339,7 +392,9 @@ export class GameEngine {
     this.lastHealth = this.health;
     this.localName = character.displayName || "citizen";
     this.look = { ...appearanceOf(character), gun: character.equippedGun };
-    this.credits = Number.isFinite(character.credits) ? character.credits : 500;
+    // A cached figure so the HUD is not blank offline. The server overwrites it
+    // with the wallet's real balance as soon as the room sends a bag.
+    this.tribute = Number.isFinite(character.tribute) ? character.tribute : 0;
     this.inventory = seedInventory(character.accessories, character.inventory);
     this.gun = character.equippedGun ?? null;
     this.petKind = character.equippedPet ?? null;
@@ -394,7 +449,7 @@ export class GameEngine {
       accessories: (character.accessories ?? []).join(","),
       health: this.health,
       brokemeter: this.health,
-      credits: this.credits,
+      tribute: this.tribute,
       inventory: encodeInventory(this.inventory),
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
@@ -413,6 +468,7 @@ export class GameEngine {
   setSettings(settings: GameSettings) {
     this.settings = settings;
     this.lastCycle = -1;
+    setSfxVolume(settings.masterVolume, settings.sfx);
     if (this.camera?.camera) this.camera.camera.farClip = 70 + settings.renderDistance * 2.6;
   }
 
@@ -451,6 +507,24 @@ export class GameEngine {
     this.voice?.disable();
   }
 
+  /** Persisted even with no room, so the choice survives until voice is enabled. */
+  async setAudioOutput(deviceId: string) {
+    if (this.voice) await this.voice.setOutputDevice(deviceId);
+    else saveOutputDevice(deviceId);
+  }
+
+  audioOutput() {
+    return this.voice?.outputDevice() ?? loadOutputDevice();
+  }
+
+  /** Nearby voice peers with names resolved, for the audio menu's diagnostics. */
+  voiceDiagnostics() {
+    return (this.voice?.diagnostics() ?? []).map((peer) => ({
+      ...peer,
+      name: this.remoteState.get(peer.sessionId)?.name ?? "Citizen",
+    }));
+  }
+
   sendTrade(toSession: string, item: string) {
     if (!isItemId(item) || !hasItem(this.inventory, item)) return;
     this.room?.send("trade-request", { toSession, item });
@@ -465,25 +539,77 @@ export class GameEngine {
     this.pendingTrade = null;
   }
 
-  buyItem(id: ItemId) {
+  /**
+   * Buys a catalog item.
+   *
+   * These checks are only here to avoid opening a wallet prompt that is certain
+   * to fail - the server repeats every one of them and is what actually grants
+   * the item. It used to add the item to the bag itself, which made the store
+   * free to anyone willing to edit a number.
+   */
+  async buyItem(id: ItemId): Promise<string | null> {
     if (this.inBuilding?.interiorKind !== "store") return "Walk into a Store to buy.";
     const item = catalogItem(id);
     if (!item) return "Unknown item.";
     if (item.tier > this.accessTier) return `Needs tier ${item.tier}.`;
-    if (this.credits < item.price) return "Not enough credits.";
+    if (this.tribute < item.price) return `Not enough ${CURRENCY}.`;
     if (item.unique && hasItem(this.inventory, item.id)) return "You already own that.";
-    this.credits -= item.price;
-    this.inventory = addItem(this.inventory, item.id);
-    this.persistBag();
-    this.gateMessage = `Bought ${item.name}.`;
-    this.gateUntil = performance.now() + 2200;
-    return null;
+    if (this.paying) return null;
+
+    if (!(await paymentsRequired())) {
+      this.room?.send("buy-item", { id: item.id });
+      return null;
+    }
+    if (!this.wallet) return "Connect a wallet to buy anything.";
+
+    this.paying = true;
+    this.setNotice(`Confirm ${item.price} ${CURRENCY} in your wallet…`);
+    try {
+      const paid = await payForPurchase(this.wallet, item.price);
+      if (!paid.ok) return paid.reason || "Purchase cancelled.";
+      this.setNotice("Payment sent, confirming…");
+      this.room?.send("buy-item", { id: item.id, txHash: paid.txHash });
+      return null;
+    } finally {
+      this.paying = false;
+    }
+  }
+
+/** A ranged weapon is out, so the mouse should be aiming it. */
+  private rangedOut() {
+    return Boolean(gunSpec(this.gun)?.ranged) && this.health > 0;
+  }
+
+  /** Hands the cursor back - for opening a panel, or putting the gun away. */
+  releaseAim() {
+    this.rightHeld = false;
+    this.looking = false;
+    if (this.canvas && document.pointerLockElement === this.canvas) document.exitPointerLock();
+  }
+
+  /** Panels own the cursor while they are open; aiming resumes when they close. */
+  setUiOpen(open: boolean) {
+    this.uiOpen = open;
+    if (open) this.releaseAim();
+  }
+
+  /**
+   * Takes the cursor for aiming, if a weapon is out and nothing else wants it.
+   *
+   * Pointer lock needs a user gesture, but it does not need a click - any
+   * keypress will do, and players are holding a movement key within a moment of
+   * drawing a weapon. So aiming engages on its own without anyone clicking.
+   */
+  private captureAim() {
+    if (this.uiOpen || this.pointerLocked || !this.rangedOut()) return;
+    if (!this.canvas) return;
+    void this.canvas.requestPointerLock()?.catch?.(() => undefined);
   }
 
   equipItem(id: ItemId) {
     if (!hasItem(this.inventory, id)) return;
     const item = catalogItem(id);
-    if (!item || item.kind === "crate") return;
+    if (!item) return;
     if (item.kind === "accessory") {
       const current = this.look?.accessories ?? [];
       const aid = id as AccessoryId;
@@ -496,6 +622,10 @@ export class GameEngine {
       this.gun = this.gun === id ? null : (id as GunId);
       if (this.look) this.look.gun = this.gun;
       this.refreshLook();
+      // Drawing a weapon starts aiming right away where it can; putting one
+      // away hands the cursor back, or it stays trapped with nothing to aim.
+      if (this.rangedOut()) this.captureAim();
+      else this.releaseAim();
       return;
     }
     this.petKind = this.petKind === id ? null : (id as PetId);
@@ -517,12 +647,16 @@ export class GameEngine {
     if (!near || !this.player) return;
     if (near.kind === "vehicle") this.enterVehicle(near.id);
     if (near.kind === "door") this.enterBuilding(near);
-    if (near.kind === "buy-car") this.buyCar(near);
+    if (near.kind === "buy-car") void this.buyCar(near);
   }
 
   dispose() {
     for (const parked of this.remotePool.values()) parked.entity.destroy();
     this.remotePool.clear();
+    // Parented to app.root rather than the world entity, so they need clearing
+    // here or a second start would stack another set of lights on the scene.
+    for (const light of this.lampLights) light.destroy();
+    this.lampLights = [];
     this.unbind.forEach((fn) => fn());
     this.unbind = [];
     this.voice?.dispose();
@@ -544,8 +678,9 @@ export class GameEngine {
         if (mapped === "e" && !e.repeat) this.interact();
         if (mapped === "c" && !e.repeat) this.toggleSit();
         if (mapped === "f" && !e.repeat) this.tryPunch();
-        if (mapped === "b" && !e.repeat) this.tryBid();
+        if (mapped === "b" && !e.repeat) void this.tryBuyHome();
         if (mapped === "l" && !e.repeat) this.toggleLock();
+        if (mapped === "h" && !e.repeat) this.promptHomeName();
         if (mapped === "g" && !e.repeat) this.addFriend();
         if (mapped in { w: 1, a: 1, s: 1, d: 1, " ": 1, shift: 1, arrowup: 1, arrowdown: 1, arrowleft: 1, arrowright: 1 }) {
           e.preventDefault();
@@ -555,21 +690,39 @@ export class GameEngine {
     const up = (e: KeyboardEvent) => {
       this.keys.delete(MOVE_KEYS[e.code] ?? e.key.toLowerCase());
     };
+    // Keydown is a user gesture, which is all pointer lock requires. Walking
+    // with a gun out is enough to start aiming - no click needed.
+    const onKeyAim = () => this.captureAim();
     const onContext = (e: Event) => e.preventDefault();
     const onMouseDown = (e: MouseEvent) => {
       if (e.button === 0) {
-        if (e.target === canvas) this.tryPunch();
+        if (e.target !== canvas) return;
+        // Aiming normally engages on its own from a keypress. If the cursor is
+        // somehow loose - the player pressed Escape, say - take it back here,
+        // and still fire: a click with a gun raised should never do nothing.
+        if (this.rangedOut() && !this.pointerLocked) this.captureAim();
+        this.tryPunch();
         return;
       }
       if (e.button !== 2) return;
       e.preventDefault();
+      this.rightHeld = true;
       this.looking = true;
       void canvas?.requestPointerLock();
     };
     const onMouseUp = (e: MouseEvent) => {
       if (e.button !== 2) return;
+      this.rightHeld = false;
+      // An armed player keeps the pointer: they are still aiming.
+      if (this.rangedOut() && this.pointerLocked) return;
       this.looking = false;
       if (canvas && document.pointerLockElement === canvas) document.exitPointerLock();
+    };
+    // The browser can drop the lock on its own - Escape, tab-out, a UI panel -
+    // so the aiming flag follows the real lock state rather than guessing.
+    const onLockChange = () => {
+      this.pointerLocked = document.pointerLockElement === canvas;
+      this.looking = this.pointerLocked || this.rightHeld;
     };
     const onMouseMove = (e: MouseEvent) => {
       if (!this.looking) return;
@@ -579,15 +732,19 @@ export class GameEngine {
       this.pitch = Math.max(lo, Math.min(hi, this.pitch - e.movementY * 0.002));
     };
     window.addEventListener("keydown", down);
+    window.addEventListener("keydown", onKeyAim);
     window.addEventListener("keyup", up);
     window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("pointerlockchange", onLockChange);
     canvas?.addEventListener("contextmenu", onContext);
     canvas?.addEventListener("mousedown", onMouseDown);
     this.unbind.push(() => window.removeEventListener("keydown", down));
+    this.unbind.push(() => window.removeEventListener("keydown", onKeyAim));
     this.unbind.push(() => window.removeEventListener("keyup", up));
     this.unbind.push(() => window.removeEventListener("mouseup", onMouseUp));
     this.unbind.push(() => window.removeEventListener("mousemove", onMouseMove));
+    this.unbind.push(() => document.removeEventListener("pointerlockchange", onLockChange));
     this.unbind.push(() => canvas?.removeEventListener("contextmenu", onContext));
     this.unbind.push(() => canvas?.removeEventListener("mousedown", onMouseDown));
   }
@@ -639,7 +796,7 @@ export class GameEngine {
       this.gateMessage = msg.accept ? "Trade completed." : "Trade declined.";
       this.gateUntil = performance.now() + 2200;
     });
-    room.onMessage("bag-sync", (msg: { inventory?: string; credits?: number; gun?: string; pet?: string; accessories?: string }) => {
+    room.onMessage("bag-sync", (msg: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string }) => {
       this.applyBag(msg);
     });
 
@@ -675,12 +832,16 @@ export class GameEngine {
       this.ownedCars.delete(vehicleId);
       this.vehicleOwners.delete(vehicleId);
       this.vehicleLocks.delete(vehicleId);
+      // Or the prompt outlives the car and E puts you in a vehicle that is gone.
+      const list = this.world?.interactables;
+      const at = list?.findIndex((item) => item.kind === "vehicle" && item.id === vehicleId) ?? -1;
+      if (list && at >= 0) list.splice(at, 1);
     });
 
     room.onMessage("home-result", (msg: { ok?: boolean; reason?: string; bid?: number; listed?: boolean }) => {
       // Rejections are transient feedback; the successes arrive as inbox messages.
       if (!msg.ok) this.setNotice(msg.reason ?? "Rejected");
-      else if (typeof msg.bid === "number") this.setNotice(`Bid placed — ${msg.bid} credits`);
+      else if (typeof msg.bid === "number") this.setNotice(`Bid placed — ${msg.bid} tribute`);
     });
 
     room.onMessage("session-replaced", () => {
@@ -741,6 +902,15 @@ export class GameEngine {
       }
     });
 
+    room.onMessage("fleet", (msg: { sold?: number; cap?: number }) => {
+      this.fleetSold = Number(msg.sold ?? 0);
+      this.fleetCap = Number(msg.cap ?? 0);
+    });
+
+    room.onMessage("buy-item-result", (msg: { ok?: boolean; name?: string; reason?: string }) => {
+      this.setNotice(msg.ok ? `Bought ${msg.name ?? "it"}.` : msg.reason ?? "Could not buy that.");
+    });
+
     room.onMessage("lock-result", (msg: { locked?: boolean; name?: string }) => {
       this.setNotice(`${msg.locked ? "Locked" : "Unlocked"} your ${msg.name ?? "property"}.`);
     });
@@ -752,7 +922,7 @@ export class GameEngine {
     });
 
     room.onMessage("buy-result", (msg: { ok?: boolean; reason?: string; name?: string; price?: number }) => {
-      this.setNotice(msg.ok ? `Bought a ${msg.name} for ${msg.price} cr - it is parked outside.` : msg.reason ?? "Could not buy that car");
+      this.setNotice(msg.ok ? `Bought a ${msg.name} for ${msg.price} ${CURRENCY} - it is parked outside.` : msg.reason ?? "Could not buy that car");
     });
 
     room.onMessage("message-sync", (msg: { messages?: PlayerMessage[] }) => {
@@ -785,6 +955,7 @@ export class GameEngine {
       city: home.city,
       owner: home.owner,
       ownerName: home.ownerName,
+      name: home.name ?? "",
       forSale: home.forSale,
       lastPrice: home.lastPrice,
       askingPrice: home.askingPrice,
@@ -804,18 +975,24 @@ export class GameEngine {
     this.noticeUntil = performance.now() + 4200;
   }
 
-  /** What the next bid on this home has to be, mirroring the server rule. */
-  private nextBid(info?: HomeInfo) {
-    if (info && info.endsAt > 0) return info.highBid + this.homeBidIncrement;
-    if (info && info.askingPrice > 0) return info.askingPrice;
-    return this.homeOpeningBid;
+/**
+   * What this home costs, mirroring the server rule.
+   *
+   * An owner's asking price when it is listed, otherwise the city price for a
+   * home of that size in that district - derived from the lot, so the client
+   * and server arrive at the same number without it being sent.
+   */
+  private homeCost(id: string, info?: HomeInfo) {
+    if (info?.owner && info.forSale && info.askingPrice > 0) return info.askingPrice;
+    const lot = parseHomeId(id);
+    return lot ? homePrice(lot.city, lot.gx, lot.gz) : 0;
   }
 
   listHome(price: number, minutes: number) {
     const pending = this.pendingListing;
     if (!pending) return;
     if (!Number.isFinite(price) || price < 1) {
-      this.setNotice("Enter an asking price of at least 1 credit.");
+      this.setNotice(`Enter an asking price of at least 1 ${CURRENCY}.`);
       return;
     }
     if (!Number.isFinite(minutes) || minutes < 1 || minutes > 43200) {
@@ -873,7 +1050,7 @@ export class GameEngine {
       accessories: (character.accessories ?? []).join(","),
       health: this.health,
       brokemeter: this.health,
-      credits: this.credits,
+      tribute: this.tribute,
       inventory: encodeInventory(this.inventory),
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
@@ -946,13 +1123,47 @@ export class GameEngine {
     this.setNotice("Nothing of yours to lock here.");
   }
 
-  private buyCar(item: Interactable) {
+  private async buyCar(item: Interactable) {
     if (!item.carKind || item.carPrice == null) return;
-    if (this.credits < item.carPrice) {
-      this.setNotice(`${item.label ?? "That car"} costs ${item.carPrice} cr. You have ${this.credits}.`);
+    if (this.fleetCap > 0 && this.fleetSold >= this.fleetCap) {
+      this.setNotice(`Sold out - all ${this.fleetCap} cars are owned.`);
       return;
     }
-    this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city });
+    if (this.ownedCars.size > 0) {
+      this.setNotice("You already own a car. One each.");
+      return;
+    }
+    if (this.tribute < item.carPrice) {
+      this.setNotice(`${item.label ?? "That car"} costs ${item.carPrice} ${CURRENCY}. You have ${this.tribute}.`);
+      return;
+    }
+    // Guard against a second prompt while the wallet is already open.
+    if (this.paying) return;
+
+    if (!(await paymentsRequired())) {
+      this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city });
+      return;
+    }
+    if (!this.wallet) {
+      this.setNotice("Connect a wallet to buy a car.");
+      return;
+    }
+
+    this.paying = true;
+    this.setNotice("Confirm the payment in your wallet…");
+    try {
+      const paid = await payForPurchase(this.wallet, item.carPrice);
+      if (!paid.ok) {
+        // An empty reason is the player cancelling; they know they did that.
+        if (paid.reason) this.setNotice(paid.reason);
+        else this.setNotice("Purchase cancelled.");
+        return;
+      }
+      this.setNotice("Payment sent, confirming…");
+      this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city, txHash: paid.txHash });
+    } finally {
+      this.paying = false;
+    }
   }
 
   private nearestHome(): Interactable | null {
@@ -986,33 +1197,45 @@ export class GameEngine {
     const info = this.homes.get(near.id);
     if (info && info.owner === this.wallet) {
       const lock = info.locked ? "L to unlock" : "L to lock";
-      if (info.awaitingSeller) return `${base} · B to answer ${info.highBid} cr offer · ${lock}`;
-      if (info.endsAt > 0) return `${base} · your home · bidding at ${info.highBid} cr · ${lock}`;
-      if (info.forSale) return `${base} · listed at ${info.askingPrice} cr · B to withdraw · ${lock}`;
-      return `${base} · B to list for sale · ${lock}`;
+      if (info.forSale) return `${base} · listed at ${info.askingPrice} ${CURRENCY} · B to withdraw · ${lock}`;
+      return `${base} · B to list · H to name · ${lock}`;
     }
     if (info?.owner && info.owner !== this.wallet && !info.forSale) {
       return info.locked ? `${info.ownerName}'s home - locked` : `${base} · ${info.ownerName}'s home`;
     }
-    if (info && info.highBidderWallet === this.wallet) return `${base} · you lead at ${info.highBid} cr`;
-    return `${base} · B to bid ${this.nextBid(info)} cr`;
+    return `${base} · B to buy for ${this.homeCost(near.id, info)} ${CURRENCY}`;
   }
 
-  private tryBid() {
+/** Opens the rename box, if you are standing at a home you own. */
+  private promptHomeName() {
+    const near = this.nearestHome();
+    const inside = this.inBuilding?.interiorKind === "home" ? this.inBuilding : null;
+    const id = inside?.id ?? near?.id;
+    if (!id) return;
+    const info = this.homes.get(id);
+    if (!info || info.owner !== this.wallet) {
+      this.setNotice("You can only name a home you own.");
+      return;
+    }
+    this.pendingHomeName = { id, current: info.name ?? "" };
+  }
+
+  nameHome(id: string, name: string) {
+    this.room?.send("home-name", { id, name });
+    this.pendingHomeName = null;
+  }
+
+  cancelHomeName() {
+    this.pendingHomeName = null;
+  }
+
+  private async tryBuyHome() {
     const home = this.nearestHome();
     if (!home) return;
     const info = this.homes.get(home.id);
 
-    // On your own doorstep B is the for-sale sign, not a bid.
+    // On your own doorstep B is the for-sale sign, not a purchase.
     if (info && info.owner === this.wallet) {
-      if (info.awaitingSeller) {
-        this.openOffer(home.id);
-        return;
-      }
-      if (info.forSale && info.endsAt > 0) {
-        this.setNotice("Bidding has started — you cannot delist now.");
-        return;
-      }
       if (info.forSale) {
         this.room?.send("home-list", { id: home.id, list: false });
         return;
@@ -1020,8 +1243,8 @@ export class GameEngine {
       // Listing needs an asking price, so hand off to the HUD for the number.
       this.pendingListing = {
         id: home.id,
-        suggested: info.lastPrice || this.homeOpeningBid,
-        suggestedMinutes: 24 * 60,
+        suggested: info.lastPrice || this.homeCost(home.id, info),
+        suggestedMinutes: 0,
       };
       return;
     }
@@ -1030,16 +1253,36 @@ export class GameEngine {
       this.setNotice(`This home belongs to ${info.ownerName}`);
       return;
     }
-    if (info && info.highBidderWallet === this.wallet) {
-      this.setNotice("You are already the highest bidder.");
+
+    const price = this.homeCost(home.id, info);
+    if (this.tribute < price) {
+      this.setNotice(`That home costs ${price} ${CURRENCY}. You have ${this.tribute}.`);
       return;
     }
-    const amount = this.nextBid(info);
-    if (this.credits < amount) {
-      this.setNotice(`You need ${amount} credits to bid. You have ${this.credits}.`);
+    if (this.paying) return;
+
+    if (!(await paymentsRequired())) {
+      this.room?.send("home-buy", { id: home.id, city: home.city });
       return;
     }
-    this.room?.send("home-bid", { id: home.id, city: home.city });
+    if (!this.wallet) {
+      this.setNotice("Connect a wallet to buy a home.");
+      return;
+    }
+
+    this.paying = true;
+    this.setNotice(`Confirm ${price} ${CURRENCY} in your wallet…`);
+    try {
+      const paid = await payForPurchase(this.wallet, price);
+      if (!paid.ok) {
+        this.setNotice(paid.reason || "Purchase cancelled.");
+        return;
+      }
+      this.setNotice("Payment sent, confirming…");
+      this.room?.send("home-buy", { id: home.id, city: home.city, txHash: paid.txHash });
+    } finally {
+      this.paying = false;
+    }
   }
 
   private applyNetworkVehicle(vehicle: RemoteVehicle, vehicleId: string) {
@@ -1074,16 +1317,45 @@ export class GameEngine {
     } else {
       this.ownedCars.delete(vehicleId);
     }
-    const drivenHere = vehicle.driver === this.room?.sessionId && this.inVehicle === vehicleId;
+    // Whether WE are driving it, not whether the server has agreed yet. Waiting
+    // for the server's driver field meant that between entering a car and that
+    // state arriving, every update snapped the car back to where the server last
+    // saw it - dragging it to wherever it was picked up. The server still
+    // overrides explicitly through vehicle-correction when it disagrees.
+    const drivenHere = this.inVehicle === vehicleId;
     handle.driver = drivenHere ? "local" : vehicle.driver;
     if (!drivenHere) {
-      handle.entity.setPosition(vehicle.x, WALK_Y, vehicle.z);
-      handle.entity.setEulerAngles(0, (vehicle.rotY * 180) / Math.PI, 0);
+      // animateVehicles eases toward this. Cars cover far more ground per patch
+      // than a walker, so snapping here is the most visible stutter in the game.
+      const at = handle.entity.getPosition();
+      const first = !handle.target;
+      handle.target = { x: vehicle.x, z: vehicle.z, rotY: vehicle.rotY };
+      if (first || Math.hypot(vehicle.x - at.x, vehicle.z - at.z) > VEHICLE_SNAP) {
+        handle.entity.setPosition(vehicle.x, WALK_Y, vehicle.z);
+        handle.entity.setEulerAngles(0, (vehicle.rotY * 180) / Math.PI, 0);
+        handle.yaw = vehicle.rotY;
+      }
+    } else {
+      handle.target = undefined;
+      handle.yaw = undefined;
     }
     const interactable = this.world?.interactables.find((item) => item.kind === "vehicle" && item.id === vehicleId);
     if (interactable) {
       interactable.x = vehicle.x;
       interactable.z = vehicle.z;
+    } else if (this.world) {
+      // A vehicle that did not exist when the world was built - someone just
+      // bought it. Only the pre-placed cars get an interactable at startup, so
+      // without this a purchased car is drawn and owned but has nothing to
+      // press E on, and can never be driven.
+      this.world.interactables.push({
+        kind: "vehicle",
+        id: vehicleId,
+        x: vehicle.x,
+        z: vehicle.z,
+        radius: 4.4,
+        city: (vehicle.city ?? this.city) as CityId,
+      });
     }
   }
 
@@ -1130,8 +1402,15 @@ export class GameEngine {
     }
     const body = this.remotes.get(sessionId)!;
     const groundedY = player.sitting || player.inBuilding ? player.y ?? WALK_Y : Math.max(player.y || 0, WALK_Y);
-    body.setPosition(player.x, groundedY, player.z);
-    body.setEulerAngles(0, (player.rotY * 180) / Math.PI, 0);
+    // animateCrowd owns X/Z so it can ease between updates; snapping here on every
+    // patch would undo that. Only a teleport (or a model just built) jumps.
+    const at = body.getPosition();
+    const jumped = Math.hypot(player.x - at.x, player.z - at.z) > REMOTE_SNAP;
+    body.setPosition(jumped ? player.x : at.x, groundedY, jumped ? player.z : at.z);
+    if (jumped) {
+      body.setEulerAngles(0, (player.rotY * 180) / Math.PI, 0);
+      this.remoteYaw.set(sessionId, player.rotY);
+    }
     // Distance cull: in a 452-unit world most players are nowhere near you,
     // and each one is 19-56 boxes with no batching.
     const here = this.player?.getPosition();
@@ -1187,6 +1466,8 @@ export class GameEngine {
     this.remotes.delete(sessionId);
     this.remoteState.delete(sessionId);
     this.remoteLast.delete(sessionId);
+    this.remoteMoveUntil.delete(sessionId);
+    this.remoteYaw.delete(sessionId);
     this.remoteNames.delete(sessionId);
     this.remoteWallets.delete(sessionId);
     this.remoteDetail.delete(sessionId);
@@ -1205,7 +1486,8 @@ export class GameEngine {
     if (this.inVehicle) this.updateVehicle(dt);
     else this.updateWalk(dt);
     this.syncRemotes();
-    this.animateCrowd();
+    this.animateCrowd(dt);
+    this.animateVehicles(dt);
     this.followCamera(dt);
     this.updateNametags();
     this.applyCityMood();
@@ -1295,6 +1577,25 @@ export class GameEngine {
     return best;
   }
 
+/**
+   * Standing height at a point: the interior floor, or the top of a raised
+   * surface you are over.
+   *
+   * Interior props are decoration with no collision, so without this a dais is
+   * something you walk through rather than stand on.
+   */
+  private groundAt(x: number, z: number) {
+    const floor = this.inBuilding?.interior?.y ?? WALK_Y;
+    let best = floor;
+    for (const slab of this.inBuilding?.platforms ?? []) {
+      if (x < slab.minX || x > slab.maxX || z < slab.minZ || z > slab.maxZ) continue;
+      // Only step up onto something you could actually climb; anything taller
+      // has to be jumped, which gravity already handles.
+      if (slab.y > best && slab.y - floor <= STEP_UP) best = slab.y;
+    }
+    return best;
+  }
+
   private updateWalk(dt: number) {
     const player = this.player!;
     const turn =
@@ -1335,6 +1636,18 @@ export class GameEngine {
     const downed = this.health <= 0;
     const speed = (sprint && !downed ? this.speed * 1.55 : this.speed) * (downed ? 0.42 : 1);
     const pos = player.getPosition();
+    // Inside geometry there is no direction that is not blocked, so ordinary
+    // movement cannot get you out. Walk toward open ground instead, at normal
+    // speed so the server's movement check does not reject it as a teleport.
+    if (!this.inBuilding && this.blocked(pos.x, pos.z)) {
+      const out = this.freeSpotAround(pos.x, pos.z);
+      const away = Math.hypot(out.x - pos.x, out.z - pos.z);
+      if (away > 0.01) {
+        const step = Math.min(away, speed * dt);
+        player.setPosition(pos.x + ((out.x - pos.x) / away) * step, pos.y, pos.z + ((out.z - pos.z) / away) * step);
+        return;
+      }
+    }
     let x = pos.x;
     let y = pos.y;
     let z = pos.z;
@@ -1364,7 +1677,10 @@ export class GameEngine {
     if (armed && this.hitUntil <= now) {
       applyAimPose(player, this.animT, Math.max(0, (this.punchUntil - now) / RECOIL_MS));
     }
-    const floorY = ground + (this.grounded ? bob : 0);
+    // Resolved after movement: which surface you are over depends on where you
+    // ended up this frame, not where you started.
+    const standing = this.groundAt(x, z);
+    const floorY = standing + (this.grounded ? bob : 0);
 
     if (this.keys.has(" ") && this.grounded) {
       this.vy = this.inBuilding ? 4.2 : 7.4;
@@ -1404,9 +1720,12 @@ export class GameEngine {
     const rolling = Math.abs(this.vehicleSpeed);
     if (rolling > 1.2) this.driving = true;
     else if (rolling < 0.4) this.driving = false;
+    // Captured before steering, not read back off the entity: getEulerAngles()
+    // misreports yaws past +-90, which would snap the car to a wrong heading on
+    // any collision while it faced south.
+    const previousYaw = this.yaw;
     this.yaw += steer * dt * this.vehicleSpeed * 0.12;
     const pos = handle.entity.getPosition();
-    const previousYaw = (handle.entity.getEulerAngles().y * Math.PI) / 180;
     const nx = pos.x + Math.sin(this.yaw) * this.vehicleSpeed * dt;
     const nz = pos.z + Math.cos(this.yaw) * this.vehicleSpeed * dt;
     const hitsVehicle = this.vehicleBlocksVehicleMove(handle.id, nx, nz, this.yaw, handle.kind);
@@ -1434,7 +1753,58 @@ export class GameEngine {
     });
   }
 
-  private animateCrowd() {
+  /**
+   * Moves a remote body toward its last known X/Z instead of jumping to it.
+   * Every animation state needs this, not just walking: the pose may be driven
+   * smoothly by a timer while the body underneath it still steps at the patch rate.
+   */
+  private easeRemote(id: string, entity: pc.Entity, x: number, y: number, z: number, dt: number, rotY?: number) {
+    const p = entity.getPosition();
+    const k = Math.hypot(x - p.x, z - p.z) > REMOTE_SNAP ? 1 : 1 - Math.exp(-dt * REMOTE_LERP);
+    entity.setPosition(p.x + (x - p.x) * k, y, p.z + (z - p.z) * k);
+    // Rotation arrives at the patch rate too, so turning steps as visibly as walking.
+    // Knockdowns pose their own rotation and pass nothing here.
+    if (rotY === undefined) return;
+    // Tracked as a number, never read back off the entity - see VehicleHandle.yaw.
+    const yaw = this.remoteYaw.get(id) ?? rotY;
+    const delta = Math.atan2(Math.sin(rotY - yaw), Math.cos(rotY - yaw));
+    const next = yaw + delta * k;
+    this.remoteYaw.set(id, next);
+    entity.setEulerAngles(0, (next * 180) / Math.PI, 0);
+  }
+
+  /**
+   * Cars other people are driving. Their position arrives at the patch rate and
+   * their wheels are never turned by updateVehicle, which only runs for the car
+   * you are sitting in, so both have to happen here.
+   */
+  private animateVehicles(dt: number) {
+    const k = 1 - Math.exp(-dt * VEHICLE_LERP);
+    for (const handle of this.vehicles.values()) {
+      const target = handle.target;
+      if (!target || handle.driver === "local") continue;
+      const at = handle.entity.getPosition();
+      const nx = at.x + (target.x - at.x) * k;
+      const nz = at.z + (target.z - at.z) * k;
+      const moved = Math.hypot(nx - at.x, nz - at.z);
+      handle.entity.setPosition(nx, WALK_Y, nz);
+
+      // Take the short way round, or a car crossing north spins through 359 degrees.
+      const yaw = handle.yaw ?? target.rotY;
+      const delta = Math.atan2(Math.sin(target.rotY - yaw), Math.cos(target.rotY - yaw));
+      handle.yaw = yaw + delta * k;
+      handle.entity.setEulerAngles(0, (handle.yaw * 180) / Math.PI, 0);
+
+      if (moved > 0.0005) {
+        const roll = moved * WHEEL_ROLL;
+        for (const name of ["wheel-fl", "wheel-fr", "wheel-bl", "wheel-br"]) {
+          handle.entity.findByName(name)?.rotateLocal(roll, 0, 0);
+        }
+      }
+    }
+  }
+
+  private animateCrowd(dt: number) {
     const now = performance.now();
     for (const [id, entity] of this.remotes) {
       const st = this.remoteState.get(id);
@@ -1447,7 +1817,7 @@ export class GameEngine {
       if (knockdown) {
         if (now < knockdown.endsAt) {
           this.animateKnockdown(entity, knockdown, st?.rotY ?? 0, st?.y ?? WALK_Y);
-          entity.setPosition(x, (st?.y ?? WALK_Y) + 0.16, z);
+          this.easeRemote(id, entity, x, (st?.y ?? WALK_Y) + 0.16, z, dt);
           this.remoteLast.set(id, { x, z });
           continue;
         }
@@ -1456,26 +1826,33 @@ export class GameEngine {
       const remoteArmed = Boolean(gunSpec(String(st?.gun ?? ""))?.ranged);
       if (punchUntil > now && !remoteArmed) {
         applyCitizenMotion(entity, "punch", 1 - (punchUntil - now) / PUNCH_MS);
-        entity.setPosition(x, st?.y ?? p.y, z);
+        this.easeRemote(id, entity, x, st?.y ?? p.y, z, dt, st?.rotY);
+        // Without this the walk branch sees every step taken during the punch as
+        // one jump the moment it ends, and starts a walk cycle on a still body.
+        this.remoteLast.set(id, { x, z });
         continue;
       }
       if (st?.sitting) {
         applyCitizenMotion(entity, "sit", this.animT);
-        entity.setPosition(x, st.y ?? p.y, z);
+        this.easeRemote(id, entity, x, st.y ?? p.y, z, dt, st.rotY);
         this.remoteLast.set(id, { x, z });
         continue;
       }
       if (hitUntil > now) {
         applyCitizenMotion(entity, "hit", 1 - (hitUntil - now) / HIT_MS);
-        entity.setPosition(x, st?.y ?? p.y, z);
+        this.easeRemote(id, entity, x, st?.y ?? p.y, z, dt, st?.rotY);
         this.remoteLast.set(id, { x, z });
         continue;
       }
       const last = this.remoteLast.get(id);
-      const moving = last ? Math.hypot(x - last.x, z - last.z) > 0.004 : false;
+      // Only a fresh update can restart the timer; frames in between leave it running.
+      if (last && Math.hypot(x - last.x, z - last.z) > 0.004) {
+        this.remoteMoveUntil.set(id, now + REMOTE_WALK_HOLD_MS);
+      }
+      const moving = (this.remoteMoveUntil.get(id) ?? 0) > now;
       const bob = applyCitizenMotion(entity, moving ? "walk" : "idle", this.animT);
       if (remoteArmed) applyAimPose(entity, this.animT, Math.max(0, (punchUntil - now) / RECOIL_MS));
-      entity.setPosition(x, Math.max(p.y, WALK_Y + bob), z);
+      this.easeRemote(id, entity, x, Math.max(p.y, WALK_Y + bob), z, dt, st?.rotY);
       this.remoteLast.set(id, { x, z });
     }
     if (this.world) {
@@ -1485,7 +1862,7 @@ export class GameEngine {
           id: handle.id,
           x: p.x,
           z: p.z,
-          yaw: (handle.entity.getEulerAngles().y * Math.PI) / 180,
+          yaw: entityYaw(handle.entity),
           kind: handle.kind,
         };
       });
@@ -1533,6 +1910,70 @@ export class GameEngine {
     cam.lookAt(pos.x + Math.sin(this.yaw) * lookAhead, pos.y + lookHeight, pos.z + Math.cos(this.yaw) * lookAhead);
   }
 
+/**
+   * Real light under the nearest few streetlamps.
+   *
+   * A fixed pool that follows the player rather than one light per lamp: there
+   * are dozens of lamps, clustered lighting is off, and the cost of this is the
+   * same whether the city has twenty lamps or two hundred. The emissive pools on
+   * the road cover every other lamp; these exist so people, cars and pets walking
+   * underneath are actually lit.
+   */
+  private syncLampLights(day: number) {
+    if (!this.app || !this.player) return;
+    const night = 1 - day;
+    const lamps = this.world?.lamps ?? [];
+    if (!lamps.length) return;
+
+    if (!this.lampLights.length) {
+      for (let i = 0; i < LAMP_LIGHTS; i++) {
+        const e = new pc.Entity(`lamp-light-${i}`);
+        e.addComponent("light", {
+          type: "omni",
+          color: new pc.Color(1, 0.86, 0.6),
+          range: LAMP_RANGE,
+          // Shadows from this many moving lights would cost more than the whole
+          // effect is worth.
+          castShadows: false,
+          intensity: 0,
+        });
+        e.enabled = false;
+        this.app.root.addChild(e);
+        this.lampLights.push(e);
+      }
+    }
+
+    // Daylight needs none of this, and the search is wasted work.
+    if (night < 0.2) {
+      for (const light of this.lampLights) light.enabled = false;
+      return;
+    }
+
+    const now = performance.now();
+    if (now - this.lampSyncAt < 250) return;
+    this.lampSyncAt = now;
+
+    const here = this.player.getPosition();
+    const near = lamps
+      .map((lamp) => ({ lamp, d: Math.hypot(lamp.x - here.x, lamp.z - here.z) }))
+      .filter((row) => row.d < LAMP_RANGE * 1.6)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, LAMP_LIGHTS);
+
+    this.lampLights.forEach((light, i) => {
+      const row = near[i];
+      if (!row || !light.light) {
+        light.enabled = false;
+        return;
+      }
+      light.enabled = true;
+      light.setPosition(row.lamp.x, 3.1, row.lamp.z);
+      // Fade with distance so a lamp entering the set does not pop on.
+      const fade = 1 - Math.min(1, row.d / (LAMP_RANGE * 1.6));
+      light.light.intensity = 1.5 * night * fade;
+    });
+  }
+
   private applyCityMood() {
     if (!this.player || !this.app || !this.camera?.camera) return;
     const pos = this.player.getPosition();
@@ -1552,6 +1993,7 @@ export class GameEngine {
       setCycleGlow(1 - day);
       for (const wash of this.world?.nightWashes ?? []) wash.enabled = day < 0.42;
     }
+    this.syncLampLights(day);
     if (this.inBuilding) {
       const kind = this.inBuilding.interiorKind;
       this.app.scene.fog.start = 12;
@@ -1567,6 +2009,10 @@ export class GameEngine {
   }
 
   private blocked(x: number, z: number, radius = 0.55) {
+    // Indoors the world colliders are the building's outer shell; the props in
+    // the room have their own list.
+    const inside = this.inBuilding?.obstacles;
+    if (inside?.some((a) => hitsAabb(x, z, radius, a))) return true;
     return this.world?.colliders.some((a) => hitsAabb(x, z, radius, a)) ?? false;
   }
 
@@ -1574,7 +2020,7 @@ export class GameEngine {
     for (const [id, handle] of this.vehicles) {
       if (id === this.inVehicle || !handle.entity.enabled) continue;
       const position = handle.entity.getPosition();
-      const yaw = (handle.entity.getEulerAngles().y * Math.PI) / 180;
+      const yaw = entityYaw(handle.entity);
       const depthAt = (x: number, z: number) => {
         const dx = x - position.x;
         const dz = z - position.z;
@@ -1590,7 +2036,7 @@ export class GameEngine {
     for (const npc of this.world?.npcs ?? []) {
       if (!npc.vehicle) continue;
       const position = npc.vehicle.getPosition();
-      const yaw = (npc.vehicle.getEulerAngles().y * Math.PI) / 180;
+      const yaw = entityYaw(npc.vehicle);
       const depthAt = (x: number, z: number) => {
         const dx = x - position.x;
         const dz = z - position.z;
@@ -1611,11 +2057,11 @@ export class GameEngine {
     for (const [id, other] of this.vehicles) {
       if (id === movingId || !other.entity.enabled) continue;
       const position = other.entity.getPosition();
-      const otherYaw = (other.entity.getEulerAngles().y * Math.PI) / 180;
+      const otherYaw = entityYaw(other.entity);
       if (!vehiclesOverlap(x, z, yaw, kind, position.x, position.z, otherYaw, other.kind)) continue;
       if (moving) {
         const current = moving.entity.getPosition();
-        const currentYaw = (moving.entity.getEulerAngles().y * Math.PI) / 180;
+        const currentYaw = entityYaw(moving.entity);
         const alreadyOverlapping = vehiclesOverlap(
           current.x,
           current.z,
@@ -1635,12 +2081,12 @@ export class GameEngine {
     for (const npc of this.world?.npcs ?? []) {
       if (!npc.vehicle) continue;
       const position = npc.vehicle.getPosition();
-      const otherYaw = (npc.vehicle.getEulerAngles().y * Math.PI) / 180;
+      const otherYaw = entityYaw(npc.vehicle);
       const otherKind = npc.vehicleKind ?? "sedan";
       if (!vehiclesOverlap(x, z, yaw, kind, position.x, position.z, otherYaw, otherKind)) continue;
       if (moving) {
         const current = moving.entity.getPosition();
-        const currentYaw = (moving.entity.getEulerAngles().y * Math.PI) / 180;
+        const currentYaw = entityYaw(moving.entity);
         const alreadyOverlapping = vehiclesOverlap(
           current.x,
           current.z,
@@ -1706,12 +2152,33 @@ export class GameEngine {
     this.room?.send("enter-vehicle", { id });
   }
 
+/**
+   * Somewhere clear to stand when getting out.
+   *
+   * Stepping out used to be a fixed 2.8 units along +X with no collision test,
+   * which drops you inside whatever happens to be there - a wall, most often,
+   * and there is no way to walk out of one.
+   */
+  private freeSpotAround(x: number, z: number) {
+    const ring = 2.8;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const sx = x + Math.cos(a) * ring;
+      const sz = z + Math.sin(a) * ring;
+      if (!this.blocked(sx, sz) && this.allowed(sx, sz)) return { x: sx, z: sz };
+    }
+    // Every direction is blocked: the car's own position is at least reachable,
+    // since it drove in.
+    return { x, z };
+  }
+
   private exitVehicle() {
     const handle = this.vehicles.get(this.inVehicle ?? "");
     if (handle) {
       handle.driver = "";
       const p = handle.entity.getPosition();
-      this.player?.setPosition(p.x + 2.8, WALK_Y, p.z);
+      const spot = this.freeSpotAround(p.x, p.z);
+      this.player?.setPosition(spot.x, WALK_Y, spot.z);
     }
     this.inVehicle = null;
     this.driving = false;
@@ -1845,7 +2312,7 @@ export class GameEngine {
       chat: this.chat,
       citizens,
       connected: Boolean(this.room),
-      credits: this.credits,
+      tribute: this.tribute,
       inventory: this.inventory,
       inStore: this.inBuilding?.interiorKind === "store",
       gun: this.gun,
@@ -1853,8 +2320,10 @@ export class GameEngine {
       accessories: this.look?.accessories ?? [],
       pendingTrade: this.pendingTrade,
       voiceLevel: this.voice?.sampleLevel() ?? 0,
+      nearbyVoiceLevel: this.voice?.sampleNearbyLevel() ?? 0,
       notice: performance.now() < this.noticeUntil ? this.notice : null,
       listPrompt: this.pendingListing,
+      namePrompt: this.pendingHomeName,
       offerPrompt: this.pendingOffer,
       messages: this.messages,
       unreadMessages: this.messages.reduce((n, m) => n + (m.read ? 0 : 1), 0),
@@ -1865,6 +2334,7 @@ export class GameEngine {
         .filter((home) => home.owner === this.wallet)
         .map((home) => ({
           id: home.id,
+          name: home.name ?? "",
           city: home.city,
           lastPrice: home.lastPrice,
           forSale: home.forSale,
@@ -1998,26 +2468,18 @@ export class GameEngine {
       let name: string;
       let detail: string | null;
       let tone: "sale" | "auction" | "sold";
-      if (info?.awaitingSeller) {
-        name = "OFFER PENDING";
-        detail = mine ? `${info.highBid} cr · B to answer` : `${info.highBid} cr · awaiting seller`;
-        tone = "auction";
-      } else if (live && info) {
-        name = formatCountdown(info.endsAt - nowMs);
-        const leader = info.highBidderWallet === this.wallet ? "you" : info.highBidderName;
-        detail = `${info.highBid} cr · ${leader}`;
-        tone = "auction";
-      } else if (onMarket) {
+      if (onMarket) {
         name = "FOR SALE";
-        const asking = this.nextBid(info);
+        const asking = this.homeCost(item.id, info);
         if (dist < HOME_BID_RANGE) {
-          detail = mine ? `your listing at ${asking} cr · B to withdraw` : `Press B to bid ${asking} cr`;
+          detail = mine ? `your listing at ${asking} ${CURRENCY} · B to withdraw` : `Press B to buy for ${asking} ${CURRENCY}`;
         } else {
-          detail = `${asking} cr${mine ? " · yours" : ""}`;
+          detail = `${asking} ${CURRENCY}${mine ? " · yours" : ""}`;
         }
         tone = "sale";
       } else if (info) {
-        name = mine ? "YOUR HOME" : "SOLD";
+        // A named home shows its name; an unnamed one falls back to whose it is.
+        name = info.name || (mine ? "YOUR HOME" : "SOLD");
         detail = mine
           ? dist < HOME_BID_RANGE
             ? "Press B to list for sale"
@@ -2099,6 +2561,7 @@ export class GameEngine {
   private shoot(spec: NonNullable<ReturnType<typeof gunSpec>>) {
     const now = performance.now();
     if (now < this.punchReady) return;
+    playGunshot(this.gun);
     this.punchReady = now + spec.cooldownMs;
     this.punchUntil = now + RECOIL_MS;
     this.clearSit(true);
@@ -2214,7 +2677,17 @@ export class GameEngine {
   private onMelee(msg: { fromSession: string; toSession: string; health: number; x: number; z: number }) {
     const now = performance.now();
     const me = this.room?.sessionId;
-    if (msg.fromSession !== me) this.meleePunch.set(msg.fromSession, now + PUNCH_MS);
+    if (msg.fromSession !== me) {
+      this.meleePunch.set(msg.fromSession, now + PUNCH_MS);
+      // Only guns make a noise; a thrown punch does not.
+      const shooter = this.remoteState.get(msg.fromSession);
+      const gun = String(shooter?.gun ?? "");
+      if (gunSpec(gun)?.ranged) {
+        const here = this.player?.getPosition();
+        const away = here ? Math.hypot(msg.x - here.x, msg.z - here.z) : 0;
+        playGunshot(gun, away);
+      }
+    }
     if (msg.toSession === me && this.player) {
       this.health = msg.health;
       this.hitUntil = now + HIT_MS;
@@ -2302,7 +2775,7 @@ export class GameEngine {
       saveCharacter(
         {
           ...c,
-          credits: this.credits,
+          tribute: this.tribute,
           inventory: this.inventory,
           accessories: this.look?.accessories ?? c.accessories,
           equippedGun: this.gun,
@@ -2314,7 +2787,7 @@ export class GameEngine {
     }
     this.room?.send("loadout", {
       inventory: encodeInventory(this.inventory),
-      credits: this.credits,
+      tribute: this.tribute,
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
       accessories: (this.look?.accessories ?? []).join(","),
@@ -2358,7 +2831,10 @@ export class GameEngine {
     const ground = this.inBuilding?.interior?.y ?? WALK_Y;
     if (this.petWalk && this.petEntity && this.player && !this.inVehicle) {
       const p = this.player.getPosition();
-      tickPetWalker(this.petWalk, p.x, p.z, this.yaw, ground, dt);
+      // The pet stands on whatever is under IT, not under its owner - otherwise
+      // it sinks through a dais its owner is standing on, or floats beside one.
+      const paws = this.petWalk.entity.getPosition();
+      tickPetWalker(this.petWalk, p.x, p.z, this.yaw, this.groundAt(paws.x, paws.z), dt);
       this.petEntity.enabled = true;
     } else if (this.petEntity) this.petEntity.enabled = false;
 
@@ -2372,13 +2848,16 @@ export class GameEngine {
       }
       pet.enabled = true;
       const floor = st.inBuilding ? (st.y ?? WALK_Y) : WALK_Y;
-      tickPetWalker(walker, st.x, st.z, st.rotY, floor, dt);
+      // Heel to where the owner is drawn, not where the network says they are, or
+      // the pet sits slightly ahead of the body by the width of the easing lag.
+      const owner = body.getPosition();
+      tickPetWalker(walker, owner.x, owner.z, st.rotY, floor, dt);
     }
   }
 
-  private applyBag(msg: { inventory?: string; credits?: number; gun?: string; pet?: string; accessories?: string }) {
+  private applyBag(msg: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string }) {
     if (typeof msg.inventory === "string") this.inventory = decodeInventory(msg.inventory);
-    if (typeof msg.credits === "number") this.credits = msg.credits;
+    if (typeof msg.tribute === "number") this.tribute = msg.tribute;
     this.gun = isGunId(String(msg.gun ?? "")) ? (msg.gun as GunId) : null;
     const nextPet = isPetId(String(msg.pet ?? "")) ? (msg.pet as PetId) : null;
     if (typeof msg.accessories === "string" && this.look) this.look.accessories = parseAccessories(msg.accessories);

@@ -13,7 +13,8 @@ import {
   lotCentre,
   parseHomeId,
   type CityId,
-} from "@the-block/shared";
+} from "@tribe/shared";
+import { CarMarker, HomeMarker } from "./ItemArt";
 import type { MapCitizen, OwnedCar, OwnedHome } from "../game/engine";
 
 const OUTER = WORLD_HALF;
@@ -190,31 +191,17 @@ export function WorldMap({
               if (!lot) return null;
               const c = lotCentre(lot.city, lot.gx, lot.gz);
               return (
-                <path
-                  key={home.id}
-                  transform={`translate(${px(c.x)} ${pz(c.z)})`}
-                  d="M0 -7 L7 0 L0 7 L-7 0 Z"
-                  fill="#ffb830"
-                  stroke="#1a1200"
-                  strokeWidth="1.5"
-                >
-                  <title>{`Your home · ${CITIES[lot.city].shortName}`}</title>
-                </path>
+                <g key={home.id} transform={`translate(${px(c.x)} ${pz(c.z)})`}>
+                  <HomeMarker accent={CITIES[lot.city].accent} size={1.3} />
+                  <title>{`${home.name || "Your home"} · ${CITIES[lot.city].shortName}`}</title>
+                </g>
               );
             })}
             {cars.map((car) => (
-              <rect
-                key={car.id}
-                x={px(car.x) - 4}
-                y={pz(car.z) - 4}
-                width="8"
-                height="8"
-                fill={car.color}
-                stroke="#000"
-                strokeWidth="1.4"
-              >
+              <g key={car.id} transform={`translate(${px(car.x)} ${pz(car.z)})`}>
+                <CarMarker color={car.color} size={1.2} />
                 <title>{`Your ${car.kind}`}</title>
-              </rect>
+              </g>
             ))}
 
             {others.map((c) => (
@@ -303,7 +290,8 @@ export function WorldMap({
                   const lot = parseHomeId(h.id);
                   return (
                     <div key={h.id} className="world-map-row">
-                      <b style={{ color: "#ffb830" }}>Home</b>
+                      {/* Matches the marker on the map: same shape, same district colour. */}
+                      <b style={{ color: lot ? CITIES[lot.city].accent : "#ffb830" }}>{h.name || "Home"}</b>
                       <span>
                         {lot ? CITIES[lot.city].shortName : h.city} · {h.locked ? "locked" : "unlocked"}
                       </span>

@@ -767,13 +767,93 @@ button {
   position: relative;
 }
 
-.counter {
+/* Holds the availability icon and the counter as one right-aligned row, so the
+   counter does not have to shift when an icon appears beside it. */
+.input-status {
   position: absolute;
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.counter {
   color: #888;
   font-size: 12px;
+}
+
+/* Name is free. The ring sweeps, then the tick draws itself. */
+.name-ok-ring,
+.name-ok-tick {
+  fill: none;
+  stroke: #3ddc84;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.name-ok-ring {
+  stroke-width: 1.8;
+  opacity: 0.4;
+  stroke-dasharray: 63;
+  stroke-dashoffset: 63;
+  transform-origin: 50% 50%;
+  transform: rotate(-90deg);
+  animation: name-ok-ring 340ms ease-out forwards;
+}
+
+.name-ok-tick {
+  stroke-width: 2.4;
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  /* Starts once the ring is most of the way round. */
+  animation: name-ok-tick 260ms cubic-bezier(0.65, 0, 0.35, 1) 170ms forwards;
+}
+
+@keyframes name-ok-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes name-ok-tick {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Waiting on the server. Deliberately quiet - it is a 400ms pause, not a task. */
+.name-checking {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #888;
+  animation: name-checking 900ms ease-in-out infinite;
+}
+
+@keyframes name-checking {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .name-ok-ring,
+  .name-ok-tick {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .name-checking {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .segmented {
@@ -1072,6 +1152,183 @@ button {
 
 .hud-btn.voice.error {
   color: #ff6b6b;
+}
+
+/* Audio output picker, one slot further left than the voice button. */
+.audio-picker {
+  position: absolute;
+  top: 16px;
+  right: 232px;
+  width: 44px;
+  height: 44px;
+  z-index: 8;
+}
+
+.hud-btn.audio {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 100%;
+  height: 100%;
+  color: #aaa;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: color 120ms linear, border-color 120ms linear, box-shadow 120ms linear;
+}
+
+.hud-btn.audio.open {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* Lit while a nearby player is audible, which also proves audio is arriving. */
+.hud-btn.audio.talking {
+  color: #fff;
+  border-color: rgba(86, 238, 152, 0.55);
+  box-shadow: 0 0 18px rgba(46, 204, 113, 0.35);
+}
+
+.audio-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 60%, rgba(86, 238, 152, 0.55), transparent 70%);
+  opacity: 0;
+  transition: opacity 70ms linear;
+}
+
+.hud-btn.audio svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+}
+
+.audio-menu {
+  position: absolute;
+  top: 52px;
+  right: 0;
+  z-index: 9;
+  width: 244px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(12, 14, 18, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+.audio-menu-head {
+  margin: 2px 6px 8px;
+  color: #8a93a0;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.audio-menu-note {
+  margin: 4px 6px;
+  color: #7d858f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.audio-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 8px;
+  border-radius: 5px;
+  background: none;
+  color: #dfe3e8;
+  font-size: 12px;
+  text-align: left;
+}
+
+.audio-menu-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-menu-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.audio-menu-row.active {
+  color: #56ee98;
+}
+
+.audio-menu-test {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dfe3e8;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.audio-menu-test:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.audio-menu-test:disabled {
+  color: #7d858f;
+  cursor: wait;
+}
+
+.audio-menu-head.nearby {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.audio-peer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 5px 6px;
+  font-size: 12px;
+}
+
+.audio-peer-name {
+  overflow: hidden;
+  color: #dfe3e8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-peer-state {
+  color: #7d858f;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.audio-peer.connected .audio-peer-state {
+  color: #56ee98;
+}
+
+.audio-peer.failed .audio-peer-state,
+.audio-peer.disconnected .audio-peer-state {
+  color: #ff6b6b;
+}
+
+.audio-peer-meter {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.audio-peer-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: #56ee98;
+  transition: width 70ms linear;
 }
 
 .voice-toast {
@@ -1454,7 +1711,7 @@ button {
   transition: width 0.16s linear, background 0.16s linear;
 }
 
-.credits-chip {
+.tribute-chip {
   height: 44px;
   display: flex;
   align-items: center;
@@ -1552,18 +1809,27 @@ button {
   min-width: 0;
 }
 
-.inv-item-art {
+/* Flat SVG item art. The tile is lifted off the panel colour so the darker
+   items - the earbuds are near-black in game - still read against it. */
+.item-art {
   display: block;
   width: 62px;
   height: 62px;
   flex: 0 0 62px;
+  padding: 7px;
   border: 1px solid #34313b;
   border-radius: 7px;
-  background-color: #0d0b12;
-  background-image: url("/images/items/catalog-sprite.png");
-  background-repeat: no-repeat;
-  background-size: 400% 300%;
-  box-shadow: inset 0 0 18px rgba(155, 89, 208, 0.1);
+  background: linear-gradient(160deg, #262330 0%, #17151d 100%);
+  box-shadow: inset 0 0 18px rgba(155, 89, 208, 0.12);
+}
+
+/* Property rows are a tighter slot than the bag. */
+.inv-prop-row .item-art,
+.inv-prop-list .item-art {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  padding: 4px;
 }
 
 .inv-list span,
@@ -1590,7 +1856,7 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .inv-item-art {
+  .item-art {
     width: 54px;
     height: 54px;
     flex-basis: 54px;
@@ -1909,10 +2175,6 @@ button {
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: #2a2a2a;
-}
-
-.inv-prop-home {
-  background: linear-gradient(160deg, #6b5b8f 0%, #3f3559 100%);
 }
 
 .inbox-btn {

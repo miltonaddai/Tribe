@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CITIES, gunSpec } from "@the-block/shared";
-import type { GameSettings } from "@the-block/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, gunSpec } from "@tribe/shared";
+import type { GameSettings } from "@tribe/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
 import { loadWallet } from "../lib/wallet";
@@ -10,7 +10,9 @@ import { WorldMap } from "../components/WorldMap";
 import { InventoryPanel, itemName } from "../components/InventoryPanel";
 import { FriendsTab } from "../components/FriendsTab";
 import { MiniMap, zoneLabel } from "../components/MiniMap";
-import type { ItemId } from "@the-block/shared";
+import { AudioOutputPicker } from "../components/AudioOutputPicker";
+import { loadOutputDevice } from "../lib/voiceChat";
+import type { ItemId } from "@tribe/shared";
 
 const EMPTY: HudState = {
   city: "trench",
@@ -28,7 +30,7 @@ const EMPTY: HudState = {
   chat: [],
   citizens: [],
   connected: false,
-  credits: 500,
+  tribute: 0,
   inventory: [],
   inStore: false,
   gun: null,
@@ -36,8 +38,10 @@ const EMPTY: HudState = {
   accessories: [],
   pendingTrade: null,
   voiceLevel: 0,
+  nearbyVoiceLevel: 0,
   notice: null,
   listPrompt: null,
+  namePrompt: null,
   offerPrompt: null,
   messages: [],
   unreadMessages: 0,
@@ -79,7 +83,7 @@ function WorldFullScreen({ onRetry }: { onRetry: () => Promise<boolean> }) {
   return (
     <div className="session-ended">
       <div className="session-ended-card">
-        <p className="list-kicker">THE BLOCK IS FULL</p>
+        <p className="list-kicker">TRIBE IS FULL</p>
         <p className="session-ended-body">
           Every slot in the city is taken right now. You are in line and will be let in as soon as someone
           leaves.
@@ -121,15 +125,18 @@ export function GamePage() {
   const [tradeOpen, setTradeOpen] = useState(false);
   const [invOpen, setInvOpen] = useState(false);
   const [listPrice, setListPrice] = useState("");
-  const [listMinutes, setListMinutes] = useState("");
+  const [homeName, setHomeName] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [inboxTab, setInboxTab] = useState<"messages" | "friends">("messages");
-  const [tradeItem, setTradeItem] = useState<string>("mystery-crate");
+  // Cheapest item in the catalog, so the dropdown opens on something most
+  // players actually have.
+  const [tradeItem, setTradeItem] = useState<string>("glasses");
   const [buyError, setBuyError] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [voiceState, setVoiceState] = useState<"off" | "requesting" | "on" | "error">("off");
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [audioOutput, setAudioOutput] = useState<string>(() => loadOutputDevice());
   const [settings, setSettings] = useState<GameSettings>(() => loadSettings());
   const padRef = useRef({ x: 0, z: 0 });
   const seenWhisper = useRef<string>("");
@@ -148,6 +155,16 @@ export function GamePage() {
   const inboxBadge = hud.unreadMessages + hud.friendRequests;
   offerPromptRef.current = Boolean(hud.offerPrompt);
   inboxOpenRef.current = inboxOpen;
+
+  // Any open panel hands the cursor back. With a gun out the pointer is captured
+  // for aiming, and a trapped cursor cannot click Buy.
+  const anyPanelOpen =
+    invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused;
+  useEffect(() => {
+    // Tell the engine either way: it must not grab the cursor back while a
+    // panel is open, and it may resume aiming once one closes.
+    engineRef.current?.setUiOpen(anyPanelOpen);
+  }, [anyPanelOpen]);
 
   useEffect(() => {
     const wallet = loadWallet();
@@ -245,9 +262,12 @@ export function GamePage() {
   }
 
   useEffect(() => {
+    if (hud.namePrompt) setHomeName(hud.namePrompt.current);
+  }, [hud.namePrompt?.id]);
+
+  useEffect(() => {
     if (!hud.listPrompt) return;
     setListPrice(String(hud.listPrompt.suggested));
-    setListMinutes(String(hud.listPrompt.suggestedMinutes));
   }, [hud.listPrompt?.id]);
 
   useEffect(() => {
@@ -338,7 +358,9 @@ export function GamePage() {
             <rect x="9" y="1" width="3" height="12" />
           </svg>
         </button>
-        <div className="credits-chip">{hud.credits} CR</div>
+        <div className="tribute-chip">
+          {hud.tribute} {CURRENCY}
+        </div>
       </div>
       <button
         className="hud-btn bag-btn"
@@ -391,6 +413,15 @@ export function GamePage() {
           {voiceState !== "on" && <path d="M3 3l18 18" />}
         </svg>
       </button>
+      <AudioOutputPicker
+        level={hud.nearbyVoiceLevel}
+        current={audioOutput}
+        getPeers={() => engineRef.current?.voiceDiagnostics() ?? []}
+        onPick={(deviceId) => {
+          setAudioOutput(deviceId);
+          void engineRef.current?.setAudioOutput(deviceId);
+        }}
+      />
       {voiceError && <div className="voice-toast">{voiceError}</div>}
 
       <div className="health-bar">
@@ -572,12 +603,47 @@ export function GamePage() {
         </form>
       )}
 
+      {hud.namePrompt && (
+        <form
+          className="list-panel"
+          onSubmit={(e) => {
+            e.preventDefault();
+            engineRef.current?.nameHome(hud.namePrompt!.id, homeName);
+          }}
+        >
+          <p className="list-kicker">NAME YOUR HOME</p>
+          <label htmlFor="home-name">SIGN ABOVE THE DOOR</label>
+          <div className="list-input-row">
+            <input
+              id="home-name"
+              className="input"
+              maxLength={HOME_NAME_MAX}
+              placeholder="e.g. The Vault"
+              value={homeName}
+              onChange={(e) => setHomeName(e.target.value)}
+            />
+            <span className="list-unit">{homeName.trim().length} / {HOME_NAME_MAX}</span>
+          </div>
+          <p className="list-note">
+            Shown on the sign over your door and in your property list. Leave it empty to clear the name.
+          </p>
+          <div className="list-actions">
+            <button className="btn btn-accent" type="submit">
+              Save name
+            </button>
+            <button className="btn" type="button" onClick={() => engineRef.current?.cancelHomeName()}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
       {hud.listPrompt && (
         <form
           className="list-panel"
           onSubmit={(e) => {
             e.preventDefault();
-            engineRef.current?.listHome(Number(listPrice), Number(listMinutes));
+            engineRef.current?.listHome(Number(listPrice), 0);
           }}
         >
           <p className="list-kicker">SELL YOUR HOME</p>
@@ -594,42 +660,11 @@ export function GamePage() {
               onChange={(e) => setListPrice(e.target.value)}
               autoFocus
             />
-            <span className="list-unit">cr</span>
-          </div>
-          <label htmlFor="auction-minutes">AUCTION LENGTH</label>
-          <div className="list-input-row">
-            <input
-              id="auction-minutes"
-              className="input"
-              type="number"
-              min={1}
-              max={43200}
-              step={1}
-              value={listMinutes}
-              onChange={(e) => setListMinutes(e.target.value)}
-            />
-            <span className="list-unit">min</span>
-          </div>
-          <div className="list-presets">
-            {[
-              { label: "1h", value: 60 },
-              { label: "6h", value: 360 },
-              { label: "24h", value: 1440 },
-              { label: "3d", value: 4320 },
-              { label: "7d", value: 10080 },
-            ].map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className={`chip ${Number(listMinutes) === preset.value ? "on" : ""}`}
-                onClick={() => setListMinutes(String(preset.value))}
-              >
-                {preset.label}
-              </button>
-            ))}
+            <span className="list-unit">{CURRENCY}</span>
           </div>
           <p className="list-note">
-            The clock starts on the first bid. When it ends you choose whether to accept the winning offer.
+            Anyone can buy it at this price the moment you list it. No bidding, no waiting - withdraw the
+            listing any time before someone pays.
           </p>
           <div className="list-actions">
             <button className="btn btn-accent" type="submit">
@@ -664,9 +699,9 @@ export function GamePage() {
       {hud.offerPrompt && (
         <div className="list-panel">
           <p className="list-kicker">OFFER ON YOUR HOME</p>
-          <p className="offer-amount">{hud.offerPrompt.bid} cr</p>
+          <p className="offer-amount">{hud.offerPrompt.bid} {CURRENCY}</p>
           <p className="list-note">
-            High bidder: <strong>{hud.offerPrompt.bidder || "a citizen"}</strong>. Accept and the credits are yours.
+            High bidder: <strong>{hud.offerPrompt.bidder || "a citizen"}</strong>. Accept and the {CURRENCY} is yours.
             Reject and their bid is refunded and the home comes off the market.
             {hud.offerPrompt.decideBy > 0 && (
               <> Auto-accepts {new Date(hud.offerPrompt.decideBy).toLocaleString()}.</>
@@ -738,7 +773,7 @@ export function GamePage() {
 
       {invOpen && (
         <InventoryPanel
-          credits={hud.credits}
+          tribute={hud.tribute}
           inventory={hud.inventory}
           inStore={hud.inStore}
           accessTier={hud.accessTier}
@@ -748,8 +783,10 @@ export function GamePage() {
           buyError={buyError}
           onClose={() => setInvOpen(false)}
           onBuy={(id: ItemId) => {
-            const err = engineRef.current?.buyItem(id) ?? null;
-            setBuyError(err);
+            // Async now: the wallet has to confirm the payment before the
+            // server will grant anything.
+            setBuyError(null);
+            void engineRef.current?.buyItem(id).then((err) => setBuyError(err ?? null));
           }}
           onEquip={(id: ItemId) => engineRef.current?.equipItem(id)}
           homes={hud.ownedHomes}

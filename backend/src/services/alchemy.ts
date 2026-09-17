@@ -1,58 +1,47 @@
-import { cityFromBalance, DEFAULT_CHAIN, type CityId, type WalletChainId } from "@the-block/shared";
-import { thresholdsForChain } from "./cityThresholds";
+import { cityFromBalance, DEFAULT_CHAIN, type CityId, type WalletChainId } from "@tribe/shared";
+import { tributeThresholds } from "./cityThresholds";
+import { readTokenBalance, toDisplayUnits } from "./token";
+import { CHAIN_RPC } from "./chain";
 
-const ROBINHOOD_RPC =
-  process.env.ROBINHOOD_TESTNET_RPC ||
-  process.env.ALCHEMY_ROBINHOOD_URL ||
-  "https://rpc.testnet.chain.robinhood.com";
 
-export async function fetchNativeBalance(address: string, _chain: WalletChainId): Promise<number> {
+
+/**
+ * How much $TRIBE a wallet holds, in whole tokens. Read straight from the chain.
+ *
+ * Nothing stored is added. Under the deposit-float model this also counted an
+ * in-game balance, because tokens moved into the game left the wallet. With the
+ * allowance model they never leave, so adding a stored figure would double-count
+ * - the `tribute` column on characters is a leftover from that design and is not
+ * the authority on anything.
+ *
+ * `demo:<n>` addresses report n tokens, so the dev launcher can exercise every
+ * tier without holding anything.
+ */
+export async function tributeHoldings(address: string, _chain: WalletChainId): Promise<number> {
   if (address.startsWith("demo:")) {
     const n = Number(address.split(":")[1]);
-    if (!Number.isNaN(n)) return n;
+    return Number.isFinite(n) ? n : 0;
   }
-  return fetchEthBalance(address);
+  const onChain = await readTokenBalance(address);
+  return onChain === null ? 0 : toDisplayUnits(onChain);
 }
 
-async function fetchEthBalance(address: string): Promise<number> {
-  if (address && !address.startsWith("demo:")) {
-    try {
-      const res = await fetch(ROBINHOOD_RPC, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_getBalance",
-          params: [address, "latest"],
-        }),
-      });
-      const json = (await res.json()) as { result?: string };
-      const wei = BigInt(json.result ?? "0x0");
-      return Number(wei) / 1e18;
-    } catch (err) {
-      console.warn("[wallet] Robinhood testnet balance lookup failed", err);
-    }
-  }
-  return hashedFallback(address);
-}
-
-function hashedFallback(address: string): number {
-  let hash = 0;
-  for (let i = 0; i < address.length; i++) hash = (hash * 31 + address.charCodeAt(i)) >>> 0;
-  return (hash % 180) / 10;
-}
-
+/**
+ * Which district a wallet spawns in. Access is tied to $TRIBE alone - there is
+ * no native-balance path. Until TRIBE_TOKEN_ADDRESS is set, on-chain holdings
+ * read as zero and everyone lands in Trench; set CITY_MIN_TRIBE_* to 0 locally
+ * to work on the upper districts before the token exists.
+ */
 export async function startingCityForWallet(
   address: string,
   chain: WalletChainId = DEFAULT_CHAIN,
-): Promise<{ balance: number; city: CityId; chain: WalletChainId }> {
-  const balance = await fetchNativeBalance(address, chain);
-  return { balance, city: cityFromBalance(balance, thresholdsForChain(chain)), chain };
+): Promise<{ balance: number; city: CityId; chain: WalletChainId; symbol: "TRIBE" }> {
+  const held = await tributeHoldings(address, chain);
+  return { balance: held, city: cityFromBalance(held, tributeThresholds()), chain, symbol: "TRIBE" };
 }
 
 export function rpcsConfigured() {
   return {
-    robinhoodTestnet: Boolean(ROBINHOOD_RPC),
+    robinhood: Boolean(CHAIN_RPC),
   };
 }

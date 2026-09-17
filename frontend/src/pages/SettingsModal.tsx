@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { GameSettings } from "@the-block/shared";
-import { DEFAULT_SETTINGS } from "@the-block/shared";
+import type { GameSettings } from "@tribe/shared";
+import { DEFAULT_SETTINGS } from "@tribe/shared";
 import { loadSettings, persistSettings, saveSettings } from "../lib/storage";
 import { shorten } from "../lib/wallet";
 import { useWallet } from "../state/WalletStore";

@@ -1,8 +1,8 @@
 {
-  "name": "the-block",
+  "name": "tribe",
   "private": true,
   "version": "0.1.0",
-  "description": "The Block — a crypto-native Roblox-style social game",
+  "description": "Tribe — a crypto-native Roblox-style social game",
   "scripts": {
     "install:all": "yarn --cwd frontend install && yarn --cwd backend install",
     "dev:web": "yarn --cwd frontend dev",

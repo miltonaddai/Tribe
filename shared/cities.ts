@@ -128,10 +128,33 @@ export const CITY_ORDER: CityId[] = ["trench", "gas", "realworld", "valhalla"];
 export type CityThreshold = { min: number; city: CityId };
 
 /** Wallet native balance → starting city. In-game work is the only way to climb after spawn. */
-export const DEFAULT_ETH_CITY_THRESHOLDS: CityThreshold[] = [
-  { min: 0.015, city: "valhalla" },
-  { min: 0.01, city: "realworld" },
-  { min: 0.005, city: "gas" },
+/**
+ * District access by $TRIBE held. Under 100,000 tokens is Trench; 1,000,000+ is
+ * Valhalla. The middle step is the geometric midpoint of those two, so each tier
+ * is about a 3.2x jump rather than one cheap step and one huge one.
+ *
+ * At a $1M market cap (1B supply, so $0.001/token) that ladder is roughly
+ * $100 / $300 / $1,000. Those dollar figures move with the token price.
+ */
+/**
+ * What an unowned home costs, in Tribute, by district. Homes are bought outright
+ * at this price - there is no auction, so nothing discovers the price for us.
+ *
+ * The ladder mirrors the access ladder: a district that takes more $TRIBE to
+ * enter takes more to live in. At 1,000 Tribute = $1 that is roughly
+ * $25 / $50 / $100 / $250.
+ */
+export const HOME_PRICE: Record<CityId, number> = {
+  trench: 25_000,
+  gas: 50_000,
+  realworld: 100_000,
+  valhalla: 250_000,
+};
+
+export const DEFAULT_TRIBE_CITY_THRESHOLDS: CityThreshold[] = [
+  { min: 1_000_000, city: "valhalla" },
+  { min: 300_000, city: "realworld" },
+  { min: 100_000, city: "gas" },
   { min: 0, city: "trench" },
 ];
 

@@ -1,11 +1,10 @@
 import type { AccessoryId } from "./types";
 
-export type ItemKind = "accessory" | "gun" | "pet" | "crate";
+export type ItemKind = "accessory" | "gun" | "pet";
 
 export type GunId = "pipe" | "pistol" | "rifle";
 export type PetId = "mutt" | "cat";
-export type CrateId = "mystery-crate";
-export type ItemId = AccessoryId | GunId | PetId | CrateId;
+export type ItemId = AccessoryId | GunId | PetId;
 
 export type InventoryStack = {
   id: ItemId;
@@ -62,19 +61,30 @@ export const PETS: { id: PetId; label: string }[] = [
   { id: "cat", label: "Alley Cat" },
 ];
 
+/**
+ * Prices are in Tribute, which is the $TRIBE token itself.
+ *
+ * Calibrated against a 1B supply at a $1M market cap, so 1 Tribute = $0.001 and
+ * 1,000 Tribute = $1. On that basis the whole catalog is roughly $25 and a Sport
+ * car is $35 - impulse-buy money, which is what a social game needs.
+ *
+ * The catch: these are fixed in TOKEN terms, so the real cost tracks the token
+ * price. At a $100M cap the Sidearm below is $30, not $3, and at $1B it is $300.
+ * If the token runs, these have to be re-cut or moved to a USD peg, or the game
+ * prices out its own players exactly when it is winning.
+ */
 export const CATALOG: CatalogItem[] = [
-  { id: "glasses", kind: "accessory", name: "Glasses", blurb: "See the city. Look like you read.", price: 40, tier: 1, unique: true },
-  { id: "backpack", kind: "accessory", name: "Backpack", blurb: "Room for a crate and a grudge.", price: 55, tier: 1, unique: true },
-  { id: "earbuds", kind: "accessory", name: "Earbuds", blurb: "Ignore the plaza. On purpose.", price: 70, tier: 2, unique: true },
-  { id: "visor", kind: "accessory", name: "Visor", blurb: "Night market energy. Zero UV.", price: 85, tier: 2, unique: true },
-  { id: "watch", kind: "accessory", name: "Watch", blurb: "You have places to be. Maybe.", price: 110, tier: 3, unique: true },
-  { id: "chain", kind: "accessory", name: "Gold Chain", blurb: "The smallest Valhalla flex that still counts.", price: 160, tier: 3, unique: true },
-  { id: "pipe", kind: "gun", name: "Lead Pipe", blurb: "Not licensed. Very Trench.", price: 140, tier: 1, unique: true },
-  { id: "pistol", kind: "gun", name: "Sidearm", blurb: "Holds in the right hand. Hits harder.", price: 280, tier: 1, unique: true },
-  { id: "rifle", kind: "gun", name: "Street Rifle", blurb: "Long, loud, and a little extra.", price: 420, tier: 4, unique: true },
-  { id: "mutt", kind: "pet", name: "Block Mutt", blurb: "Follows you. Judges nobody.", price: 180, tier: 1, unique: true },
-  { id: "cat", kind: "pet", name: "Alley Cat", blurb: "Follows you when it feels like it.", price: 220, tier: 2, unique: true },
-  { id: "mystery-crate", kind: "crate", name: "Mystery Crate", blurb: "The original trade bait. Stacks.", price: 75, tier: 1, unique: false },
+  { id: "glasses", kind: "accessory", name: "Glasses", blurb: "See the city. Look like you read.", price: 500, tier: 1, unique: true },
+  { id: "backpack", kind: "accessory", name: "Backpack", blurb: "Room for everything and a grudge.", price: 750, tier: 1, unique: true },
+  { id: "earbuds", kind: "accessory", name: "Earbuds", blurb: "Ignore the plaza. On purpose.", price: 1000, tier: 2, unique: true },
+  { id: "visor", kind: "accessory", name: "Visor", blurb: "Night market energy. Zero UV.", price: 1500, tier: 2, unique: true },
+  { id: "watch", kind: "accessory", name: "Watch", blurb: "You have places to be. Maybe.", price: 2000, tier: 3, unique: true },
+  { id: "chain", kind: "accessory", name: "Gold Chain", blurb: "The smallest Valhalla flex that still counts.", price: 3000, tier: 3, unique: true },
+  { id: "pipe", kind: "gun", name: "Lead Pipe", blurb: "Not licensed. Very Trench.", price: 1500, tier: 1, unique: true },
+  { id: "pistol", kind: "gun", name: "Sidearm", blurb: "Holds in the right hand. Hits harder.", price: 3000, tier: 1, unique: true },
+  { id: "rifle", kind: "gun", name: "Street Rifle", blurb: "Long, loud, and a little extra.", price: 5000, tier: 4, unique: true },
+  { id: "mutt", kind: "pet", name: "Block Mutt", blurb: "Follows you. Judges nobody.", price: 2500, tier: 1, unique: true },
+  { id: "cat", kind: "pet", name: "Alley Cat", blurb: "Follows you when it feels like it.", price: 3000, tier: 2, unique: true },
 ];
 
 const CATALOG_MAP = new Map(CATALOG.map((item) => [item.id, item]));
@@ -146,7 +156,6 @@ export function seedInventory(accessories: AccessoryId[], existing?: unknown): I
   for (const id of accessories) {
     if (!hasItem(inv, id)) inv = addItem(inv, id);
   }
-  if (!hasItem(inv, "mystery-crate")) inv = addItem(inv, "mystery-crate");
   return inv;
 }
 

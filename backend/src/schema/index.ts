@@ -24,7 +24,8 @@ export class PlayerState extends Schema {
   inBuilding = false;
   buildingId = "";
   sitting = false;
-  credits = 500;
+  /** The wallet's $TRIBE balance, pushed by the server. Never seeded here. */
+  tribute = 0;
   inventory = "[]";
   gun = "";
   pet = "";
@@ -53,7 +54,7 @@ defineTypes(PlayerState, {
   inBuilding: "boolean",
   buildingId: "string",
   sitting: "boolean",
-  credits: "number",
+  tribute: "number",
   inventory: "string",
   gun: "string",
   pet: "string",
@@ -114,6 +115,8 @@ export class HomeState extends Schema {
   ownerName = "";
   /** Owner has put their home back on the market. Ignored while owner is empty. */
   forSale = false;
+  /** Owner's name for the place. Decoration, not identity; empty means unnamed. */
+  name = "";
   /** What the home last changed hands for, kept for the SOLD tag. */
   lastPrice = 0;
   /** Seller's asking price for the current listing. 0 = never-owned city home. */
@@ -139,6 +142,7 @@ defineTypes(HomeState, {
   owner: "string",
   ownerChain: "string",
   ownerName: "string",
+  name: "string",
   forSale: "boolean",
   lastPrice: "number",
   askingPrice: "number",

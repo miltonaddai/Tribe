@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { verifyMessage, type Hex } from "viem";
-import type { WalletChainId } from "@the-block/shared";
+import type { WalletChainId } from "@tribe/shared";
+import { CHAIN_ID } from "./chain";
 
 type NonceRecord = { nonce: string; expires: number };
 const nonces = new Map<string, NonceRecord>();
@@ -22,9 +23,10 @@ export function buildSignMessage(opts: {
   nonce: string;
   origin: string;
 }) {
-  const chainLine = "46630";
+  // What the user signs against. Must match the network the wallet is switched to.
+  const chainLine = String(CHAIN_ID);
   return [
-    `${opts.origin} wants you to sign in to The Block`,
+    `${opts.origin} wants you to sign in to Tribe`,
     "",
     `URI: ${opts.origin}`,
     "Version: 1",

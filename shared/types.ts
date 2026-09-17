@@ -23,13 +23,14 @@ export type ShoeId = "sneakers" | "boots" | "slides" | "loafers" | "none";
 export type PreviewMotion = "idle" | "walk" | "wave" | "dance";
 
 /**
- * Only Robinhood Chain for now. The wallet_chain enum in Postgres still carries
- * the old solana-testnet value so existing rows stay readable, but nothing
- * writes it any more.
+ * Robinhood Chain mainnet, and nothing else. The wallet_chain enum in Postgres
+ * still carries the dead solana-testnet value so old rows stay readable, but
+ * nothing writes it. Network parameters live in chain.ts on each side; this is
+ * only the stored discriminator.
  */
-export type WalletChainId = "robinhood-testnet";
+export type WalletChainId = "robinhood";
 
-export const DEFAULT_CHAIN: WalletChainId = "robinhood-testnet";
+export const DEFAULT_CHAIN: WalletChainId = "robinhood";
 
 export const WALLET_CHAINS: {
   id: WalletChainId;
@@ -39,11 +40,11 @@ export const WALLET_CHAINS: {
   hint: string;
 }[] = [
   {
-    id: "robinhood-testnet",
-    label: "Robinhood Testnet",
+    id: "robinhood",
+    label: "Robinhood Chain",
     network: "MetaMask / Phantom EVM",
     symbol: "ETH",
-    hint: "Sign in with an EVM wallet on Robinhood Chain testnet",
+    hint: "Sign in with an EVM wallet on Robinhood Chain",
   },
 ];
 
@@ -65,7 +66,7 @@ export type CharacterRecord = CharacterAppearance & {
   homeCity: CityId;
   accessTier: number;
   brokemeter: number;
-  credits: number;
+  tribute: number;
   inventory: InventoryStack[];
   equippedGun: GunId | null;
   equippedPet: PetId | null;

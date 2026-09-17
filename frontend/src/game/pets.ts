@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { PetId } from "@the-block/shared";
+import type { PetId } from "@tribe/shared";
 import { box } from "./pcApp";
 
 export type PetWalker = {
@@ -10,13 +10,31 @@ export type PetWalker = {
   yaw: number;
   anim: number;
   moving: boolean;
+  /** 0-1 blend into the walk pose. Continuous, so legs never snap to neutral. */
+  stride: number;
   inited: boolean;
 };
 
-const GAIT: Record<PetId, { heel: number; side: number; speed: number; turn: number; stop: number; start: number; cadence: number }> = {
-  mutt: { heel: 1.28, side: 0.38, speed: 11.5, turn: 11, stop: 0.2, start: 0.42, cadence: 12 },
-  cat: { heel: 1.72, side: 0.58, speed: 8.4, turn: 7.5, stop: 0.48, start: 0.78, cadence: 14 },
+/**
+ * `chase` is how hard the pet accelerates per unit it has fallen behind, and
+ * `slack` is the gap it tolerates before bothering. Together they make the pet
+ * settle into a steady trail rather than sprinting to the owner and stopping
+ * dead - the old on/off chase flipped state about thirteen times a second at
+ * walking pace, and every flip snapped the legs back to neutral mid-stride.
+ *
+ * `stridePerUnit` converts ground speed into stride phase, so the paws keep pace
+ * with the floor instead of skating over it.
+ */
+const GAIT: Record<
+  PetId,
+  { heel: number; side: number; speed: number; chase: number; slack: number; turn: number; stridePerUnit: number; swing: number }
+> = {
+  mutt: { heel: 1.28, side: 0.38, speed: 16, chase: 12, slack: 0.2, turn: 11, stridePerUnit: 1.5, swing: 30 },
+  cat: { heel: 1.72, side: 0.58, speed: 12, chase: 9, slack: 0.35, turn: 7.5, stridePerUnit: 1.9, swing: 26 },
 };
+
+/** Ground speed at which the legs reach their full swing. */
+const FULL_STRIDE_SPEED = 5;
 
 export function createPet(parent: pc.Entity, kind: PetId, name: string) {
   return kind === "cat" ? createCat(parent, name) : createDog(parent, name);
@@ -24,7 +42,7 @@ export function createPet(parent: pc.Entity, kind: PetId, name: string) {
 
 export function createPetWalker(entity: pc.Entity, kind: PetId): PetWalker {
   const p = entity.getPosition();
-  return { entity, kind, x: p.x, z: p.z, yaw: 0, anim: 0, moving: false, inited: false };
+  return { entity, kind, x: p.x, z: p.z, yaw: 0, anim: 0, moving: false, stride: 0, inited: false };
 }
 
 export function spawnPet(parent: pc.Entity, kind: PetId, name: string): PetWalker {
@@ -55,36 +73,51 @@ export function tickPetWalker(
     walker.z = heelZ;
     walker.yaw = ownerYaw;
     walker.moving = false;
+    walker.stride = 0;
     walker.inited = true;
     walker.entity.setPosition(walker.x, groundY, walker.z);
     walker.entity.setEulerAngles(0, (walker.yaw * 180) / Math.PI, 0);
-    applyPetMotion(walker.entity, walker.kind, false, walker.anim);
+    applyPetMotion(walker.entity, walker.kind, 0, walker.anim);
     return;
   }
 
-  if (walker.moving) {
-    if (dist < g.stop) walker.moving = false;
-  } else if (dist > g.start) walker.moving = true;
-
+  // Speed scales with how far behind it is, so the pet trails at a steady
+  // distance instead of closing the gap flat out and stopping dead.
+  const want = Math.max(0, dist - g.slack);
+  const speed = Math.min(g.speed, want * g.chase);
   let moved = 0;
-  if (walker.moving && dist > 0.001) {
-    const burst = dist > 3.2 ? 1.55 : dist > 1.6 ? 1.2 : 1;
-    const step = Math.min(dist, g.speed * burst * dt);
+  if (speed > 0.001 && dist > 0.001) {
+    const step = Math.min(dist, speed * dt);
     walker.x += (dx / dist) * step;
     walker.z += (dz / dist) * step;
     moved = step;
     walker.yaw = lerpAngle(walker.yaw, Math.atan2(dx, dz), 1 - Math.exp(-g.turn * dt));
   } else {
+    // Settled: face the same way as the owner rather than the last heading.
     walker.yaw = lerpAngle(walker.yaw, ownerYaw, 1 - Math.exp(-2.4 * dt));
   }
 
-  walker.anim += walker.moving ? dt * g.cadence * (0.7 + Math.min(2.2, moved / Math.max(dt, 0.001) / g.speed)) : dt * 2.2;
+  // Blend the legs in and out rather than switching them. Snapping between a
+  // walk pose and neutral is what made the old gait stutter.
+  const ground = moved / Math.max(dt, 0.001);
+  const target = Math.min(1, ground / FULL_STRIDE_SPEED);
+  walker.stride += (target - walker.stride) * (1 - Math.exp(-9 * dt));
+  walker.moving = walker.stride > 0.05;
+
+  // Phase advances with distance covered, so the paws match the floor. A slow
+  // idle sway keeps a settled pet from looking frozen.
+  walker.anim += moved * g.stridePerUnit + dt * 1.6 * (1 - walker.stride);
   walker.entity.setPosition(walker.x, groundY, walker.z);
   walker.entity.setEulerAngles(0, (walker.yaw * 180) / Math.PI, 0);
-  applyPetMotion(walker.entity, walker.kind, walker.moving, walker.anim);
+  applyPetMotion(walker.entity, walker.kind, walker.stride, walker.anim);
 }
 
-function applyPetMotion(pet: pc.Entity, kind: PetId, walking: boolean, t: number) {
+/**
+ * `stride` is a 0-1 blend into the walk, not a switch. Every value is mixed
+ * between the settled pose and the full trot, so a pet slowing to a stop eases
+ * its legs down instead of snapping them straight mid-step.
+ */
+function applyPetMotion(pet: pc.Entity, kind: PetId, stride: number, t: number) {
   const fl = pet.findByName("leg-fl");
   const fr = pet.findByName("leg-fr");
   const bl = pet.findByName("leg-bl");
@@ -94,32 +127,37 @@ function applyPetMotion(pet: pc.Entity, kind: PetId, walking: boolean, t: number
   const head = pet.findByName("head");
   const cat = kind === "cat";
   const bodyRest = cat ? 0.24 : 0.3;
+  const walk = Math.max(0, Math.min(1, stride));
+  const idle = 1 - walk;
 
-  fl?.setLocalEulerAngles(0, 0, 0);
-  fr?.setLocalEulerAngles(0, 0, 0);
-  bl?.setLocalEulerAngles(0, 0, 0);
-  br?.setLocalEulerAngles(0, 0, 0);
-  body?.setLocalEulerAngles(0, 0, 0);
-  head?.setLocalEulerAngles(0, 0, 0);
+  // Trot: diagonal pairs share a phase, so two feet are always planted.
+  const swing = Math.sin(t) * g_swing(kind) * walk;
+  // Each leg lifts on its forward half, which is what reads as a step rather
+  // than a leg swinging through the floor.
+  const liftA = Math.max(0, Math.sin(t)) * 6 * walk;
+  const liftB = Math.max(0, -Math.sin(t)) * 6 * walk;
+  fl?.setLocalEulerAngles(-swing - liftA, 0, 0);
+  br?.setLocalEulerAngles(-swing - liftA, 0, 0);
+  fr?.setLocalEulerAngles(swing - liftB, 0, 0);
+  bl?.setLocalEulerAngles(swing - liftB, 0, 0);
 
-  if (walking) {
-    const swing = Math.sin(t) * (cat ? 26 : 30);
-    // Trot: opposite corners share a phase so two feet stay planted.
-    fl?.setLocalEulerAngles(-swing, 0, 0);
-    br?.setLocalEulerAngles(-swing, 0, 0);
-    fr?.setLocalEulerAngles(swing, 0, 0);
-    bl?.setLocalEulerAngles(swing, 0, 0);
-    body?.setLocalPosition(0, bodyRest + Math.abs(Math.sin(t * 2)) * 0.018, 0);
-    body?.setLocalEulerAngles(Math.sin(t) * 5, 0, Math.sin(t) * 3.5);
-    head?.setLocalEulerAngles(Math.sin(t * 2) * 6, 0, 0);
-    tail?.setLocalEulerAngles(cat ? 18 : 8, Math.sin(t * 1.6) * (cat ? 22 : 16), cat ? 12 : 0);
-    return;
-  }
+  const bob = Math.abs(Math.sin(t * 2)) * 0.018 * walk + Math.sin(t) * 0.012 * idle;
+  body?.setLocalPosition(0, bodyRest + bob, 0);
+  body?.setLocalEulerAngles(
+    Math.sin(t) * 5 * walk + Math.sin(t * 0.7) * 1.4 * idle,
+    0,
+    Math.sin(t) * 3.5 * walk,
+  );
+  head?.setLocalEulerAngles(Math.sin(t * 2) * 6 * walk + Math.sin(t * 0.85) * 3 * idle, 0, 0);
+  tail?.setLocalEulerAngles(
+    (cat ? 18 : 8) * walk + (cat ? 22 : 6) * idle,
+    Math.sin(t * 1.6) * (cat ? 22 : 16) * walk + Math.sin(t * 1.8) * (cat ? 14 : 10) * idle,
+    (cat ? 12 : 0) * walk + (cat ? 8 : 0) * idle,
+  );
+}
 
-  body?.setLocalPosition(0, bodyRest + Math.sin(t) * 0.012, 0);
-  body?.setLocalEulerAngles(Math.sin(t * 0.7) * 1.4, 0, 0);
-  head?.setLocalEulerAngles(Math.sin(t * 0.85) * 3, 0, 0);
-  tail?.setLocalEulerAngles(cat ? 22 : 6, Math.sin(t * 1.8) * (cat ? 14 : 10), cat ? 8 : 0);
+function g_swing(kind: PetId) {
+  return GAIT[kind]?.swing ?? GAIT.mutt.swing;
 }
 
 function createDog(parent: pc.Entity, name: string) {

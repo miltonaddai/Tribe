@@ -342,7 +342,7 @@
     "@supabase/realtime-js" "2.112.3"
     "@supabase/storage-js" "2.112.3"
 
-"@the-block/shared@file:../shared":
+"@tribe/shared@file:../shared":
   version "0.1.0"
 
 "@types/body-parser@*":

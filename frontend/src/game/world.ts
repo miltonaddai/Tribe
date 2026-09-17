@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import {
+import { CURRENCY,
   CITIES,
   CITY_BOUNDS,
   CITY_GRID,
@@ -11,16 +11,25 @@ import {
   LANDMARKS,
   WORLD_HALF,
   homeId,
+  homeFloors,
+  homeGradeById,
   lotSeed,
   mulberry,
   type CityId,
   type CityTheme,
   type LandmarkKind,
-} from "@the-block/shared";
-import { aabbFrom, box, type Aabb } from "./pcApp";
+} from "@tribe/shared";
+import { aabbFrom, box, entityYaw, lightPool, type Aabb } from "./pcApp";
 import { createCitizen, type Appearance } from "./character";
 import { applyCitizenMotion, type CitizenMotion } from "./motion";
-import { fillInterior, interiorLayout, interiorSeats, type InteriorKind } from "./interiors";
+import {
+  fillInterior,
+  interiorLayout,
+  interiorObstacles,
+  interiorPlatforms,
+  interiorSeats,
+  type InteriorKind,
+} from "./interiors";
 import { SIT_HIP } from "./motion";
 import { spawnPet, tickPetWalker, type PetWalker } from "./pets";
 import { createVehicle, driverSeat } from "./vehicles";
@@ -42,6 +51,10 @@ export type Interactable = {
   halfW?: number;
   halfD?: number;
   ceiling?: number;
+  /** Raised surfaces inside, in world coordinates. */
+  platforms?: { minX: number; maxX: number; minZ: number; maxZ: number; y: number }[];
+  /** Solid props inside, in world coordinates. */
+  obstacles?: Aabb[];
   spawnZ?: number;
   carKind?: string;
   carColor?: string;
@@ -74,8 +87,12 @@ export type Seat = {
   sitY: number;
 };
 
+/** A streetlamp's position, so the engine can put real light near the player. */
+export type LampPost = { x: number; z: number; color: string };
+
 export type WorldObjects = {
   colliders: Aabb[];
+  lamps: LampPost[];
   interactables: Interactable[];
   interiors: Map<string, pc.Entity>;
   npcs: NpcAgent[];
@@ -101,6 +118,7 @@ export function buildWorld(app: pc.AppBase): WorldObjects {
   const npcs: NpcAgent[] = [];
   const seats: Seat[] = [];
   const nightWashes: pc.Entity[] = [];
+  const lamps: LampPost[] = [];
 
   addSky(app);
   addWorldGround(root);
@@ -108,12 +126,12 @@ export function buildWorld(app: pc.AppBase): WorldObjects {
   addConnectorRoads(root);
 
   for (const id of CITY_ORDER) {
-    buildCity(root, CITIES[id], colliders, interactables, interiors, npcs, seats, nightWashes);
+    buildCity(root, CITIES[id], colliders, interactables, interiors, npcs, seats, nightWashes, lamps);
   }
 
   addMapWalls(root, colliders);
 
-  return { colliders, interactables, interiors, npcs, seats, nightWashes };
+  return { colliders, lamps, interactables, interiors, npcs, seats, nightWashes };
 }
 
 export function tickNpcs(npcs: NpcAgent[], dt: number, t: number, vehicleObstacles: VehicleObstacle[] = []) {
@@ -126,7 +144,7 @@ export function tickNpcs(npcs: NpcAgent[], dt: number, t: number, vehicleObstacl
         id: `npc-${index}`,
         x: p.x,
         z: p.z,
-        yaw: (npc.vehicle.getEulerAngles().y * Math.PI) / 180,
+        yaw: entityYaw(npc.vehicle),
         kind: npc.vehicleKind ?? "sedan",
       },
     ];
@@ -223,7 +241,7 @@ function followNpcPet(npc: NpcAgent, dt: number, x?: number, z?: number, yaw?: n
     npc.pet,
     x ?? p.x,
     z ?? p.z,
-    yaw ?? (npc.entity.getEulerAngles().y * Math.PI) / 180,
+    yaw ?? entityYaw(npc.entity),
     WALK_Y,
     dt,
   );
@@ -255,7 +273,7 @@ function tickNpcDrive(
     for (const other of npcs) {
       if (other === npc || !other.vehicle) continue;
       const q = other.vehicle.getPosition();
-      const otherYaw = (other.vehicle.getEulerAngles().y * Math.PI) / 180;
+      const otherYaw = entityYaw(other.vehicle);
       if (npcVehiclesOverlap(x, z, yaw, kind, q.x, q.z, otherYaw, other.vehicleKind ?? "sedan")) {
         return q;
       }
@@ -556,6 +574,7 @@ function buildCity(
   npcs: NpcAgent[],
   seats: Seat[],
   nightWashes: pc.Entity[],
+  lamps: LampPost[],
 ) {
   const b = CITY_BOUNDS[theme.id];
   const cx = (b.minX + b.maxX) / 2;
@@ -619,7 +638,11 @@ function buildCity(
       }
 
       const facing = avenueFacing(gx, gz);
-      const floors = theme.minFloors + Math.floor(lotRand() * (theme.maxFloors - theme.minFloors + 1));
+      // Consume the draw so every later roll in this lot is unchanged, but take
+      // the value from shared: the server prices homes by floors and the two
+      // must agree exactly.
+      lotRand();
+      const floors = homeFloors(theme.id, gx, gz);
       const color = theme.building[Math.floor(lotRand() * theme.building.length)];
       // Identity is the lot coordinate, never a running counter. Homes are sold
       // to wallets by this id, so it must not move when world gen changes.
@@ -632,7 +655,7 @@ function buildCity(
         addBench(root, bx, bz, 0, seats);
         benches.push(seats[seats.length - 1]);
       }
-      if (theme.id === "valhalla" || lotRand() > 0.35) addStreetLamp(root, lotX - 8, lotZ - 8, theme.id === "valhalla" ? "#FFD700" : theme.accent);
+      if (theme.id === "valhalla" || lotRand() > 0.35) addStreetLamp(root, lotX - 8, lotZ - 8, theme.id === "valhalla" ? "#FFD700" : theme.accent, lamps);
       if (theme.id === "realworld") addNeonSign(root, lotX, lotZ, floors, theme);
       if (theme.id === "trench" && lotRand() > 0.55) addTree(root, lotX + 8, lotZ - 7, theme);
       addBollard(root, lotX + 8.2, lotZ - 5.4);
@@ -1060,7 +1083,9 @@ function placeLandmark(
     const h = 8.4;
     box(root, id, [x, h / 2, z], [w, h, d], "#C4B49A");
     box(root, `${id}-base`, [x, 0.35, z + d / 2 + 0.6], [w + 1.4, 0.7, 2.2], "#A89880");
-    for (let i = -2; i <= 2; i++) {
+    // Columns flank the entrance in pairs. The centre one used to land squarely
+    // in the doorway - which is also why real porticos have an even number.
+    for (const i of [-2, -1, 1, 2]) {
       box(root, `${id}-col-${i}`, [x + i * 2.2, 2.6, z + d / 2 + 0.35], [0.42, 5.2, 0.42], "#E8DCC8");
     }
     box(root, `${id}-pediment`, [x, h + 0.7, z + 0.2], [w + 0.6, 1.4, d * 0.35], "#B7A48A");
@@ -1258,13 +1283,16 @@ function attachInterior(
   labelY?: number,
   facing: Facing = { fx: 0, fz: 1 },
 ) {
-  const layout = interiorLayout(kind);
+  // A home's interior is sized and furnished by what it cost; everything else
+  // has one fixed layout.
+  const { grade, luxury } = kind === "home" ? homeGradeById(id) : { grade: 0, luxury: 0 };
+  const layout = interiorLayout(kind, luxury);
   const y = 80 + theme.tier * 12;
   const interior = new pc.Entity(`${id}-interior`);
   interior.setPosition(x, y, z);
   interior.enabled = false;
   root.addChild(interior);
-  fillInterior(interior, kind, theme);
+  fillInterior(interior, kind, theme, luxury, grade);
   interiors.set(id, interior);
 
   interactables.push({
@@ -1275,6 +1303,19 @@ function attachInterior(
     radius,
     city: theme.id,
     interior: { x, y: y + 0.1, z },
+    obstacles: interiorObstacles(kind).map((s) => ({
+      minX: x + s.x - s.halfW,
+      maxX: x + s.x + s.halfW,
+      minZ: z + s.z - s.halfD,
+      maxZ: z + s.z + s.halfD,
+    })),
+    platforms: interiorPlatforms(kind).map((s) => ({
+      minX: x + s.x - s.halfW,
+      maxX: x + s.x + s.halfW,
+      minZ: z + s.z - s.halfD,
+      maxZ: z + s.z + s.halfD,
+      y: y + 0.1 + s.top,
+    })),
     exterior: { x: doorX + facing.fx * 1.4, y: WALK_Y, z: doorZ + facing.fz * 1.4 },
     label,
     labelY,
@@ -1412,7 +1453,7 @@ function addDealership(
       z: carZ + 3.6,
       radius: 3.2,
       city: theme.id,
-      label: `${spec.name} - ${spec.price} cr`,
+      label: `${spec.name} - ${spec.price} ${CURRENCY}`,
       labelY: 3.2,
       carKind: spec.kind,
       carColor: spec.color,
@@ -1427,9 +1468,14 @@ function addTree(root: pc.Entity, x: number, z: number, theme: CityTheme) {
   box(root, `tree-l-${x}-${z}`, [x, 1.8, z], [1.6, 1.6, 1.6], leaf);
 }
 
-function addStreetLamp(root: pc.Entity, x: number, z: number, color: string) {
+function addStreetLamp(root: pc.Entity, x: number, z: number, color: string, lamps?: LampPost[]) {
   box(root, `lamp-${x}-${z}`, [x, 1.6, z], [0.18, 3.2, 0.18], "#111");
   box(root, `lamp-h-${x}-${z}`, [x, 3.3, z], [0.7, 0.2, 0.7], color, { emissive: color, intensity: 2.4, glow: "sign" });
+  // The pool of light on the road. Additive geometry rather than a real light:
+  // there are dozens of lamps, clustered lighting is off, and a lamp that only
+  // glows at the top leaves the street looking unlit.
+  lightPool(root, `lamp-p-${x}-${z}`, [x, WALK_Y + 0.03, z], 4.2, color);
+  lamps?.push({ x, z, color });
 }
 
 function addNeonSign(root: pc.Entity, x: number, z: number, floors: number, theme: CityTheme) {
@@ -1440,8 +1486,15 @@ function addNeonSign(root: pc.Entity, x: number, z: number, floors: number, them
   });
 }
 
+/**
+ * A tinted plane that gives each district its own night colour.
+ *
+ * Lightened now that the lamps throw pools onto the road: the darker tints were
+ * compensating for streets that had no light sources at all, and they crushed
+ * the pools into invisibility.
+ */
 function addNightWash(root: pc.Entity, theme: CityTheme, cx: number, cz: number) {
-  const tint = theme.id === "realworld" ? "#0B1A14" : theme.id === "trench" ? "#140A1C" : theme.id === "gas" ? "#081018" : "#12100A";
+  const tint = theme.id === "realworld" ? "#16301F" : theme.id === "trench" ? "#241436" : theme.id === "gas" ? "#111F2E" : "#241F12";
   const e = box(root, `${theme.id}-night`, [cx, WALK_Y + 0.015, cz], [CITY_SIZE, 0.008, CITY_SIZE], tint);
   e.enabled = theme.night;
   return e;

@@ -1,4 +1,4 @@
-# The Block
+# Tribe
 
 Crypto-native, Roblox-style social game. Connect a wallet, spawn a character, and drop into a living city.
 
@@ -18,7 +18,7 @@ Do not run `yarn install` in the repo root. Each app installs its own dependenci
 - **Backend:** Node.js + Colyseus (player / vehicle positions, rooms, events)
 - **Data:** Supabase (PostgreSQL). Run the files in `supabase/migrations/` in order in the SQL Editor.
 - **Presence:** Redis
-- **Wallets:** Robinhood Chain Testnet (EVM) — balances and sign-in
+- **Wallets:** Robinhood Chain (EVM, mainnet) — $TRIBE balances and sign-in
 - **Assets:** Cloudflare R2 (avatars, clothing, cars)
 
 ## Cities
@@ -65,7 +65,7 @@ yarn dev
 - Colyseus: ws://localhost:2567
 - Health: http://localhost:2567/health
 
-Copy `frontend/.env.example` → `frontend/.env` and `backend/.env.example` → `backend/.env`. **Connect Wallet** signs you in on Robinhood Chain Testnet with any EVM wallet (MetaMask, Phantom EVM). Set `VITE_DEV_TOOLS=true` in `frontend/.env` to show a floating launcher (bottom right) for jumping between pages and city game modes without a wallet.
+Copy `frontend/.env.example` → `frontend/.env` and `backend/.env.example` → `backend/.env`. **Connect Wallet** signs you in on Robinhood Chain with any EVM wallet (MetaMask, Phantom EVM). Set `VITE_DEV_TOOLS=true` in `frontend/.env` to show a floating launcher (bottom right) for jumping between pages and city game modes without a wallet.
 
 The game runs without Supabase, Redis, Alchemy, or R2.
 

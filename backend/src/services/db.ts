@@ -10,19 +10,21 @@ import {
   type CityId,
   type GameSettings,
   type WalletChainId,
-} from "@the-block/shared";
+} from "@tribe/shared";
 import { getSupabase } from "./supabase";
+import { nameKey } from "@tribe/shared";
 
 type WalletRow = {
   address: string;
   chain: WalletChainId;
-  symbol: "SOL" | "ETH";
+  /** Access is tied to $TRIBE alone, so the stored balance is always in it. */
+  symbol: "TRIBE";
   last_balance: number;
   last_city: CityId;
 };
 
 function normalizeAddress(address: string, chain: WalletChainId) {
-  return chain === "robinhood-testnet" ? address.toLowerCase() : address;
+  return chain === "robinhood" ? address.toLowerCase() : address;
 }
 
 function logError(action: string, error: { message: string } | null) {
@@ -52,6 +54,30 @@ export async function upsertWallet(row: WalletRow) {
   return data?.id as string | undefined;
 }
 
+/**
+ * Is this name free for this wallet to take?
+ *
+ * Checked against the normalized key, and scoped so a player keeps their own
+ * name when they edit anything else about their character.
+ */
+export async function nameAvailable(displayName: string, address: string, chain: WalletChainId) {
+  const supabase = getSupabase();
+  if (!supabase) return true;
+  const { data, error } = await supabase
+    .from("characters")
+    .select("wallet_address")
+    .eq("display_name_key", nameKey(displayName))
+    .maybeSingle();
+  if (error) {
+    logError("check name", error);
+    // Fail closed: better to ask someone to try again than to hand out a
+    // duplicate name, which the index would reject on write anyway.
+    return false;
+  }
+  if (!data) return true;
+  return normalizeAddress(data.wallet_address, chain) === normalizeAddress(address, chain);
+}
+
 export async function upsertCharacter(record: CharacterRecord, chain: WalletChainId) {
   const supabase = getSupabase();
   if (!supabase) return { persisted: false as const };
@@ -69,7 +95,7 @@ export async function upsertCharacter(record: CharacterRecord, chain: WalletChai
       .insert({
         address,
         chain,
-        symbol: chain === "robinhood-testnet" ? "ETH" : "SOL",
+        symbol: "TRIBE",
         last_city: record.homeCity,
       })
       .select("id")
@@ -91,6 +117,9 @@ export async function upsertCharacter(record: CharacterRecord, chain: WalletChai
       wallet_address: address,
       chain,
       display_name: record.displayName.slice(0, 16),
+      // The unique index lives on this, not on display_name: it folds case
+      // and lookalikes so "milt0n" cannot sit beside "milton".
+      display_name_key: nameKey(record.displayName.slice(0, 16)),
       body_type: record.bodyType,
       skin_tone: record.skinTone,
       outfit: record.outfit,
@@ -102,7 +131,7 @@ export async function upsertCharacter(record: CharacterRecord, chain: WalletChai
       home_city: record.homeCity,
       access_tier: record.accessTier,
       brokemeter: record.brokemeter,
-      credits: record.credits ?? 500,
+      tribute: record.tribute ?? 0,
       inventory: record.inventory ?? [],
       equipped_gun: record.equippedGun ?? null,
       equipped_pet: record.equippedPet ?? null,
@@ -140,7 +169,7 @@ export async function fetchCharacter(address: string, chain: WalletChainId): Pro
     homeCity: data.home_city,
     accessTier: data.access_tier,
     brokemeter: Number.isFinite(Number(data.brokemeter)) ? Number(data.brokemeter) : 100,
-    credits: Number(data.credits ?? 500),
+    tribute: Number(data.tribute ?? 0),
     inventory: seedInventory(parseAccessories(data.accessories), data.inventory),
     equippedGun: isGunId(String(data.equipped_gun ?? "")) ? data.equipped_gun : null,
     equippedPet: isPetId(String(data.equipped_pet ?? "")) ? data.equipped_pet : null,
@@ -168,6 +197,7 @@ export type HomeAuctionRow = {
   ownerWallet: string;
   ownerChain: WalletChainId | null;
   ownerName: string;
+  name: string;
   forSale: boolean;
   lastPrice: number;
   askingPrice: number;
@@ -192,6 +222,7 @@ function toAuctionRow(data: Record<string, unknown>): HomeAuctionRow {
     ownerWallet: String(data.owner_wallet ?? ""),
     ownerChain: (data.owner_chain ?? null) as WalletChainId | null,
     ownerName: String(data.owner_name ?? ""),
+    name: String(data.name ?? ""),
     forSale: Boolean(data.for_sale ?? false),
     lastPrice: Number(data.last_price ?? 0),
     askingPrice: Number(data.asking_price ?? 0),
@@ -228,6 +259,7 @@ export async function saveHomeAuction(row: HomeAuctionRow) {
       owner_wallet: row.ownerWallet || null,
       owner_chain: row.ownerWallet ? row.ownerChain : null,
       owner_name: row.ownerName || null,
+      name: row.name || "",
       for_sale: row.forSale,
       last_price: row.lastPrice,
       asking_price: row.askingPrice,
@@ -250,34 +282,34 @@ export async function saveHomeAuction(row: HomeAuctionRow) {
   logError("save home auction", error);
 }
 
-export async function fetchCredits(address: string, chain: WalletChainId): Promise<number | null> {
+export async function fetchTribute(address: string, chain: WalletChainId): Promise<number | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("characters")
-    .select("credits")
+    .select("tribute")
     .eq("wallet_address", normalizeAddress(address, chain))
     .eq("chain", chain)
     .maybeSingle();
-  logError("fetch credits", error);
+  logError("fetch tribute", error);
   if (!data) return null;
-  const credits = Number(data.credits);
-  return Number.isFinite(credits) ? credits : null;
+  const tribute = Number(data.tribute);
+  return Number.isFinite(tribute) ? tribute : null;
 }
 
 /**
- * Credit movements that the server owns (auction escrow and payouts) are
+ * Tribute movements that the server owns (auction escrow and payouts) are
  * written straight to the character row so they outlive the session.
  */
-export async function writeCredits(address: string, chain: WalletChainId, credits: number) {
+export async function writeTribute(address: string, chain: WalletChainId, tribute: number) {
   const supabase = getSupabase();
   if (!supabase) return;
   const { error } = await supabase
     .from("characters")
-    .update({ credits: Math.max(0, Math.round(credits)), updated_at: new Date().toISOString() })
+    .update({ tribute: Math.max(0, Math.round(tribute)), updated_at: new Date().toISOString() })
     .eq("wallet_address", normalizeAddress(address, chain))
     .eq("chain", chain);
-  logError("write credits", error);
+  logError("write tribute", error);
 }
 
 export type PlayerVehicleRow = {
@@ -291,6 +323,8 @@ export type PlayerVehicleRow = {
   z: number;
   rotY: number;
   locked: boolean;
+  forSale: boolean;
+  askingPrice: number;
 };
 
 export async function loadPlayerVehicles(): Promise<PlayerVehicleRow[]> {
@@ -309,6 +343,8 @@ export async function loadPlayerVehicles(): Promise<PlayerVehicleRow[]> {
     z: Number(row.z ?? 0),
     rotY: Number(row.rot_y ?? 0),
     locked: row.locked == null ? true : Boolean(row.locked),
+    forSale: Boolean(row.for_sale),
+    askingPrice: Number(row.asking_price ?? 0),
   }));
 }
 
@@ -327,9 +363,96 @@ export async function savePlayerVehicle(row: PlayerVehicleRow) {
       z: row.z,
       rot_y: row.rotY,
       locked: row.locked,
+      for_sale: row.forSale,
+      asking_price: Math.max(0, Math.round(row.askingPrice)),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
   );
   logError("save player vehicle", error);
+}
+
+/**
+ * Claims a verified payment, returning false if it was already used.
+ *
+ * The insert IS the claim. Checking for an existing row first would leave a gap
+ * between the check and the write that two simultaneous requests could both
+ * pass through, and a duplicate here means an item bought twice for one payment.
+ * The primary key settles it atomically instead.
+ */
+export async function claimPayment(payment: {
+  txHash: string;
+  address: string;
+  chain: WalletChainId;
+  amount: bigint;
+  purpose: string;
+  itemId?: string;
+}): Promise<boolean> {
+  const supabase = getSupabase();
+  // No database means no replay protection, so refuse rather than hand out goods.
+  if (!supabase) return false;
+  const { error } = await supabase.from("token_payments").insert({
+    tx_hash: payment.txHash.toLowerCase(),
+    wallet_address: normalizeAddress(payment.address, payment.chain),
+    chain: payment.chain,
+    amount: payment.amount.toString(),
+    purpose: payment.purpose,
+    item_id: payment.itemId ?? null,
+  });
+  if (!error) return true;
+  // 23505 is unique_violation: this payment has already bought something.
+  if (error.code !== "23505") logError("claim payment", error);
+  return false;
+}
+
+export type LastSpot = { city: CityId; x: number; z: number };
+
+/**
+ * Where this wallet was last standing.
+ *
+ * Null when it has never been saved, which is what gives a new player the
+ * district spawn rather than dropping them at the world origin.
+ */
+export async function fetchLastSpot(address: string, chain: WalletChainId): Promise<LastSpot | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("wallets")
+    .select("last_city,last_x,last_z")
+    .eq("address", normalizeAddress(address, chain))
+    .eq("chain", chain)
+    .maybeSingle();
+  logError("fetch last spot", error);
+  if (!data || data.last_x == null || data.last_z == null) return null;
+  const x = Number(data.last_x);
+  const z = Number(data.last_z);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { city: (data.last_city ?? "trench") as CityId, x, z };
+}
+
+/** True when the spot actually reached the database, so an explicit save can say so. */
+export async function saveLastSpot(
+  address: string,
+  chain: WalletChainId,
+  spot: LastSpot,
+): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase || !address) return false;
+  // Upsert, not update. The wallet row is only created by /api/auth/verify, and
+  // a returning player with a cached session never calls it - so an update had
+  // nothing to match and the position was dropped in silence.
+  const { error } = await supabase.from("wallets").upsert(
+    {
+      address: normalizeAddress(address, chain),
+      chain,
+      symbol: "TRIBE",
+      last_city: spot.city,
+      last_x: Math.round(spot.x * 100) / 100,
+      last_z: Math.round(spot.z * 100) / 100,
+      last_seen_at: new Date().toISOString(),
+    },
+    { onConflict: "address,chain" },
+  );
+  logError("save last spot", error);
+  return !error;
 }

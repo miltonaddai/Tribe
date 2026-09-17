@@ -4,14 +4,23 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { CITIES, CITY_ORDER, DEFAULT_CHAIN, type CharacterRecord, type GameSettings, type WalletChainId } from "@the-block/shared";
+import {
+  CITIES,
+  CITY_ORDER,
+  DEFAULT_CHAIN,
+  checkName,
+  nameProblemText,
+  type CharacterRecord,
+  type GameSettings,
+  type WalletChainId,
+} from "@tribe/shared";
 import { WorldRoom } from "./rooms/WorldRoom";
 import { startingCityForWallet, rpcsConfigured } from "./services/alchemy";
 import { r2Configured, assetUrl } from "./services/r2";
 import { redisEnabled } from "./services/redis";
 import { getSupabase } from "./services/supabase";
 import { issueNonce, buildSignMessage, verifySignedMessage } from "./services/auth";
-import { fetchCharacter, upsertCharacter, upsertSettings, upsertWallet } from "./services/db";
+import { nameAvailable, fetchCharacter, upsertCharacter, upsertSettings, upsertWallet } from "./services/db";
 
 const port = Number(process.env.PORT ?? 2567);
 const app = express();
@@ -19,6 +28,10 @@ app.use(cors());
 app.use(express.json());
 
 /** Only one chain is supported; anything else falls back to it. */
+import { TOKEN_ADDRESS, initToken, tokenDecimals, tokenMeta, tokenConfigured, paymentsConfigured, PAYMENT_ADDRESS } from "./services/token";
+import { TRIBUTE_DEV_GRANT } from "./services/liveEnv";
+import { CHAIN_ID } from "./services/chain";
+
 function parseChain(_raw: unknown): WalletChainId {
   return DEFAULT_CHAIN;
 }
@@ -26,11 +39,43 @@ function parseChain(_raw: unknown): WalletChainId {
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
-    service: "the-block",
+    service: "tribe",
     redis: redisEnabled(),
     supabase: Boolean(getSupabase()),
     r2: r2Configured(),
     rpcs: rpcsConfigured(),
+    // Reported so a blank or malformed token address is visible rather than
+    // silently falling back to an off-chain balance.
+    token: {
+      configured: tokenConfigured(),
+      address: TOKEN_ADDRESS,
+      // From the contract, so a wrong address shows up as nulls here rather
+      // than as quietly wrong balances everywhere.
+      symbol: tokenMeta()?.symbol ?? null,
+      name: tokenMeta()?.name ?? null,
+      decimals: tokenDecimals(),
+      reachable: tokenMeta() !== null,
+      payments: paymentsConfigured(),
+      devGrant: TRIBUTE_DEV_GRANT,
+    },
+  });
+});
+
+/**
+ * What the client needs to pay for something: which contract, where to send it,
+ * and at what scale.
+ *
+ * Served rather than duplicated into VITE_ vars so there is one source of truth.
+ * A frontend holding its own copy of the payment address could drift from the
+ * server's, and drift here means players paying an address nothing is watching.
+ */
+app.get("/api/token", (_req, res) => {
+  res.json({
+    address: TOKEN_ADDRESS,
+    payTo: PAYMENT_ADDRESS,
+    decimals: tokenDecimals(),
+    symbol: tokenMeta()?.symbol ?? null,
+    chainId: CHAIN_ID,
   });
 });
 
@@ -78,7 +123,7 @@ app.post("/api/auth/verify", async (req, res) => {
   await upsertWallet({
     address,
     chain: parsedChain,
-    symbol: parsedChain === "robinhood-testnet" ? "ETH" : "SOL",
+    symbol: lookup.symbol,
     last_balance: lookup.balance,
     last_city: lookup.city,
   });
@@ -107,8 +152,33 @@ app.post("/api/characters", async (req, res) => {
     res.status(400).json({ error: "character wallet and displayName required" });
     return;
   }
-  const result = await upsertCharacter(record, parseChain(chain));
+  const parsedChain = parseChain(chain);
+  // Validated here as well as in the browser: the client is not the authority
+  // on what a name may be, and this endpoint is reachable without it.
+  const problem = checkName(record.displayName);
+  if (problem) {
+    res.status(400).json({ error: nameProblemText(problem), problem });
+    return;
+  }
+  if (!(await nameAvailable(record.displayName, record.wallet, parsedChain))) {
+    res.status(409).json({ error: "That name is taken.", problem: "taken" });
+    return;
+  }
+  const result = await upsertCharacter(record, parsedChain);
   res.json({ ok: true, ...result });
+});
+
+/** Live availability for the create page, so collisions surface before submit. */
+app.get("/api/names/check", async (req, res) => {
+  const name = String(req.query.name ?? "");
+  const address = String(req.query.address ?? "");
+  const problem = checkName(name);
+  if (problem) {
+    res.json({ available: false, problem, reason: nameProblemText(problem) });
+    return;
+  }
+  const available = await nameAvailable(name, address, parseChain(req.query.chain));
+  res.json({ available, problem: available ? null : "taken", reason: available ? null : "That name is taken." });
 });
 
 app.put("/api/settings", async (req, res) => {
@@ -132,7 +202,28 @@ const gameServer = new Server({
 
 gameServer.define("world", WorldRoom);
 
-void gameServer.listen(port).then(() => {
-  console.log(`[the-block] Colyseus listening on ws://localhost:${port}`);
-  console.log(`[the-block] REST health at http://localhost:${port}/health`);
-});
+// Opt-in load diagnostics: event-loop delay is the honest measure of whether
+// the server is keeping up, independent of how busy any client happens to be.
+if (process.env.PERF_LOG === "true") {
+  const { monitorEventLoopDelay } = await import("node:perf_hooks");
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
+  setInterval(() => {
+    const ms = (n: number) => (n / 1e6).toFixed(1);
+    const mem = process.memoryUsage();
+    console.log(
+      `[perf] loop p50 ${ms(loop.percentile(50))}ms p99 ${ms(loop.percentile(99))}ms max ${ms(loop.max)}ms` +
+        ` | heap ${(mem.heapUsed / 1048576).toFixed(0)}MB rss ${(mem.rss / 1048576).toFixed(0)}MB`,
+    );
+    loop.reset();
+  }, 2000);
+}
+
+// Adopt the token's decimals before serving: every balance conversion, and so
+// every district gate, depends on the answer.
+void initToken().then(() =>
+  gameServer.listen(port).then(() => {
+    console.log(`[tribe] Colyseus listening on ws://localhost:${port}`);
+    console.log(`[tribe] REST health at http://localhost:${port}/health`);
+  }),
+);

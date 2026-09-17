@@ -1,9 +1,9 @@
 import * as pc from "playcanvas";
-import type { PreviewMotion } from "@the-block/shared";
+import type { PreviewMotion } from "@tribe/shared";
 
 export const SIT_HIP = 0.65;
 
-export type CitizenMotion = PreviewMotion | "sit" | "punch" | "hit" | "fall" | "down" | "getup";
+export type CitizenMotion = PreviewMotion | "sit" | "lie" | "punch" | "hit" | "fall" | "down" | "getup";
 
 export function applyCitizenMotion(citizen: pc.Entity, motion: CitizenMotion, t: number): number {
   const armL = citizen.findByName("arm-l");
@@ -35,6 +35,20 @@ export function applyCitizenMotion(citizen: pc.Entity, motion: CitizenMotion, t:
     armL?.setLocalEulerAngles(8, 0, -10);
     armR?.setLocalEulerAngles(8, 0, 10);
     torso?.setLocalEulerAngles(6 + Math.sin(t) * 1.5, 0, 0);
+    return 0;
+  }
+  /**
+   * Flat on your back. The body is laid horizontal by the caller rotating the
+   * whole entity, so this only has to arrange the limbs: legs straight, arms
+   * resting slightly out from the sides, and a slow rise and fall at the chest
+   * so a sleeping player does not read as a corpse.
+   */
+  if (motion === "lie") {
+    armL?.setLocalEulerAngles(0, 0, -14);
+    armR?.setLocalEulerAngles(0, 0, 14);
+    legL?.setLocalEulerAngles(0, 0, -3);
+    legR?.setLocalEulerAngles(0, 0, 3);
+    torso?.setLocalEulerAngles(Math.sin(t * 0.9) * 1.2, 0, 0);
     return 0;
   }
   if (motion === "punch") {

@@ -34,7 +34,7 @@ export function Header({ solid = false }: { solid?: boolean }) {
     <header className={`site-header ${solid ? "solid" : ""}`}>
       <Link to="/" className="brand">
         <CubeLogo />
-        The Block
+        Tribe
       </Link>
       <div className="header-actions">
         <Link to="/docs" className="docs-link">

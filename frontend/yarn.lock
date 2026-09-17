@@ -160,22 +160,49 @@
     "@babel/helper-string-parser" "^7.29.7"
     "@babel/helper-validator-identifier" "^7.29.7"
 
-"@colyseus/httpie@^2.0.0":
-  version "2.0.1"
-  resolved "https://registry.yarnpkg.com/@colyseus/httpie/-/httpie-2.0.1.tgz#00a5e39f36e2a693b208bc155d08971ba6b9e467"
-  integrity sha512-JvABMZzPLiyrUsVj3ElXGORRDTu+NKzXHWd1uV1R1SThAKMm06cVW6bOyADARD65bs8JJoHNNbUkW8KoRvRDzA==
+"@better-auth/utils@^0.3.1":
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/@better-auth/utils/-/utils-0.3.1.tgz#ffa4de03b9aef33df536fd19f36a24fa9c9942c0"
+  integrity sha512-+CGp4UmZSUrHHnpHhLPYu6cV+wSUSvVbZbNykxhUDocpVNTo9uFFxw/NqJlh1iC4wQ9HKKWGCKuZ5wUgS0v6Kg==
 
-"@colyseus/msgpackr@^1.11.2":
-  version "1.11.3"
-  resolved "https://registry.yarnpkg.com/@colyseus/msgpackr/-/msgpackr-1.11.3.tgz#9bdb995f2602ba1df0fefbdf5f7b0861566f1755"
-  integrity sha512-P86w/FrZWUaV7StxI7WuNg3wFlUrROSiBOrF378wyOgxS5+etcxUQMPe0OJZDEx+QUdu7QOPzsqE0Ziqwpjnug==
-  optionalDependencies:
-    msgpackr-extract "^3.0.2"
+"@better-fetch/fetch@^1.1.21":
+  version "1.3.2"
+  resolved "https://registry.yarnpkg.com/@better-fetch/fetch/-/fetch-1.3.2.tgz#da7e11a4c8dafb4e51395ae8325da152ad787cdc"
+  integrity sha512-Gs7n99b5tqUC6cQAPbV0uED3IraHB6xQbHLQ/C3l7ZFafHScOx9pQ+DYmP5blbLFShVWLqxNUlI9wi4xU/X+ow==
 
-"@colyseus/schema@^3.0.0":
-  version "3.0.76"
-  resolved "https://registry.yarnpkg.com/@colyseus/schema/-/schema-3.0.76.tgz#c816e4279d8afc5f64b540b72bdeb63551cd35b1"
-  integrity sha512-i+ceBZyhB7lTn5+BoG/xxYfzW4dKKyLOywsGKVgXHe9fD905AS/Lk180jd1bICEJhebGeiRXEQ2YUPl/xwFg2g==
+"@colyseus/better-call@^1.3.1":
+  version "1.3.3"
+  resolved "https://registry.yarnpkg.com/@colyseus/better-call/-/better-call-1.3.3.tgz#2ffcbff6562754a90042ae07cc3ccb29a7862d50"
+  integrity sha512-ISJtvMx6fV0ABPQt/ljzPc4O2+mFvyVKeHKX02qBSWKR0VXOXzniAC64POea4pp8DxZTbgHoSPpXjdnNpUkeLw==
+  dependencies:
+    "@better-auth/utils" "^0.3.1"
+    "@better-fetch/fetch" "^1.1.21"
+    rou3 "^0.7.12"
+    set-cookie-parser "^3.0.1"
+
+"@colyseus/schema@^5.0.32", "@colyseus/schema@^5.0.8":
+  version "5.0.32"
+  resolved "https://registry.yarnpkg.com/@colyseus/schema/-/schema-5.0.32.tgz#9520c1fd47a8d9eabc287bb4c6830b333e3229df"
+  integrity sha512-MErPVAILR6MGqhUPfrHBFoYL6tmtHdNMNtNkfEpvqwObv8sEeaCUkeVVUU5jpAFFrdeSMIhxSeCx2YcYK1m37w==
+
+"@colyseus/sdk@0.18.2":
+  version "0.18.2"
+  resolved "https://registry.yarnpkg.com/@colyseus/sdk/-/sdk-0.18.2.tgz#2e83ab00710fd17a504bc76fbdeb71a1dbda3f9d"
+  integrity sha512-rM3xk0bk48i7fxIdVqCunPTEwI8dzyCYh/PwhYFeV4tabUiulKbg3qY8gvI0zoPCnwslmphMigM10xcGzZvmdA==
+  dependencies:
+    "@colyseus/better-call" "^1.3.1"
+    "@colyseus/schema" "^5.0.8"
+    "@colyseus/shared-types" "^0.18.1"
+    msgpackr "^2.0.1"
+    tslib "^2.1.0"
+    ws "^8.13.0"
+
+"@colyseus/shared-types@^0.18.1":
+  version "0.18.2"
+  resolved "https://registry.yarnpkg.com/@colyseus/shared-types/-/shared-types-0.18.2.tgz#3525bda2fa83a0eb4122950e156386646c24c918"
+  integrity sha512-z+r+4p3NYW3fDW9BJiBsqcepi/ulUTQXe0rJiKIuLWX3/cdzCVdkyRmLSnkMhulPl+moaHG7QdseqQixha5C3A==
+  dependencies:
+    "@standard-schema/spec" "^1.0.0"
 
 "@esbuild/aix-ppc64@0.25.12":
   version "0.25.12"
@@ -516,7 +543,12 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.62.4.tgz#c3a265fe0f9af4fb63bad86d3829386bc5da0026"
   integrity sha512-zD6NdeWEByGE9QF9vCrlJ5YQB4oq9q91kPZS37Jwj5hOkvR1lTBSpsKhKDw4IJtbQ35LsTS1HD9DZYGKIshU1Q==
 
-"@the-block/shared@file:../shared":
+"@standard-schema/spec@^1.0.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@standard-schema/spec/-/spec-1.1.0.tgz#a79b55dbaf8604812f52d140b2c9ab41bc150bb8"
+  integrity sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==
+
+"@tribe/shared@file:../shared":
   version "0.1.0"
 
 "@types/babel__core@^7.20.5":
@@ -617,17 +649,6 @@ caniuse-lite@^1.0.30001809:
   version "1.0.30001809"
   resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001809.tgz#e6cf71f14ddfe008f114dd2a846923be3c03a07b"
   integrity sha512-xxWVywk6a6Arlk+hymeycyn/VgqEfLDxupvhH/xiY5SJ/18kmi9o6MiO320DCUzypORHLtvh0I4i04tUhCNHNQ==
-
-colyseus.js@^0.16.21:
-  version "0.16.22"
-  resolved "https://registry.yarnpkg.com/colyseus.js/-/colyseus.js-0.16.22.tgz#89353d5c03c88aff7fbd052b191b68f07ddce17f"
-  integrity sha512-xyiajukHvlwOtcziVbXZWmz7yBH3EImovYrGPAe2kVkdubLVYmOjskJuXh2VLlO8XGjyhmNwig9ELz18sTUo9g==
-  dependencies:
-    "@colyseus/httpie" "^2.0.0"
-    "@colyseus/msgpackr" "^1.11.2"
-    "@colyseus/schema" "^3.0.0"
-    tslib "^2.1.0"
-    ws "^8.13.0"
 
 convert-source-map@^2.0.0:
   version "2.0.0"
@@ -742,7 +763,7 @@ ms@^2.1.3:
   resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz#574c8138ce1d2b5861f0b44579dbadd60c6615b2"
   integrity sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==
 
-msgpackr-extract@^3.0.2:
+msgpackr-extract@^3.0.4:
   version "3.0.4"
   resolved "https://registry.yarnpkg.com/msgpackr-extract/-/msgpackr-extract-3.0.4.tgz#d252698947f7a1a62478d22bfb789ba48dd4c1ac"
   integrity sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==
@@ -755,6 +776,13 @@ msgpackr-extract@^3.0.2:
     "@msgpackr-extract/msgpackr-extract-linux-arm64" "3.0.4"
     "@msgpackr-extract/msgpackr-extract-linux-x64" "3.0.4"
     "@msgpackr-extract/msgpackr-extract-win32-x64" "3.0.4"
+
+msgpackr@^2.0.1:
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/msgpackr/-/msgpackr-2.1.0.tgz#63618adb9f5ab185cccd0536609fad0731b9feb3"
+  integrity sha512-p/pBCVO63CsvvpkomUnNNag6+n38rULuDA6HHe70o2gtC8ODI52foF/4ko2qQcp6OiErJXTmrZeXmsGGHsIQNQ==
+  optionalDependencies:
+    msgpackr-extract "^3.0.4"
 
 nanoid@^3.3.17:
   version "3.3.18"
@@ -870,6 +898,11 @@ rollup@^4.34.9:
     "@rollup/rollup-win32-x64-msvc" "4.62.4"
     fsevents "~2.3.2"
 
+rou3@^0.7.12:
+  version "0.7.12"
+  resolved "https://registry.yarnpkg.com/rou3/-/rou3-0.7.12.tgz#cac17425c04abddba854a42385cabfe0b971a179"
+  integrity sha512-iFE4hLDuloSWcD7mjdCDhx2bKcIsYbtOTpfH5MHHLSKMOUyjqQXTeZVa289uuwEGEKFoE/BAPbhaU4B774nceg==
+
 scheduler@^0.23.2:
   version "0.23.2"
   resolved "https://registry.yarnpkg.com/scheduler/-/scheduler-0.23.2.tgz#414ba64a3b282892e944cf2108ecc078d115cdc3"
@@ -881,6 +914,11 @@ semver@^6.3.1:
   version "6.3.1"
   resolved "https://registry.yarnpkg.com/semver/-/semver-6.3.1.tgz#556d2ef8689146e46dcea4bfdd095f3434dffcb4"
   integrity sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==
+
+set-cookie-parser@^3.0.1:
+  version "3.1.2"
+  resolved "https://registry.yarnpkg.com/set-cookie-parser/-/set-cookie-parser-3.1.2.tgz#f4e490298759d756a68eabcbcd0fc9261ad0fee0"
+  integrity sha512-5/r/lTwbJ3zQ+qwdUFZYeRNqda7P5HD8zQKqlSjdGt1/S0cjLAphHusj4Y58ahDtWn/g32xrIS58/ikOvwl0Lw==
 
 source-map-js@^1.2.1:
   version "1.2.1"

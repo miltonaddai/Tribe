@@ -1,4 +1,4 @@
-import type { WalletChainId } from "@the-block/shared";
+import type { WalletChainId } from "@tribe/shared";
 import { getSupabase } from "./supabase";
 
 export type MessageKind =

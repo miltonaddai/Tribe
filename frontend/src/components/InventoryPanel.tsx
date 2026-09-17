@@ -1,7 +1,9 @@
-import { CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@the-block/shared";
+import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@tribe/shared";
+import { HomeArt, ItemArt, VehicleArt } from "./ItemArt";
 
 type OwnedHome = {
   id: string;
+  name: string;
   city: string;
   lastPrice: number;
   forSale: boolean;
@@ -11,48 +13,29 @@ type OwnedHome = {
   locked: boolean;
 };
 
-type OwnedCar = { id: string; kind: string; color: string; city: string; locked: boolean };
+type OwnedCar = {
+  id: string;
+  kind: string;
+  color: string;
+  city: string;
+  locked: boolean;
+  forSale: boolean;
+  askingPrice: number;
+};
 
 function cityName(id: string) {
   return CITIES[id as CityId]?.shortName ?? id;
 }
 
 function homeStatus(home: OwnedHome) {
-  if (home.awaitingSeller) return `offer of ${home.highBid} cr to answer`;
-  if (home.forSale && home.highBid > 0) return `bidding at ${home.highBid} cr`;
-  if (home.forSale) return `listed at ${home.askingPrice} cr`;
-  return home.lastPrice > 0 ? `bought for ${home.lastPrice} cr` : "owned";
-}
-
-const ITEM_SPRITES: Record<ItemId, { column: number; row: number }> = {
-  glasses: { column: 0, row: 0 },
-  backpack: { column: 1, row: 0 },
-  earbuds: { column: 2, row: 0 },
-  visor: { column: 3, row: 0 },
-  watch: { column: 0, row: 1 },
-  chain: { column: 1, row: 1 },
-  pipe: { column: 2, row: 1 },
-  pistol: { column: 3, row: 1 },
-  rifle: { column: 0, row: 2 },
-  mutt: { column: 1, row: 2 },
-  cat: { column: 2, row: 2 },
-  "mystery-crate": { column: 3, row: 2 },
-};
-
-function ItemImage({ id }: { id: ItemId }) {
-  const sprite = ITEM_SPRITES[id];
-  return (
-    <span
-      className="inv-item-art"
-      role="img"
-      aria-label={itemName(id)}
-      style={{ backgroundPosition: `${(sprite.column / 3) * 100}% ${(sprite.row / 2) * 100}%` }}
-    />
-  );
+  // Homes sell outright now, so a listing is an asking price with no bidding
+  // behind it and nothing for the seller to accept.
+  if (home.forSale) return `listed at ${home.askingPrice} ${CURRENCY}`;
+  return home.lastPrice > 0 ? `bought for ${home.lastPrice} ${CURRENCY}` : "owned";
 }
 
 export function InventoryPanel({
-  credits,
+  tribute,
   inventory,
   inStore,
   accessTier,
@@ -66,7 +49,7 @@ export function InventoryPanel({
   homes,
   cars,
 }: {
-  credits: number;
+  tribute: number;
   inventory: InventoryStack[];
   inStore: boolean;
   accessTier: number;
@@ -80,9 +63,11 @@ export function InventoryPanel({
   homes: OwnedHome[];
   cars: OwnedCar[];
 }) {
-  // Everything is listed, so you can see what exists and what it takes to
-  // carry it. Only your access tier decides what you can actually buy.
-  const stock = CATALOG;
+  // Every item still on sale is shown, above your tier included, so you can
+  // see what exists and what it takes to carry it - only your access tier
+  // decides what you can actually buy. Retired items are the exception: they
+  // cannot be bought at any tier, so listing them would only mislead.
+  const stock = CATALOG.filter((item) => item.listed !== false);
   const equipped = new Set<string>([...accessories, gun ?? "", pet ?? ""].filter(Boolean));
 
   return (
@@ -91,7 +76,7 @@ export function InventoryPanel({
         <div>
           <h2>{inStore ? "Store" : "Inventory"}</h2>
           <p>
-            {credits} credits
+            {tribute} {CURRENCY}
             {inStore ? " · buy with the city till" : " · equip or take it to trade"}
           </p>
         </div>
@@ -113,7 +98,7 @@ export function InventoryPanel({
               return (
                 <li key={stack.id}>
                   <div className="inv-item-main">
-                    <ItemImage id={stack.id} />
+                    <ItemArt id={stack.id} />
                     <div>
                       <strong>{item?.name ?? stack.id}</strong>
                       <span>
@@ -123,7 +108,7 @@ export function InventoryPanel({
                       </span>
                     </div>
                   </div>
-                  {item && item.kind !== "crate" && (
+                  {item && (
                     <button type="button" className="btn btn-outline inv-mini" onClick={() => onEquip(stack.id)}>
                       {on ? "Unequip" : "Equip"}
                     </button>
@@ -143,10 +128,11 @@ export function InventoryPanel({
             {homes.map((home) => (
               <li key={home.id}>
                 <div className="inv-item-main">
-                  <span className="inv-prop-art inv-prop-home" aria-hidden />
+                  <HomeArt id={home.id} city={home.city} />
                   <div>
-                    <strong>Home in {cityName(home.city)}</strong>
+                    <strong>{home.name || `Home in ${cityName(home.city)}`}</strong>
                     <span>
+                      {home.name ? `${cityName(home.city)} · ` : ""}
                       {homeStatus(home)} · {home.locked ? "locked" : "unlocked"}
                     </span>
                   </div>
@@ -156,11 +142,14 @@ export function InventoryPanel({
             {cars.map((car) => (
               <li key={car.id}>
                 <div className="inv-item-main">
-                  <span className="inv-prop-art" style={{ background: car.color }} aria-hidden />
+                  <VehicleArt kind={car.kind} color={car.color} />
                   <div>
                     <strong>{car.kind.charAt(0).toUpperCase() + car.kind.slice(1)}</strong>
                     <span>
-                      parked in {cityName(car.city)} · {car.locked ? "locked" : "unlocked"}
+                      {car.forSale
+                        ? `listed at ${car.askingPrice} ${CURRENCY}`
+                        : `parked in ${cityName(car.city)}`}{" "}
+                      · {car.locked ? "locked" : "unlocked"}
                     </span>
                   </div>
                 </div>
@@ -179,11 +168,11 @@ export function InventoryPanel({
                 return (
                   <li key={item.id} className={locked ? "inv-locked" : ""}>
                     <div className="inv-item-main">
-                      <ItemImage id={item.id} />
+                      <ItemArt id={item.id} />
                       <div>
                         <strong>{item.name}</strong>
                         <span>
-                          {item.kind} · {item.price} cr
+                          {item.kind} · {item.price} {CURRENCY}
                           {locked && <span className="inv-tier-tag">TIER {item.tier}</span>}
                         </span>
                         <em>{locked ? `Work up to tier ${item.tier} to carry this.` : item.blurb}</em>

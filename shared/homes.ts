@@ -1,4 +1,4 @@
-import { CITIES, CITY_BOUNDS, CITY_GRID, CITY_ORDER, CITY_SIZE, type CityId } from "./cities";
+import { CITIES, CITY_BOUNDS, CITY_GRID, CITY_ORDER, CITY_SIZE, HOME_PRICE, type CityId } from "./cities";
 
 /**
  * Which grid lots carry a landmark rather than a house. Lives here rather than
@@ -99,3 +99,84 @@ export function isHomeId(id: string) {
   const parsed = parseHomeId(id);
   return parsed ? lotHasHome(parsed.city, parsed.gx, parsed.gz) : false;
 }
+
+/**
+ * How many floors the home on a lot has - the thing that makes one building
+ * visibly bigger than its neighbour.
+ *
+ * Derived here rather than read off the geometry so the server can price a home
+ * without knowing anything about rendering. The leading draw mirrors the density
+ * roll the world builder makes first, so this returns the building actually
+ * drawn; the builder calls this too, so the two cannot drift apart.
+ */
+export function homeFloors(city: CityId, gx: number, gz: number): number {
+  const theme = CITIES[city];
+  const roll = mulberry(lotSeed(city, gx, gz));
+  roll(); // density roll, consumed by the builder before it picks floors
+  return theme.minFloors + Math.floor(roll() * (theme.maxFloors - theme.minFloors + 1));
+}
+
+/**
+ * What an unowned home costs, in Tribute: the district's base price scaled by
+ * how big the building is.
+ *
+ * Normalised across the district's own floor range, so the largest home in a
+ * district always costs twice the smallest whatever that range happens to be.
+ * Valhalla spans 4-10 floors and Gas only 1-2, and a flat premium per floor
+ * would make a Valhalla penthouse absurd while barely touching Gas.
+ */
+export function homePrice(city: CityId, gx: number, gz: number): number {
+  const theme = CITIES[city];
+  const base = HOME_PRICE[city] ?? HOME_PRICE.trench;
+  const span = theme.maxFloors - theme.minFloors;
+  const size = span > 0 ? (homeFloors(city, gx, gz) - theme.minFloors) / span : 0;
+  // Rounded to the nearest 500 so prices read as prices, not as hashes.
+  return Math.round((base * (1 + size)) / 500) * 500;
+}
+
+/** Price from a home id, for callers holding an id rather than a lot. */
+export function homePriceById(id: string): number | null {
+  const lot = parseHomeId(id);
+  return lot ? homePrice(lot.city, lot.gx, lot.gz) : null;
+}
+
+/**
+ * How grand a home is, 0 to 3, from what it costs.
+ *
+ * Price already folds in both district and building size, so this is one number
+ * the interior can be built from - a cheap Trench flat and a Valhalla penthouse
+ * should not be the same room with a different view.
+ */
+export function homeGrade(city: CityId, gx: number, gz: number): number {
+  return Math.min(3, Math.floor(homeLuxury(city, gx, gz) * 4));
+}
+
+/**
+ * 0-1 across the price range, for sizing a room smoothly.
+ *
+ * Logarithmic, because prices span twenty-fold and each district is roughly a
+ * doubling of the one below. On a linear scale everything under six figures
+ * collapses into the bottom band, and a 100,000 Gas home comes out the same as
+ * a 25,000 Trench flat.
+ */
+export function homeLuxury(city: CityId, gx: number, gz: number): number {
+  const price = homePrice(city, gx, gz);
+  const lo = HOME_PRICE.trench;
+  const hi = HOME_PRICE.valhalla * 2;
+  const t = Math.log(price / lo) / Math.log(hi / lo);
+  return Math.max(0, Math.min(1, t));
+}
+
+export function homeGradeById(id: string): { grade: number; luxury: number } {
+  const lot = parseHomeId(id);
+  if (!lot) return { grade: 0, luxury: 0 };
+  return { grade: homeGrade(lot.city, lot.gx, lot.gz), luxury: homeLuxury(lot.city, lot.gx, lot.gz) };
+}
+
+/**
+ * Floor on an owner's asking price, in Tribute. 1,000 is about $1 at a $1M cap:
+ * enough that a listing means something, not enough to price anyone out.
+ *
+ * Shared so the sell panel and the server cannot disagree about what is valid.
+ */
+export const MIN_ASKING_PRICE = 1_000;

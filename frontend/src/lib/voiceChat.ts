@@ -1,4 +1,4 @@
-import type { Room } from "colyseus.js";
+import type { Room } from "@colyseus/sdk";
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
@@ -12,7 +12,117 @@ type VoicePeer = {
   connection: RTCPeerConnection;
   audio: HTMLAudioElement;
   pendingCandidates: RTCIceCandidateInit[];
+  /** Reads the level of what this peer is sending us, so the HUD can show it. */
+  analyser: AnalyserNode | null;
+  levelData: Float32Array<ArrayBuffer> | null;
+  level: number;
 };
+
+export type AudioOutput = { deviceId: string; label: string };
+
+export type VoiceDiagnostic = {
+  sessionId: string;
+  /** "none" means no connection was ever attempted with this player. */
+  state: RTCPeerConnectionState | "none";
+  level: number;
+  volume: number;
+};
+
+const OUTPUT_KEY = "tribe.audio-output";
+/** Browsers that cannot route audio per element only ever use the system default. */
+export const canPickOutput = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+
+export function loadOutputDevice(): string {
+  try {
+    return localStorage.getItem(OUTPUT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveOutputDevice(deviceId: string) {
+  try {
+    if (deviceId) localStorage.setItem(OUTPUT_KEY, deviceId);
+    else localStorage.removeItem(OUTPUT_KEY);
+  } catch {
+    // Private windows can refuse writes; the choice just will not survive a reload.
+  }
+}
+
+/**
+ * Speakers the browser will let us route to. Labels are blank until microphone
+ * permission is granted, so before voice is enabled these are numbered instead.
+ */
+export async function listAudioOutputs(): Promise<AudioOutput[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices
+    .filter((d) => d.kind === "audiooutput")
+    .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Speaker ${i + 1}` }));
+}
+
+export function onAudioDevicesChange(listener: () => void) {
+  navigator.mediaDevices?.addEventListener?.("devicechange", listener);
+  return () => navigator.mediaDevices?.removeEventListener?.("devicechange", listener);
+}
+
+/** A short tone on the chosen speaker, so picking one can be confirmed by ear. */
+export async function playTestTone(deviceId: string) {
+  const context = new AudioContext();
+  try {
+    const destination = context.createMediaStreamDestination();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = 660;
+    oscillator.connect(gain).connect(destination);
+
+    const element = document.createElement("audio");
+    element.autoplay = true;
+    element.srcObject = destination.stream;
+    document.body.appendChild(element);
+    await applySink(element, deviceId);
+    // Routing is async, so by now we are outside the click that authorised playback.
+    if (context.state === "suspended") await context.resume();
+    await element.play().catch(() => undefined);
+
+    const now = context.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.03);
+    gain.gain.setValueAtTime(0.18, now + 0.32);
+    gain.gain.linearRampToValueAtTime(0, now + 0.4);
+    oscillator.start(now);
+    oscillator.stop(now + 0.42);
+
+    await new Promise((resolve) => setTimeout(resolve, 520));
+    element.srcObject = null;
+    element.remove();
+  } finally {
+    await context.close();
+  }
+}
+
+/** Root-mean-square of a time-domain window, gated and normalised to 0-1. */
+function rmsLevel(analyser: AnalyserNode, data: Float32Array<ArrayBuffer>) {
+  analyser.getFloatTimeDomainData(data);
+  let sum = 0;
+  for (const sample of data) sum += sample * sample;
+  const rms = Math.sqrt(sum / data.length);
+  return Math.max(0, Math.min(1, (rms - 0.018) / 0.16));
+}
+
+/** Attack fast so speech registers immediately, release slowly so it does not flicker. */
+function smoothLevel(previous: number, next: number) {
+  return previous + (next - previous) * (next > previous ? 0.5 : 0.18);
+}
+
+async function applySink(element: HTMLAudioElement, deviceId: string) {
+  if (!canPickOutput || !deviceId) return;
+  try {
+    await (element as HTMLAudioElement & { setSinkId(id: string): Promise<void> }).setSinkId(deviceId);
+  } catch (error) {
+    console.warn("[voice] could not route audio to the chosen speaker", error);
+  }
+}
 
 function iceServers(): RTCIceServer[] {
   const configured = import.meta.env.VITE_VOICE_ICE_SERVERS;
@@ -37,14 +147,19 @@ export class VoiceChat {
   private analyser: AnalyserNode | null = null;
   private levelData: Float32Array<ArrayBuffer> | null = null;
   private smoothedLevel = 0;
+  private outputId = loadOutputDevice();
 
   constructor(private room: Room) {
     room.onMessage("voice-signal", (message: VoiceSignal) => void this.handleSignal(message));
     room.onMessage("voice-ready", (message: { sessionId?: string }) => {
       const sessionId = String(message.sessionId ?? "");
-      if (this.enabled && this.nearby.has(sessionId) && this.shouldInitiate(sessionId)) {
-        void this.makeOffer(sessionId);
-      }
+      if (!sessionId || !this.enabled) return;
+      // They were not listening when we first offered — their microphone was off,
+      // so handleSignal dropped it and our connection is stranded in have-local-offer.
+      // Nothing retries from there, so tear it down and negotiate again from scratch.
+      const peer = this.peers.get(sessionId);
+      if (peer && peer.connection.connectionState !== "connected") this.closePeer(sessionId);
+      if (this.nearby.has(sessionId) && this.shouldInitiate(sessionId)) void this.makeOffer(sessionId);
     });
     room.onMessage("voice-left", (message: { sessionId?: string }) => {
       this.closePeer(String(message.sessionId ?? ""));
@@ -83,16 +198,52 @@ export class VoiceChat {
     this.smoothedLevel = 0;
   }
 
+  /**
+   * Per-peer connection health, for the audio menu. Silent voice has several
+   * indistinguishable causes — never negotiated, negotiated but not flowing, or
+   * flowing but attenuated to nothing by distance — and this separates them.
+   */
+  diagnostics(): VoiceDiagnostic[] {
+    return [...this.nearby].map((sessionId) => {
+      const peer = this.peers.get(sessionId);
+      return {
+        sessionId,
+        state: peer ? peer.connection.connectionState : "none",
+        level: peer?.level ?? 0,
+        volume: peer ? peer.audio.volume : 0,
+      };
+    });
+  }
+
+  /** Route every peer, and any future one, to this speaker. */
+  async setOutputDevice(deviceId: string) {
+    this.outputId = deviceId;
+    saveOutputDevice(deviceId);
+    await Promise.all([...this.peers.values()].map((peer) => applySink(peer.audio, deviceId)));
+  }
+
+  outputDevice() {
+    return this.outputId;
+  }
+
   sampleLevel() {
     if (!this.enabled || !this.analyser || !this.levelData) return 0;
-    this.analyser.getFloatTimeDomainData(this.levelData);
-    let sum = 0;
-    for (const sample of this.levelData) sum += sample * sample;
-    const rms = Math.sqrt(sum / this.levelData.length);
-    const level = Math.max(0, Math.min(1, (rms - 0.018) / 0.16));
-    const smoothing = level > this.smoothedLevel ? 0.5 : 0.18;
-    this.smoothedLevel += (level - this.smoothedLevel) * smoothing;
+    this.smoothedLevel = smoothLevel(this.smoothedLevel, rmsLevel(this.analyser, this.levelData));
     return this.smoothedLevel;
+  }
+
+  /**
+   * Loudest voice arriving from a nearby player, 0-1. This reads the decoded
+   * inbound streams, so a non-zero value is proof audio is actually flowing.
+   */
+  sampleNearbyLevel() {
+    let loudest = 0;
+    for (const peer of this.peers.values()) {
+      if (!peer.analyser || !peer.levelData) continue;
+      peer.level = smoothLevel(peer.level, rmsLevel(peer.analyser, peer.levelData));
+      loudest = Math.max(loudest, peer.level);
+    }
+    return loudest;
   }
 
   syncNearby(distances: Map<string, number>) {
@@ -124,12 +275,15 @@ export class VoiceChat {
     const connection = new RTCPeerConnection({ iceServers: iceServers() });
     const audio = document.createElement("audio");
     audio.autoplay = true;
-    audio.playsInline = true;
+    // Stops iOS Safari taking playback fullscreen; it is not in the DOM types for audio.
+    audio.setAttribute("playsinline", "");
     audio.setAttribute("aria-hidden", "true");
     audio.style.display = "none";
     document.body.appendChild(audio);
 
-    const peer: VoicePeer = { connection, audio, pendingCandidates: [] };
+    void applySink(audio, this.outputId);
+
+    const peer: VoicePeer = { connection, audio, pendingCandidates: [], analyser: null, levelData: null, level: 0 };
     this.peers.set(sessionId, peer);
     for (const track of this.stream?.getTracks() ?? []) connection.addTrack(track, this.stream!);
 
@@ -139,8 +293,10 @@ export class VoiceChat {
       }
     };
     connection.ontrack = (event) => {
-      audio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+      const stream = event.streams[0] ?? new MediaStream([event.track]);
+      audio.srcObject = stream;
       void audio.play().catch(() => undefined);
+      this.meterRemote(peer, stream);
     };
     connection.onconnectionstatechange = () => {
       if (["failed", "closed"].includes(connection.connectionState)) this.closePeer(sessionId);
@@ -192,6 +348,9 @@ export class VoiceChat {
     peer.connection.onicecandidate = null;
     peer.connection.ontrack = null;
     peer.connection.close();
+    peer.analyser?.disconnect();
+    peer.analyser = null;
+    peer.levelData = null;
     peer.audio.srcObject = null;
     peer.audio.remove();
     this.peers.delete(sessionId);
@@ -200,6 +359,25 @@ export class VoiceChat {
   private stopStream() {
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
+  }
+
+  /**
+   * Tap an inbound stream for metering only. The audio element stays the thing
+   * that plays it: Chrome will not pull from a remote stream that is fed to an
+   * AudioContext alone, and only the element can be routed to a chosen speaker.
+   */
+  private meterRemote(peer: VoicePeer, stream: MediaStream) {
+    if (peer.analyser || !this.audioContext) return;
+    try {
+      const analyser = this.audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.65;
+      this.audioContext.createMediaStreamSource(stream).connect(analyser);
+      peer.analyser = analyser;
+      peer.levelData = new Float32Array(analyser.fftSize);
+    } catch (error) {
+      console.warn("[voice] could not meter a remote stream", error);
+    }
   }
 
   private startMeter(stream: MediaStream) {

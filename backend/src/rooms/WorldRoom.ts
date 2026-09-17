@@ -1,12 +1,25 @@
 import { Room, type Client } from "@colyseus/core";
+import { fileReport, recentReports } from "../services/crimes";
 import {
+  otherSide,
+  ownSide,
+  sanitizeStake,
+  settleTrade,
+  TRADE_IDLE_MS,
+  TRADE_RANGE,
+  type TradeSession,
+} from "../services/trade";
+import { CURRENCY,
+  cleanHomeName,
+  catalogItem,
+  homePrice,
   CITY_BOUNDS,
   CITIES,
   canEnterCity,
+  cityEntered,
   DEFAULT_CHAIN,
   cityAtPosition,
   gunSpec,
-  insideCityWalls,
   addItem,
   decodeInventory,
   encodeInventory,
@@ -20,31 +33,31 @@ import {
   parseHomeId,
   type CityId,
   type WalletChainId,
-} from "@the-block/shared";
-import { PlayerState, VehicleState, ChatLine, HomeState, WorldState } from "../schema/index";
+} from "@tribe/shared";
+import { PlayerState, VehicleState, ChatLine, HomeState, WorldState, INTEREST_MANAGEMENT } from "../schema/index";
 import {
-  auctionSeconds,
-  bidIncrement,
   clampAskingPrice,
   isHomeId,
   MIN_ASKING_PRICE,
-  minAuctionSeconds,
-  MAX_AUCTION_SECONDS,
-  acceptWindowSeconds,
-  clampDuration,
-  nextBidFor,
-  openingBid,
 } from "../services/homeAuctions";
 import { getSupabase } from "../services/supabase";
 import {
-  fetchCredits,
+  claimPayment,
+  fetchLastSpot,
+  saveLastSpot,
+  type LastSpot,
+  fetchTribute,
   loadHomeAuctions,
   loadPlayerVehicles,
   saveHomeAuction,
   savePlayerVehicle,
-  writeCredits,
+  writeTribute,
 } from "../services/db";
-import { CREDIT_CAP } from "../services/liveEnv";
+import { MAX_PLAYER_VEHICLES, TRIBUTE_CAP, TRIBUTE_DEV_GRANT, envNumber } from "../services/liveEnv";
+import { startingCityForWallet } from "../services/alchemy";
+import { paymentsConfigured, toBaseUnits, tokenConfigured, verifyPayment } from "../services/token";
+import { AOI_IN, SpatialGrid, shouldSee } from "./interest";
+import { StateView } from "@colyseus/schema";
 import { loadMessages, markMessagesRead, saveMessage, type MessageKind } from "../services/messages";
 import { createRequest, loadFriends, removeFriend, respondToRequest } from "../services/friends";
 
@@ -64,7 +77,7 @@ type JoinOptions = {
   accessories?: string;
   health?: number;
   brokemeter?: number;
-  credits?: number;
+  tribute?: number;
   inventory?: string;
   gun?: string;
   pet?: string;
@@ -90,9 +103,24 @@ const PUNCH_COOLDOWN_MS = 520;
 const VOICE_SIGNAL_RANGE = 24;
 const VEHICLE_HIT_MIN_SPEED = 5;
 const VEHICLE_MAX_SPEED = 22;
+/** Walk is 9, sprint 13.95. Anything faster than this on foot is not the game. */
+const PLAYER_MAX_SPEED = 14;
+/**
+ * Distance budget, in units, a player may spend in one burst. Refills at
+ * PLAYER_MAX_SPEED. A budget rather than a per-message allowance because a
+ * per-message one is farmable: send moves twice as often, travel twice as far.
+ */
+const MOVE_BURST = 6;
+/** Teleports the server performs itself — spawn, doors, leaving a car. */
+const MOVE_GRACE_MS = 1200;
 
 function isHospital(buildingId: string) {
   return buildingId.includes("hospital");
+}
+
+/** Building ids are `${city}-${kind}`, so the kind is readable off the id. */
+function isStation(buildingId: string) {
+  return buildingId.includes("police");
 }
 
 function vehicleHalfExtents(kind: string) {
@@ -129,17 +157,65 @@ function vehiclesOverlap(
   return true;
 }
 
-export class WorldRoom extends Room<WorldState> {
-  maxClients = 80;
+/**
+ * There is exactly one world. Colyseus would otherwise spin up a second room
+ * when the first fills, quietly splitting players into parallel cities that
+ * cannot see each other and that both write the same auction rows.
+ */
+/**
+ * How often a moving car's position is written down.
+ *
+ * Often enough that an unclean shutdown loses a few seconds of driving rather
+ * than the whole trip, rare enough that a busy road is not a write storm.
+ */
+const VEHICLE_SAVE_MS = 5_000;
+
+/** How long a wallet's holdings are reused before re-reading the chain. */
+const HOLDINGS_CACHE_MS = 60_000;
+
+type Holdings = { tier: number; balance: number };
+
+/**
+ * The outcome of writing a spot down, so an explicit save from the pause menu
+ * can say what happened rather than silently appearing to work. The automatic
+ * saves ignore it - "offline" is the database being unreachable, the rest are
+ * the player not standing anywhere worth remembering.
+ */
+type SpotSave =
+  | { ok: true; city: CityId }
+  | { ok: false; reason: "no-wallet" | "indoors" | "nowhere" | "offline" };
+
+let liveWorlds = 0;
+
+// 0.18 takes an options object as the Room generic rather than the bare state type.
+export class WorldRoom extends Room<{ state: WorldState }> {
+  maxClients = Math.max(1, envNumber("WORLD_MAX_PLAYERS", 500));
   patchRate = 50;
   private punchAt = new Map<string, number>();
   private vehicleMotion = new Map<string, { x: number; z: number; at: number }>();
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
+  /** Live trade sessions, and an index from each participant to their session. */
+  private trades = new Map<string, TradeSession>();
+  private tradeOf = new Map<string, string>();
   private chains = new Map<string, WalletChainId>();
+  private moveBudget = new Map<string, { budget: number; at: number }>();
+  private moveGraceUntil = new Map<string, number>();
+  private holdingsCache = new Map<string, Holdings & { at: number }>();
+  /** wallet -> their accepted friends' wallets, so join/leave can refresh the
+      right people without hitting the database. */
+  private friendsOf = new Map<string, Set<string>>();
+  private playerGrid = new SpatialGrid<PlayerState>();
   private vehicleChains = new Map<string, WalletChainId>();
+  private vehicleSavedAt = new Map<string, number>();
 
   onCreate() {
+    if (liveWorlds > 0) {
+      // Surfaces to the client as a matchmaking failure, which it renders as
+      // "the world is full" rather than dropping the player into a copy.
+      throw new Error("WORLD_FULL");
+    }
+    liveWorlds++;
     this.setState(new WorldState());
     this.clock.start();
     void this.restoreAuctions();
@@ -158,22 +234,39 @@ export class WorldRoom extends Room<WorldState> {
       this.state.vehicles.set(v.id, v);
     });
 
-    this.onMessage("move", (client, data: { x: number; y: number; z: number; rotY: number; sitting?: boolean }) => {
+    this.onMessage("move", (client, data: { x: number; y: number; z: number; rotY: number; sitting?: boolean; lying?: boolean }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.inVehicle) return;
       if ((this.knockedUntil.get(client.sessionId) ?? 0) > Date.now()) return;
 
       const zone = cityAtPosition(data.x, data.z);
-      const walled = insideCityWalls(data.x, data.z);
       if (zone === "void") return;
-      if (!player.inBuilding && this.vehicleBlocksPlayerMove(player.x, player.z, data.x, data.z)) return;
+
+      // Movement is otherwise client-authoritative: without this you can walk
+      // as fast as you like, including straight through a tier gate.
+      const now = Date.now();
+      if (now > (this.moveGraceUntil.get(client.sessionId) ?? 0)) {
+        const tracked = this.moveBudget.get(client.sessionId) ?? { budget: MOVE_BURST, at: now };
+        const elapsed = Math.max(0, Math.min(1, (now - tracked.at) / 1000));
+        const budget = Math.min(MOVE_BURST, tracked.budget + PLAYER_MAX_SPEED * elapsed);
+        const travelled = Math.hypot(data.x - player.x, data.z - player.z);
+        if (travelled > budget) {
+          this.moveBudget.set(client.sessionId, { budget, at: now });
+          client.send("move-correction", { x: player.x, y: player.y, z: player.z });
+          return;
+        }
+        this.moveBudget.set(client.sessionId, { budget: budget - travelled, at: now });
+      }
+      if (!player.inBuilding && this.vehicleBlocksPlayerMove(player.x, player.z, data.x, data.z, player.city)) return;
 
       // Gating applies at the wall line, matching the client. The ring road
-      // between the wall and the district edge is open to everyone.
-      if (walled && !canEnterCity(player.accessTier, walled)) {
+      // between the wall and the district edge is open to everyone, and the
+      // test is on crossing in - never on where you already are.
+      const entering = cityEntered(player.x, player.z, data.x, data.z);
+      if (entering && !this.mayEnter(player, entering)) {
         client.send("gate-denied", {
-          city: walled,
-          requiredTier: CITIES[walled].tier,
+          city: entering,
+          requiredTier: CITIES[entering].tier,
           yourTier: player.accessTier,
         });
         return;
@@ -185,6 +278,18 @@ export class WorldRoom extends Room<WorldState> {
       player.z = data.z;
       player.rotY = data.rotY;
       player.sitting = Boolean(data.sitting);
+      // Lying only ever accompanies sitting; on its own it would leave a body
+      // flat on the floor wherever they happened to stop.
+      player.lying = player.sitting && Boolean(data.lying);
+    });
+
+    // An explicit save from the pause menu. The position is already written on
+    // leave and on the holdings tick, so this exists to be *sure* before
+    // closing the tab - and, unlike those, it reports back.
+    this.onMessage("save-spot", (client) => {
+      void this.rememberSpot(client.sessionId).then((result) => {
+        client.send("spot-saved", result);
+      });
     });
 
     this.onMessage("vehicle-move", (client, data: { id: string; x: number; z: number; rotY: number; speed?: number }) => {
@@ -199,8 +304,8 @@ export class WorldRoom extends Room<WorldState> {
 
       const zone = cityAtPosition(x, z);
       if (zone === "void") return;
-      const walledZone = insideCityWalls(x, z);
-      if (walledZone && !canEnterCity(player.accessTier, walledZone)) return;
+      const entering = cityEntered(vehicle.x, vehicle.z, x, z);
+      if (entering && !this.mayEnter(player, entering)) return;
       if (this.vehicleIntersectsVehicle(vehicle.id, x, z, rotY, vehicle.kind)) {
         client.send("vehicle-correction", { id: vehicle.id, x: vehicle.x, z: vehicle.z, rotY: vehicle.rotY });
         this.vehicleMotion.set(vehicle.id, { x: vehicle.x, z: vehicle.z, at: Date.now() });
@@ -223,6 +328,13 @@ export class WorldRoom extends Room<WorldState> {
       player.z = z;
       player.rotY = rotY;
       this.vehicleMotion.set(vehicle.id, { x, z, at: now });
+      // Checkpoint while driving, not only on exit. A crash, a deploy or a dev
+      // reload never runs onLeave, and the car would come back at wherever it
+      // was last parked - losing the whole drive.
+      if (vehicle.owner && now - (this.vehicleSavedAt.get(vehicle.id) ?? 0) > VEHICLE_SAVE_MS) {
+        this.vehicleSavedAt.set(vehicle.id, now);
+        void savePlayerVehicle(this.vehicleRow(vehicle));
+      }
       if (zone !== "gate") {
         player.city = zone;
         vehicle.city = zone;
@@ -241,7 +353,15 @@ export class WorldRoom extends Room<WorldState> {
         client.send("entry-denied", { id: vehicle.id, kind: "car", reason: "That car is locked." });
         return;
       }
-      if (vehicle.driver) return;
+      if (vehicle.driver && vehicle.driver !== client.sessionId) {
+        // Was a silent return. The client has already put the player behind the
+        // wheel optimistically, so saying nothing leaves it driving a car the
+        // server does not think it owns - every move rejected, and the car
+        // dragged back to wherever the server last saw it.
+        client.send("entry-denied", { id: vehicle.id, kind: "car", reason: "Someone else is driving that." });
+        return;
+      }
+      this.allowTeleport(client.sessionId);
       vehicle.driver = client.sessionId;
       player.inVehicle = true;
       player.vehicleId = vehicle.id;
@@ -268,12 +388,14 @@ export class WorldRoom extends Room<WorldState> {
         return;
       }
 
+      this.allowTeleport(client.sessionId);
       player.inBuilding = true;
       player.buildingId = id;
       if (isHospital(id)) player.health = 100;
     });
 
     this.onMessage("exit-building", (client) => {
+      this.allowTeleport(client.sessionId);
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       player.inBuilding = false;
@@ -351,68 +473,139 @@ export class WorldRoom extends Room<WorldState> {
       },
     );
 
-    this.onMessage("trade-request", (client, data: { toSession: string; item: string }) => {
+    // Both sides of the blotter are gated on actually standing in a station.
+    // The check is server-side because "inside the police station" is the whole
+    // access rule - a client that simply did not open the door could otherwise
+    // read and write the board from anywhere in the city.
+    this.onMessage("crime-report", (client, data: { offence?: string; accused?: string; note?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      if (!player.inBuilding || !isStation(player.buildingId)) {
+        client.send("crime-result", { ok: false, reason: "You have to be in a police station." });
+        return;
+      }
+      void fileReport({
+        city: player.city,
+        offence: String(data.offence ?? ""),
+        accusedName: String(data.accused ?? ""),
+        note: String(data.note ?? ""),
+        reporterWallet: player.wallet,
+        reporterChain: this.chainFor(client.sessionId),
+        reporterName: player.name,
+      }).then((result) => {
+        if (!result.ok) {
+          client.send("crime-result", { ok: false, reason: result.reason });
+          return;
+        }
+        client.send("crime-result", { ok: true });
+        // Everyone currently at a station in this city sees it arrive, rather
+        // than finding it on their next manual refresh.
+        this.broadcastBlotter(player.city);
+      });
+    });
+
+    this.onMessage("crime-list", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      if (!player.inBuilding || !isStation(player.buildingId)) return;
+      void recentReports(player.city).then((reports) => {
+        client.send("crime-list", { reports });
+      });
+    });
+
+    // An invitation carries no items. What each side stakes is decided inside
+    // the session, where both can see the other's offer before committing.
+    this.onMessage("trade-invite", (client, data: { toSession: string }) => {
       const from = this.state.players.get(client.sessionId);
       const toSession = String(data.toSession ?? "");
       const to = this.state.players.get(toSession);
-      const item = String(data.item ?? "");
-      if (!from || !to || toSession === client.sessionId || !isItemId(item)) return;
-      if (!hasItem(decodeInventory(from.inventory), item)) return;
-      const dist = Math.hypot(from.x - to.x, from.z - to.z);
-      if (dist > 16) return;
-      this.clients.find((c) => c.sessionId === toSession)?.send("trade-request", {
-        fromSession: client.sessionId,
-        fromName: from.name,
-        item,
-      });
+      if (!from || !to || toSession === client.sessionId) return;
+      if (Math.hypot(from.x - to.x, from.z - to.z) > TRADE_RANGE) return;
+      if (this.tradeOf.has(client.sessionId)) {
+        client.send("trade-closed", { reason: "You are already trading." });
+        return;
+      }
+      if (this.tradeOf.has(toSession)) {
+        client.send("trade-closed", { reason: `${to.name} is already trading.` });
+        return;
+      }
+      this.clients
+        .find((c) => c.sessionId === toSession)
+        ?.send("trade-invite", { fromSession: client.sessionId, fromName: from.name });
     });
 
-    this.onMessage("trade-respond", (client, data: { fromSession: string; accept: boolean; item?: string }) => {
-      const to = this.state.players.get(client.sessionId);
+    this.onMessage("trade-accept", (client, data: { fromSession: string; accept: boolean }) => {
       const fromSession = String(data.fromSession ?? "");
       const from = this.state.players.get(fromSession);
-      const item = String(data.item ?? "");
+      const to = this.state.players.get(client.sessionId);
+      const inviter = this.clients.find((c) => c.sessionId === fromSession);
       if (!from || !to) return;
-      if (!data.accept || !isItemId(item)) {
-        this.clients.find((c) => c.sessionId === fromSession)?.send("trade-result", {
-          toSession: client.sessionId,
-          accept: false,
-          item,
-        });
+      if (!data.accept) {
+        inviter?.send("trade-closed", { reason: `${to.name} declined.` });
         return;
       }
-      const taken = takeItem(decodeInventory(from.inventory), item);
-      if (!taken) {
-        client.send("trade-result", { toSession: fromSession, accept: false, item, reason: "gone" });
+      if (this.tradeOf.has(fromSession) || this.tradeOf.has(client.sessionId)) {
+        client.send("trade-closed", { reason: "That trade is no longer open." });
         return;
       }
-      from.inventory = encodeInventory(taken);
-      to.inventory = encodeInventory(addItem(decodeInventory(to.inventory), item));
-      if (from.gun === item) from.gun = "";
-      if (from.pet === item) from.pet = "";
-      const bagFrom = { inventory: from.inventory, credits: from.credits, gun: from.gun, pet: from.pet, accessories: from.accessories };
-      const bagTo = { inventory: to.inventory, credits: to.credits, gun: to.gun, pet: to.pet, accessories: to.accessories };
-      this.clients.find((c) => c.sessionId === fromSession)?.send("bag-sync", bagFrom);
-      client.send("bag-sync", bagTo);
-      this.clients.find((c) => c.sessionId === fromSession)?.send("trade-result", {
-        toSession: client.sessionId,
-        accept: true,
-        item,
-      });
+      if (Math.hypot(from.x - to.x, from.z - to.z) > TRADE_RANGE) {
+        client.send("trade-closed", { reason: "Too far apart to trade." });
+        return;
+      }
+      const session: TradeSession = {
+        id: `${fromSession}:${client.sessionId}`,
+        a: { sessionId: fromSession, items: [], locked: false },
+        b: { sessionId: client.sessionId, items: [], locked: false },
+        touchedAt: Date.now(),
+      };
+      this.trades.set(session.id, session);
+      this.tradeOf.set(fromSession, session.id);
+      this.tradeOf.set(client.sessionId, session.id);
+      this.sendTradeState(session);
     });
 
-    this.onMessage("loadout", (client, data: { inventory?: string; credits?: number; gun?: string; pet?: string; accessories?: string }) => {
+    this.onMessage("trade-offer", (client, data: { items?: unknown }) => {
+      const session = this.tradeFor(client.sessionId);
+      const player = this.state.players.get(client.sessionId);
+      if (!session || !player) return;
+      const mine = ownSide(session, client.sessionId);
+      if (!mine) return;
+      mine.items = sanitizeStake(data.items, player.inventory);
+      // Any change to either stake drops both locks. Without this, locking in
+      // against an offer is meaningless: the other side could swap theirs out
+      // underneath a commitment already made.
+      session.a.locked = false;
+      session.b.locked = false;
+      session.touchedAt = Date.now();
+      this.sendTradeState(session);
+    });
+
+    this.onMessage("trade-lock", (client, data: { locked?: boolean }) => {
+      const session = this.tradeFor(client.sessionId);
+      if (!session) return;
+      const mine = ownSide(session, client.sessionId);
+      if (!mine) return;
+      mine.locked = Boolean(data.locked);
+      session.touchedAt = Date.now();
+      if (session.a.locked && session.b.locked) this.settleTradeSession(session);
+      else this.sendTradeState(session);
+    });
+
+    this.onMessage("trade-cancel", (client) => {
+      const session = this.tradeFor(client.sessionId);
+      if (!session) return;
+      const name = this.state.players.get(client.sessionId)?.name ?? "They";
+      this.closeTrade(session, `${name} cancelled the trade.`);
+    });
+
+    this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       if (typeof data.inventory === "string") player.inventory = data.inventory.slice(0, 4000);
-      // Only ever accept a decrease. A reconnecting client replays whatever
-      // credits it had cached, which would otherwise undo auction escrow.
-      if (typeof data.credits === "number" && data.credits <= player.credits) {
-        player.credits = Math.max(0, Math.min(CREDIT_CAP, data.credits));
-        // Mirror spending to the character row so the stored balance stays the
-        // authoritative one for adoptStoredCredits on the next join.
-        if (player.wallet) void writeCredits(player.wallet, this.chainFor(client.sessionId), player.credits);
-      }
+      // The balance is never taken from the client. Tribute is a real token held
+      // as a deposited float, so a client-supplied figure is a mint instruction
+      // from an untrusted source. Every change runs through the server: purchases
+      // below, auction escrow, and deposits. `data.tribute` is read and dropped.
       if (typeof data.gun === "string") player.gun = data.gun.slice(0, 24);
       if (typeof data.pet === "string") player.pet = data.pet.slice(0, 24);
       if (typeof data.accessories === "string") player.accessories = data.accessories.slice(0, 120);
@@ -454,6 +647,7 @@ export class WorldRoom extends Room<WorldState> {
 
       to.health = Math.max(0, to.health - spec.damage);
       to.sitting = false;
+      to.lying = false;
 
       this.broadcast("gunshot", {
         fromSession: client.sessionId,
@@ -484,6 +678,7 @@ export class WorldRoom extends Room<WorldState> {
       const melee = gunSpec(from.gun);
       to.health = Math.max(0, to.health - (melee && !melee.ranged ? melee.damage : 18));
       to.sitting = false;
+      to.lying = false;
       if (dist > 0.05) {
         const nx = (to.x - from.x) / dist;
         const nz = (to.z - from.z) / dist;
@@ -522,19 +717,54 @@ export class WorldRoom extends Room<WorldState> {
       client.send("lock-result", { kind: "home", id, locked, name: `home in ${home.city}` });
     });
 
-    this.onMessage("buy-vehicle", (client, data: { kind?: string; city?: CityId }) => {
-      void this.buyVehicle(client, String(data.kind ?? ""), data.city);
+this.onMessage("car-list", (client, data: { id?: string; list?: boolean; price?: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      const vehicle = this.state.vehicles.get(String(data.id ?? ""));
+      if (!player || !vehicle) return;
+      const fail = (reason: string) => client.send("car-result", { id: vehicle.id, ok: false, reason });
+      if (!player.wallet || vehicle.owner !== player.wallet) return fail("You do not own that car.");
+      // Somebody behind the wheel would have the car move out from under them.
+      if (vehicle.driver) return fail("Get out of it first.");
+
+      if (data.list === false) {
+        vehicle.forSale = false;
+        vehicle.askingPrice = 0;
+        void savePlayerVehicle(this.vehicleRow(vehicle));
+        return client.send("car-result", { id: vehicle.id, ok: true, reason: "Listing withdrawn" });
+      }
+      const asking = clampAskingPrice(data.price);
+      if (asking == null) return fail(`Set an asking price of at least ${MIN_ASKING_PRICE} ${CURRENCY}.`);
+      vehicle.forSale = true;
+      vehicle.askingPrice = asking;
+      void savePlayerVehicle(this.vehicleRow(vehicle));
+      client.send("car-result", {
+        id: vehicle.id,
+        ok: true,
+        reason: `Listed at ${asking} ${CURRENCY} — first buyer takes it`,
+      });
     });
 
-    this.onMessage("home-bid", (client, data: { id?: string; city?: CityId }) => {
-      void this.placeBid(client, String(data.id ?? ""), data.city);
+    this.onMessage("car-buy", (client, data: { id?: string; txHash?: string }) => {
+      void this.buyListedCar(client, String(data.id ?? ""), String(data.txHash ?? ""));
+    });
+
+        this.onMessage("buy-item", (client, data: { id?: string; txHash?: string }) => {
+      void this.buyItem(client, String(data.id ?? ""), String(data.txHash ?? ""));
+    });
+
+    this.onMessage("buy-vehicle", (client, data: { kind?: string; city?: CityId; txHash?: string }) => {
+      void this.buyVehicle(client, String(data.kind ?? ""), data.city, String(data.txHash ?? ""));
+    });
+
+this.onMessage("home-buy", (client, data: { id?: string; city?: CityId; txHash?: string }) => {
+      void this.buyHome(client, String(data.id ?? ""), String(data.txHash ?? ""), data.city);
     });
 
     this.onMessage("home-list", (client, data: { id?: string; list?: boolean; price?: number; duration?: number }) => {
       this.setListing(client, String(data.id ?? ""), data.list !== false, data.price, data.duration);
     });
 
-    this.onMessage("home-decide", (client, data: { id?: string; accept?: boolean }) => {
+this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const player = this.state.players.get(client.sessionId);
       const home = this.state.homes.get(String(data.id ?? ""));
       if (!player || !home) return;
@@ -542,14 +772,12 @@ export class WorldRoom extends Room<WorldState> {
         client.send("home-result", { id: home.id, ok: false, reason: "You do not own this home." });
         return;
       }
-      if (!home.awaitingSeller) {
-        client.send("home-result", { id: home.id, ok: false, reason: "There is no offer to answer." });
-        return;
-      }
-      void this.resolveOffer(home, data.accept !== false, "seller");
+      home.name = cleanHomeName(String(data.name ?? ""));
+      void saveHomeAuction(this.toRow(home));
+      client.send("home-result", { id: home.id, ok: true, name: home.name });
     });
 
-    this.onMessage("friend-request", (client, data: { toSession?: string }) => {
+        this.onMessage("friend-request", (client, data: { toSession?: string }) => {
       void this.sendFriendRequest(client, String(data.toSession ?? ""));
     });
 
@@ -559,6 +787,25 @@ export class WorldRoom extends Room<WorldState> {
 
     this.onMessage("friend-remove", (client, data: { wallet?: string }) => {
       void this.dropFriend(client, String(data.wallet ?? ""));
+    });
+
+    // The world map shows the whole city, but interest management means the
+    // client only holds nearby players. Send a snapshot on demand rather than
+    // streaming 500 positions to everyone continuously.
+    this.onMessage("request-roster", (client) => {
+      const roster: { sessionId: string; name: string; wallet: string; x: number; z: number; city: string; indoors: boolean }[] = [];
+      this.state.players.forEach((p, sessionId) => {
+        roster.push({
+          sessionId,
+          name: p.name,
+          wallet: p.wallet,
+          x: p.x,
+          z: p.z,
+          city: p.city,
+          indoors: p.inBuilding,
+        });
+      });
+      client.send("roster", { roster, at: Date.now() });
     });
 
     this.onMessage("messages-read", (client) => {
@@ -572,21 +819,71 @@ export class WorldRoom extends Room<WorldState> {
       });
     }, 200);
 
-    this.clock.setInterval(() => {
-      // Re-read each tick so .env edits take effect without a restart.
-      this.state.homeOpeningBid = openingBid();
-      this.state.homeBidIncrement = bidIncrement();
-      this.settleAuctions();
-    }, 1000);
+    // 5Hz is plenty: AOI_OUT sits 25 units beyond AOI_IN, which is far more
+    // than anyone covers in 200ms, so nobody pops in late.
+    if (INTEREST_MANAGEMENT) this.clock.setInterval(() => this.syncViews(), 200);
+    // One RPC per distinct wallet per cycle, matching the holdings cache so a
+    // refresh never re-reads something still fresh.
+    this.clock.setInterval(() => void this.refreshHoldings(), HOLDINGS_CACHE_MS);
+    this.clock.setInterval(() => this.sweepTrades(), 2000);
+
+  }
+
+  /**
+   * Recomputes what each client can see. Every client gets its own player
+   * unconditionally — a view-filtered map shows nothing that is not added, so
+   * forgetting this would leave people unable to see themselves.
+   */
+  private syncViews() {
+    if (this.state.players.size === 0) return;
+    this.playerGrid.rebuild(this.state.players.values());
+    for (const client of this.clients) this.syncViewFor(client);
+  }
+
+  /**
+   * Recomputes what one client can see. Every client gets its own player
+   * unconditionally — a view-filtered map shows nothing that is not added, so
+   * forgetting this would leave people unable to see themselves.
+   *
+   * Called synchronously on join as well as on the timer: a client whose view
+   * is still empty when the first patch goes out can receive a reference to an
+   * entity it was never told about, and the decoder rejects the whole patch.
+   */
+  private syncViewFor(client: Client) {
+    const me = this.state.players.get(client.sessionId);
+    if (!me) return;
+    const view = client.view ?? (client.view = new StateView());
+
+    // Only add once. Re-adding a visible ref every tick queues duplicate ADD
+    // operations and the client decoder trips over them.
+    if (!view.has(me)) view.add(me);
+
+    for (const other of this.playerGrid.near(me.x, me.z, AOI_IN)) {
+      if (other === me) continue;
+      const d = Math.hypot(other.x - me.x, other.z - me.z);
+      const visible = view.has(other);
+      if (shouldSee(d, visible)) {
+        if (!visible) view.add(other);
+      } else if (visible) {
+        view.remove(other);
+      }
+    }
+
   }
 
   private sendBag(sessionId: string, player: PlayerState) {
     this.clients.find((c) => c.sessionId === sessionId)?.send("bag-sync", {
       inventory: player.inventory,
-      credits: player.credits,
+      tribute: player.tribute,
       gun: player.gun,
       pet: player.pet,
       accessories: player.accessories,
+      // The client gates movement locally to keep walking responsive, so it
+      // needs the tier the server is actually using. Without this it kept the
+      // value it joined with: a balance that fell mid-session left the client
+      // predicting "allowed" on every step while the server refused them, and
+      // the player rubber-banded instead of being told why.
+      accessTier: player.accessTier,
     });
   }
 
@@ -595,7 +892,15 @@ export class WorldRoom extends Room<WorldState> {
     const client = this.clients.find((c) => c.sessionId === sessionId);
     if (!player?.wallet || !client) return;
     const friends = await loadFriends(player.wallet, this.chainFor(sessionId));
-    client.send("friend-sync", { friends });
+    this.friendsOf.set(
+      player.wallet,
+      new Set(friends.filter((f) => f.status === "friend").map((f) => f.wallet)),
+    );
+    // Presence comes from the server: interest management means the client can
+    // only see nearby players, so it cannot work this out for itself.
+    client.send("friend-sync", {
+      friends: friends.map((f) => ({ ...f, online: Boolean(this.playerByWallet(f.wallet)) })),
+    });
   }
 
   private async sendFriendRequest(client: Client, toSession: string) {
@@ -683,17 +988,58 @@ export class WorldRoom extends Room<WorldState> {
     if (theirSession) await this.syncFriends(theirSession.sessionId);
   }
 
+  /** Refresh presence for everyone online who counts this wallet as a friend. */
+  private refreshFriendsOf(wallet: string) {
+    if (!wallet) return;
+    this.state.players.forEach((other, sessionId) => {
+      if (!other.wallet || other.wallet === wallet) return;
+      if (this.friendsOf.get(other.wallet)?.has(wallet)) void this.syncFriends(sessionId);
+    });
+  }
+
   private async deliverInbox(client: Client, player: PlayerState) {
     if (!player.wallet) return;
     const messages = await loadMessages(player.wallet, this.chainFor(client.sessionId));
     client.send("message-sync", { messages });
   }
 
-  private async adoptStoredCredits(client: Client, player: PlayerState) {
+/**
+   * Confirms a purchase was actually paid for on-chain.
+   *
+   * Returns a reason to refuse, or null to go ahead. The price is the server's
+   * own figure - taking it from the client would let anyone buy a car for a
+   * penny. Claiming the hash is what stops the same payment buying twice.
+   */
+  private async requirePayment(
+    player: PlayerState,
+    chain: WalletChainId,
+    opts: { txHash?: string; price: number; purpose: string; itemId?: string },
+  ): Promise<string | null> {
+    // No token configured: the game runs on the dev balance and nothing is paid.
+    if (!tokenConfigured() || !paymentsConfigured()) return null;
+    if (!player.wallet) return "Connect a wallet to buy anything.";
+    if (!opts.txHash) return "That purchase was not paid for.";
+
+    const check = await verifyPayment(opts.txHash, player.wallet, toBaseUnits(String(opts.price)));
+    if (!check.ok) return check.reason;
+
+    const claimed = await claimPayment({
+      txHash: opts.txHash,
+      address: player.wallet,
+      chain,
+      amount: check.amount,
+      purpose: opts.purpose,
+      itemId: opts.itemId,
+    });
+    if (!claimed) return "That payment has already been used.";
+    return null;
+  }
+
+  private async adoptStoredTribute(client: Client, player: PlayerState) {
     if (!player.wallet) return;
-    const stored = await fetchCredits(player.wallet, this.chainFor(client.sessionId));
-    if (stored == null || stored === player.credits) return;
-    player.credits = Math.max(0, Math.min(CREDIT_CAP, stored));
+    const stored = await fetchTribute(player.wallet, this.chainFor(client.sessionId));
+    if (stored == null || stored === player.tribute) return;
+    player.tribute = Math.max(0, Math.min(TRIBUTE_CAP, stored));
     this.sendBag(client.sessionId, player);
   }
 
@@ -722,6 +1068,13 @@ export class WorldRoom extends Room<WorldState> {
       const client = this.clients.find((c) => c.sessionId === sessionId);
       // Say why before the socket closes; onLeave alone gives the client no reason.
       client?.send("session-replaced", {});
+      this.endTradeFor(sessionId, "The other citizen signed in elsewhere.");
+      // Before the state entry goes, not after: onLeave fires once the socket
+      // closes, and by then this lookup would find nothing and save nothing.
+      // A page refresh always lands here rather than in a clean leave - the
+      // browser opens the new socket before closing the old one - so without
+      // this the position was thrown away on every single refresh.
+      void this.rememberSpot(sessionId);
       this.releaseVehicle(sessionId);
       this.punchAt.delete(sessionId);
       this.knockedUntil.delete(sessionId);
@@ -730,6 +1083,164 @@ export class WorldRoom extends Room<WorldState> {
       client?.leave(SESSION_REPLACED);
       console.log(`[world] wallet ${wallet} signed in again — dropped session ${sessionId}`);
     }
+  }
+
+  /**
+   * Whether this player may cross into a district.
+   *
+   * Holdings are the usual key, but owning property there is a second one that
+   * does not expire with the token price. A player who qualified for Gas City,
+   * bought a home and then watched their balance fall still owns that home -
+   * locking them out would strand an asset they paid for behind a door they
+   * cannot open, and they would have no way to reach it even to sell it.
+   *
+   * Ownership is read from live room state rather than the database: homes are
+   * replicated in full to every client, so this is the same information the
+   * client gates on, and the two cannot drift.
+   */
+  private mayEnter(player: PlayerState, city: CityId): boolean {
+    return this.mayEnterAs(player.wallet, player.accessTier, city);
+  }
+
+  /** The same rule during onJoin, before there is a PlayerState to ask. */
+  private mayEnterAs(wallet: string, tier: number, city: CityId): boolean {
+    if (canEnterCity(tier, city)) return true;
+    return this.ownsHomeIn(wallet, city);
+  }
+
+  private ownsHomeIn(wallet: string, city: CityId): boolean {
+    if (!wallet) return false;
+    for (const home of this.state.homes.values()) {
+      if (home.city === city && home.owner === wallet) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Closes sessions nobody is touching, and ones where the two have walked
+   * apart. Without it a player who opened a trade and wandered off stays
+   * flagged as trading and cannot start another one.
+   */
+  private sweepTrades() {
+    const now = Date.now();
+    for (const session of [...this.trades.values()]) {
+      const a = this.state.players.get(session.a.sessionId);
+      const b = this.state.players.get(session.b.sessionId);
+      if (!a || !b) {
+        this.closeTrade(session, "The other citizen left.");
+        continue;
+      }
+      if (Math.hypot(a.x - b.x, a.z - b.z) > TRADE_RANGE) {
+        this.closeTrade(session, "You walked too far apart.");
+        continue;
+      }
+      if (now - session.touchedAt > TRADE_IDLE_MS) {
+        this.closeTrade(session, "Trade timed out.");
+      }
+    }
+  }
+
+  /** Pushes the board to everyone standing in a station in that city. */
+  private broadcastBlotter(city: string) {
+    void recentReports(city).then((reports) => {
+      for (const [sessionId, player] of this.state.players) {
+        if (player.city !== city || !player.inBuilding || !isStation(player.buildingId)) continue;
+        this.clients.find((c) => c.sessionId === sessionId)?.send("crime-list", { reports });
+      }
+    });
+  }
+
+  private tradeFor(sessionId: string): TradeSession | null {
+    const id = this.tradeOf.get(sessionId);
+    return id ? this.trades.get(id) ?? null : null;
+  }
+
+  /**
+   * Each side is told its own stake and the other's, from its own point of
+   * view, so neither client has to work out which half of the session it is.
+   */
+  private sendTradeState(session: TradeSession) {
+    for (const side of [session.a, session.b]) {
+      const them = otherSide(session, side.sessionId);
+      const themPlayer = them ? this.state.players.get(them.sessionId) : null;
+      if (!them) continue;
+      this.clients.find((c) => c.sessionId === side.sessionId)?.send("trade-state", {
+        withSession: them.sessionId,
+        withName: themPlayer?.name ?? "citizen",
+        yourItems: side.items,
+        theirItems: them.items,
+        youLocked: side.locked,
+        theyLocked: them.locked,
+      });
+    }
+  }
+
+  /**
+   * Moves both stakes at once, or moves nothing.
+   *
+   * Everything is validated against live inventories before a single item is
+   * written, because the stakes were chosen earlier and a player may have sold
+   * or traded one of them in between.
+   */
+  private settleTradeSession(session: TradeSession) {
+    const a = this.state.players.get(session.a.sessionId);
+    const b = this.state.players.get(session.b.sessionId);
+    if (!a || !b) {
+      this.closeTrade(session, "The other citizen left.");
+      return;
+    }
+    if (Math.hypot(a.x - b.x, a.z - b.z) > TRADE_RANGE) {
+      this.closeTrade(session, "Too far apart to trade.");
+      return;
+    }
+
+    const result = settleTrade(a.inventory, session.a.items, b.inventory, session.b.items);
+    if (!result.ok) {
+      this.closeTrade(session, result.reason);
+      return;
+    }
+
+    a.inventory = encodeInventory(result.aInventory);
+    b.inventory = encodeInventory(result.bInventory);
+    // Anything handed over cannot stay equipped on the player who gave it up.
+    for (const [player, given] of [
+      [a, session.a.items],
+      [b, session.b.items],
+    ] as const) {
+      for (const id of given) {
+        if (player.gun === id && !hasItem(decodeInventory(player.inventory), id)) player.gun = "";
+        if (player.pet === id && !hasItem(decodeInventory(player.inventory), id)) player.pet = "";
+      }
+    }
+
+    this.sendBag(session.a.sessionId, a);
+    this.sendBag(session.b.sessionId, b);
+    const names = { [session.a.sessionId]: b.name, [session.b.sessionId]: a.name };
+    for (const side of [session.a, session.b]) {
+      this.clients
+        .find((c) => c.sessionId === side.sessionId)
+        ?.send("trade-closed", { reason: `Traded with ${names[side.sessionId]}.`, done: true });
+    }
+    this.forgetTrade(session);
+  }
+
+  private closeTrade(session: TradeSession, reason: string) {
+    for (const side of [session.a, session.b]) {
+      this.clients.find((c) => c.sessionId === side.sessionId)?.send("trade-closed", { reason });
+    }
+    this.forgetTrade(session);
+  }
+
+  private forgetTrade(session: TradeSession) {
+    this.trades.delete(session.id);
+    this.tradeOf.delete(session.a.sessionId);
+    this.tradeOf.delete(session.b.sessionId);
+  }
+
+  /** Called when a player leaves or is evicted; a half-open trade helps nobody. */
+  private endTradeFor(sessionId: string, reason: string) {
+    const session = this.tradeFor(sessionId);
+    if (session) this.closeTrade(session, reason);
   }
 
   /** Exactly one session per wallet is live, so this is unambiguous. */
@@ -742,22 +1253,22 @@ export class WorldRoom extends Room<WorldState> {
   }
 
   /**
-   * Credits the server moves itself (escrow in, refund out) are written to the
+   * Tribute the server moves itself (escrow in, refund out) are written to the
    * character row as well as the live player, so they survive a refresh. The
    * wallet may not be connected, which is why the write is keyed by wallet.
    */
-  private async moveCredits(wallet: string, chain: WalletChainId, delta: number) {
+  private async moveTribute(wallet: string, chain: WalletChainId, delta: number) {
     if (!wallet) return;
     const online = this.playerByWallet(wallet);
     if (online) {
-      online.player.credits = Math.max(0, Math.min(CREDIT_CAP, online.player.credits + delta));
+      online.player.tribute = Math.max(0, Math.min(TRIBUTE_CAP, online.player.tribute + delta));
       this.sendBag(online.sessionId, online.player);
-      await writeCredits(wallet, chain, online.player.credits);
+      await writeTribute(wallet, chain, online.player.tribute);
       return;
     }
-    const stored = await fetchCredits(wallet, chain);
+    const stored = await fetchTribute(wallet, chain);
     if (stored == null) return;
-    await writeCredits(wallet, chain, Math.max(0, stored + delta));
+    await writeTribute(wallet, chain, Math.max(0, stored + delta));
   }
 
   private toRow(home: HomeState) {
@@ -770,6 +1281,7 @@ export class WorldRoom extends Room<WorldState> {
       ownerWallet: home.owner,
       ownerChain: (home.ownerChain || null) as WalletChainId | null,
       ownerName: home.ownerName,
+      name: home.name,
       forSale: home.forSale,
       lastPrice: home.lastPrice,
       askingPrice: home.askingPrice,
@@ -798,6 +1310,8 @@ export class WorldRoom extends Room<WorldState> {
       z: vehicle.z,
       rotY: vehicle.rotY,
       locked: vehicle.locked,
+      forSale: vehicle.forSale,
+      askingPrice: vehicle.askingPrice,
     };
   }
 
@@ -815,12 +1329,14 @@ export class WorldRoom extends Room<WorldState> {
       vehicle.kind = row.kind;
       vehicle.owner = row.ownerWallet;
       vehicle.locked = row.locked;
+      vehicle.forSale = row.forSale;
+      vehicle.askingPrice = row.askingPrice;
       // Nobody is behind the wheel after a restart.
       vehicle.driver = "";
       this.vehicleChains.set(row.id, row.ownerChain);
       this.state.vehicles.set(row.id, vehicle);
     }
-    if (rows.length) console.log(`[the-block] restored ${rows.length} owned vehicle(s)`);
+    if (rows.length) console.log(`[tribe] restored ${rows.length} owned vehicle(s)`);
   }
 
   private async restoreAuctions() {
@@ -832,6 +1348,7 @@ export class WorldRoom extends Room<WorldState> {
       home.owner = row.ownerWallet;
       home.ownerChain = row.ownerChain ?? "";
       home.ownerName = row.ownerName;
+      home.name = row.name ?? "";
       home.forSale = row.forSale;
       home.lastPrice = row.lastPrice;
       home.askingPrice = row.askingPrice;
@@ -846,10 +1363,9 @@ export class WorldRoom extends Room<WorldState> {
       home.endsAt = row.endsAt;
       this.state.homes.set(home.id, home);
     }
-    if (rows.length) console.log(`[the-block] restored ${rows.length} home auction(s)`);
+    if (rows.length) console.log(`[tribe] restored ${rows.length} home auction(s)`);
     this.reportDriftedHomes(rows.map((row) => row.homeId));
     // Anything that ran out while the server was down closes on the next tick.
-    this.settleAuctions();
   }
 
   private setListing(client: Client, id: string, list: boolean, price?: number, duration?: number) {
@@ -860,12 +1376,6 @@ export class WorldRoom extends Room<WorldState> {
       client.send("home-result", { id, ok: false, reason: "You do not own this home." });
       return;
     }
-    // Pulling a listing once people have money on the table would strand their
-    // escrow, so a listing is only cancellable before the first bid lands.
-    if (!list && home.endsAt > 0) {
-      client.send("home-result", { id, ok: false, reason: "Bidding has started — you cannot delist now." });
-      return;
-    }
     if (list) {
       // The seller names the price; there is no automatic opening bid for a
       // home that already has an owner.
@@ -874,24 +1384,15 @@ export class WorldRoom extends Room<WorldState> {
         client.send("home-result", {
           id,
           ok: false,
-          reason: `Set an asking price of at least ${MIN_ASKING_PRICE} credit.`,
+          reason: `Set an asking price of at least ${MIN_ASKING_PRICE} ${CURRENCY}.`,
         });
         return;
       }
-      const seconds = clampDuration(duration);
-      if (seconds == null) {
-        client.send("home-result", {
-          id,
-          ok: false,
-          reason: `Auction length must be between ${minAuctionSeconds()} seconds and ${MAX_AUCTION_SECONDS / 86400} days.`,
-        });
-        return;
-      }
+      // No duration: a listing is an asking price that stands until someone
+      // pays it or the owner withdraws.
       home.askingPrice = asking;
-      home.durationSeconds = seconds;
     } else {
       home.askingPrice = 0;
-      home.durationSeconds = 0;
     }
     home.forSale = list;
     void saveHomeAuction(this.toRow(home));
@@ -899,15 +1400,15 @@ export class WorldRoom extends Room<WorldState> {
       kind: "listed",
       homeId: id,
       body: list
-        ? `You listed a home in ${home.city} at ${home.askingPrice} cr for ${WorldRoom.describeDuration(home.durationSeconds)}.`
-        : `You withdrew your listing in ${home.city}.`,
+        ? `You listed your ${CITIES[home.city as CityId]?.name ?? home.city} home at ${home.askingPrice} ${CURRENCY}. It sells to the first buyer who pays.`
+        : `You withdrew your listing in ${CITIES[home.city as CityId]?.name ?? home.city}.`,
     });
     client.send("home-result", {
       id,
       ok: true,
       listed: list,
       reason: list
-        ? `Listed — bidding opens at ${home.askingPrice} credits`
+        ? `Listed at ${home.askingPrice} ${CURRENCY} — first buyer takes it`
         : "Listing withdrawn",
     });
   }
@@ -922,17 +1423,144 @@ export class WorldRoom extends Room<WorldState> {
     const live = new Set(allHomeIds());
     const orphans = storedIds.filter((id) => !live.has(id));
     if (orphans.length === 0) {
-      console.log(`[the-block] home auctions verified — all ${storedIds.length} match a generated home`);
+      console.log(`[tribe] home auctions verified — all ${storedIds.length} match a generated home`);
       return;
     }
     console.warn(
-      `[the-block] WARNING: ${orphans.length} of ${storedIds.length} stored home auction(s) no longer match a generated home.`,
+      `[tribe] WARNING: ${orphans.length} of ${storedIds.length} stored home auction(s) no longer match a generated home.`,
     );
-    console.warn(`[the-block] orphaned ids: ${orphans.slice(0, 20).join(", ")}${orphans.length > 20 ? " …" : ""}`);
-    console.warn("[the-block] re-match them by lot_gx/lot_gz in home_auctions before players notice.");
+    console.warn(`[tribe] orphaned ids: ${orphans.slice(0, 20).join(", ")}${orphans.length > 20 ? " …" : ""}`);
+    console.warn("[tribe] re-match them by lot_gx/lot_gz in home_auctions before players notice.");
   }
 
-  private async buyVehicle(client: Client, kind: string, city?: CityId) {
+/**
+   * Buys a catalog item.
+   *
+   * The whole purchase is decided here: the price, the tier gate, whether they
+   * already own a unique item, and whether it was paid for. The client used to
+   * do all of this itself and simply report the result, which meant the store
+   * was free to anyone willing to edit a number.
+   */
+  private async buyItem(client: Client, id: string, txHash: string) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+    const fail = (reason: string) => client.send("buy-item-result", { ok: false, reason });
+
+    const item = catalogItem(id);
+    if (!item) return fail("No such item.");
+    // Retired stock is hidden from the store, but the id is still valid - it
+    // has to be, or existing owners would lose theirs - so the sale is refused
+    // here rather than relying on the client not to ask.
+    if (item.listed === false) return fail(`${item.name} is no longer sold.`);
+    if (item.tier > player.accessTier) return fail(`${item.name} needs tier ${item.tier}.`);
+
+    const inventory = decodeInventory(player.inventory);
+    if (item.unique && hasItem(inventory, item.id)) return fail("You already own that.");
+    if (player.tribute < item.price) {
+      return fail(`${item.name} costs ${item.price} ${CURRENCY}. You have ${player.tribute}.`);
+    }
+
+    const chain = this.chainFor(client.sessionId);
+    const unpaid = await this.requirePayment(player, chain, {
+      txHash,
+      price: item.price,
+      purpose: "item",
+      itemId: item.id,
+    });
+    if (unpaid) return fail(unpaid);
+
+    if (!tokenConfigured()) {
+      // Dev path with no token: bill the bookkeeping balance instead.
+      await this.moveTribute(player.wallet, chain, -item.price);
+      if (!player.wallet) player.tribute = Math.max(0, player.tribute - item.price);
+    }
+
+    player.inventory = encodeInventory(addItem(inventory, item.id));
+    this.sendBag(client.sessionId, player);
+    client.send("buy-item-result", { ok: true, name: item.name });
+    // Every purchase leaves a receipt, so the inbox is a full record of what a
+    // wallet has spent - the on-screen notice is gone in a couple of seconds.
+    void this.notify(player.wallet, chain, {
+      kind: "bought",
+      body: `You bought ${item.name} for ${item.price} ${CURRENCY}.`,
+    });
+  }
+
+/** How many cars are owned and how many may ever be, for the car lot sign. */
+  private broadcastFleet() {
+    let sold = 0;
+    this.state.vehicles.forEach((vehicle) => {
+      if (vehicle.owner) sold++;
+    });
+    this.broadcast("fleet", { sold, cap: MAX_PLAYER_VEHICLES });
+  }
+
+/**
+   * Buys a car another player has listed.
+   *
+   * Ownership moves, the fleet does not grow, so the world cap is untouched -
+   * but the one-car rule still applies to the buyer, and the seller is freed to
+   * buy again.
+   */
+  private async buyListedCar(client: Client, id: string, txHash: string) {
+    const player = this.state.players.get(client.sessionId);
+    const vehicle = this.state.vehicles.get(id);
+    if (!player || !vehicle) return;
+    const fail = (reason: string) => client.send("car-result", { id, ok: false, reason });
+
+    if (!player.wallet) return fail("Connect a wallet to buy a car.");
+    if (!vehicle.owner || !vehicle.forSale) return fail("That car is not for sale.");
+    if (vehicle.owner === player.wallet) return fail("You already own it.");
+    if (vehicle.driver) return fail("Somebody is driving it.");
+
+    let owned = 0;
+    this.state.vehicles.forEach((v) => {
+      if (v.owner && v.owner === player.wallet) owned++;
+    });
+    if (owned > 0) return fail("You already own a car. One each.");
+
+    const price = vehicle.askingPrice;
+    if (player.tribute < price) {
+      return fail(`That car costs ${price} ${CURRENCY}. You have ${player.tribute}.`);
+    }
+
+    const chain = this.chainFor(client.sessionId);
+    const unpaid = await this.requirePayment(player, chain, {
+      txHash,
+      price,
+      purpose: "car-resale",
+      itemId: vehicle.id,
+    });
+    if (unpaid) return fail(unpaid);
+
+    const seller = vehicle.owner;
+    const sellerChain = this.vehicleChains.get(vehicle.id) ?? DEFAULT_CHAIN;
+    vehicle.owner = player.wallet;
+    vehicle.forSale = false;
+    vehicle.askingPrice = 0;
+    vehicle.locked = true;
+    this.vehicleChains.set(vehicle.id, chain);
+    await savePlayerVehicle(this.vehicleRow(vehicle));
+
+    if (!tokenConfigured()) {
+      await this.moveTribute(player.wallet, chain, -price);
+      if (seller) await this.moveTribute(seller, sellerChain, price);
+    }
+
+    client.send("car-result", { id, ok: true, reason: `Bought for ${price} ${CURRENCY}.` });
+    await this.notify(player.wallet, chain, {
+      kind: "bought",
+      body: `You bought a ${vehicle.kind} for ${price} ${CURRENCY}.`,
+    });
+    if (seller) {
+      await this.notify(seller, sellerChain, {
+        kind: "sold",
+        body: `${player.name} bought your ${vehicle.kind} for ${price} ${CURRENCY}.`,
+      });
+    }
+  }
+
+  private async buyVehicle(client: Client, kind: string, city?: CityId, txHash?: string) {
     const player = this.state.players.get(client.sessionId);
     const spec = carSpec(kind);
     const lot = landmarkLot("dealer");
@@ -945,28 +1573,63 @@ export class WorldRoom extends Room<WorldState> {
       client.send("buy-result", { ok: false, reason: "Go to a car lot to buy a car." });
       return;
     }
-    if (player.credits < spec.price) {
+    // One car per wallet. Owned vehicles are all restored into state on boot, so
+    // counting state is counting everything that exists.
+    let owned = 0;
+    let fleet = 0;
+    this.state.vehicles.forEach((vehicle) => {
+      if (!vehicle.owner) return;
+      fleet++;
+      if (player.wallet && vehicle.owner === player.wallet) owned++;
+    });
+    if (owned > 0) {
+      client.send("buy-result", { ok: false, reason: "You already own a car. One each." });
+      return;
+    }
+    if (fleet >= MAX_PLAYER_VEHICLES) {
       client.send("buy-result", {
         ok: false,
-        reason: `A ${spec.name} costs ${spec.price} cr. You have ${player.credits}.`,
+        reason: `Every car in the city is spoken for - ${MAX_PLAYER_VEHICLES} of ${MAX_PLAYER_VEHICLES} sold.`,
+      });
+      return;
+    }
+    if (player.tribute < spec.price) {
+      client.send("buy-result", {
+        ok: false,
+        reason: `A ${spec.name} costs ${spec.price} ${CURRENCY}. You have ${player.tribute}.`,
       });
       return;
     }
 
-    await this.moveCredits(player.wallet, this.chainFor(client.sessionId), -spec.price);
-    if (!player.wallet) {
-      // No wallet means moveCredits could not bill them; charge the session copy.
-      player.credits = Math.max(0, player.credits - spec.price);
-      this.sendBag(client.sessionId, player);
+    const chain = this.chainFor(client.sessionId);
+    const unpaid = await this.requirePayment(player, chain, {
+      txHash,
+      price: spec.price,
+      purpose: "vehicle",
+      itemId: spec.kind,
+    });
+    if (unpaid) {
+      client.send("buy-result", { ok: false, reason: unpaid });
+      return;
     }
 
-    // Park it on the street at the front of the lot, nudged along so a second
-    // purchase does not land on top of the first.
-    const owned = [...this.state.vehicles.values()].filter((v) => v.owner === player.wallet).length;
+    if (!tokenConfigured()) {
+      // Dev path with no token: bill the bookkeeping balance instead.
+      await this.moveTribute(player.wallet, chain, -spec.price);
+      if (!player.wallet) {
+        player.tribute = Math.max(0, player.tribute - spec.price);
+        this.sendBag(client.sessionId, player);
+      }
+    }
+
+    // Park it on the street at the front of the lot, nudged along so consecutive
+    // purchases do not land on top of each other. Offset by the size of the
+    // fleet, not by what this player owns: one car each means they never have a
+    // second, but two different buyers still need parking beside one another.
     const vehicle = new VehicleState();
     vehicle.id = `veh-${client.sessionId}-${Date.now().toString(36)}`;
     vehicle.city = where;
-    vehicle.x = centre.x + ((owned % 3) - 1) * 4.2;
+    vehicle.x = centre.x + ((fleet % 3) - 1) * 4.2;
     vehicle.y = 0.55;
     vehicle.z = centre.z + 14.5;
     vehicle.rotY = 0;
@@ -979,98 +1642,89 @@ export class WorldRoom extends Room<WorldState> {
     await savePlayerVehicle(this.vehicleRow(vehicle));
 
     client.send("buy-result", { ok: true, name: spec.name, price: spec.price });
+    this.broadcastFleet();
     void this.notify(player.wallet, this.chainFor(client.sessionId), {
       kind: "bought",
-      body: `You bought a ${spec.name} in ${where} for ${spec.price} cr.`,
+      body: `You bought a ${spec.name} in ${CITIES[where].name} for ${spec.price} ${CURRENCY}.`,
     });
   }
 
-  private async placeBid(client: Client, id: string, city?: CityId) {
+  /**
+   * Buys a home outright.
+   *
+   * There is no auction. A home the city still owns has a fixed price derived
+   * from its district and how big the building is, the buyer signs one transfer,
+   * and ownership moves the moment that payment is verified. Bidding needed
+   * escrow, a clock, outbid refunds and a seller decision - all of which existed
+   * to discover a price that is now simply known.
+   */
+  private async buyHome(client: Client, id: string, txHash: string, city?: CityId) {
     const player = this.state.players.get(client.sessionId);
     if (!player || !isHomeId(id)) return;
+    const fail = (reason: string) => client.send("home-result", { id, ok: false, reason });
+
     const wallet = player.wallet;
-    if (!wallet) {
-      client.send("home-result", { id, ok: false, reason: "Connect a wallet to bid on a home." });
-      return;
-    }
+    if (!wallet) return fail("Connect a wallet to buy a home.");
     const chain = this.chainFor(client.sessionId);
 
     const home = this.state.homes.get(id);
-    const live = Boolean(home && home.endsAt > 0);
-    if (home?.owner === wallet) {
-      client.send("home-result", { id, ok: false, reason: "You already own this home." });
-      return;
-    }
-    if (home?.awaitingSeller) {
-      client.send("home-result", { id, ok: false, reason: "Bidding has closed on this home." });
-      return;
-    }
-    if (home?.owner && !home.forSale) {
-      client.send("home-result", { id, ok: false, reason: `This home belongs to ${home.ownerName}.` });
-      return;
-    }
-    // Identity is the wallet, not the session, so reconnecting does not let you
-    // bid against yourself and does not orphan the escrow you are already holding.
-    if (home && home.highBidderWallet === wallet) {
-      client.send("home-result", { id, ok: false, reason: "You are already the highest bidder." });
-      return;
+    if (home?.owner === wallet) return fail("You already own this home.");
+    if (home?.owner && !home.forSale) return fail(`This home belongs to ${home.ownerName}.`);
+
+    const lot = parseHomeId(id);
+    if (!lot) return fail("No such home.");
+    // An owner's asking price when it is listed, otherwise the city's price for
+    // a home of that size in that district. Never a figure from the client.
+    const price = home?.owner && home.forSale && home.askingPrice > 0 ? home.askingPrice : homePrice(lot.city, lot.gx, lot.gz);
+
+    if (player.tribute < price) {
+      return fail(`That home costs ${price} ${CURRENCY}. You have ${player.tribute}.`);
     }
 
-    const amount = nextBidFor(home?.highBid ?? 0, live, home?.askingPrice ?? 0);
-    if (player.credits < amount) {
-      client.send("home-result", {
-        id,
-        ok: false,
-        reason: `You need ${amount} credits to bid. You have ${player.credits}.`,
-      });
-      return;
-    }
+    const unpaid = await this.requirePayment(player, chain, {
+      txHash,
+      price,
+      purpose: "home",
+      itemId: id,
+    });
+    if (unpaid) return fail(unpaid);
 
+    const seller = home?.owner ?? "";
+    const sellerChain = (home?.ownerChain || DEFAULT_CHAIN) as WalletChainId;
     const record = home ?? new HomeState();
-    const refundWallet = home?.highBidderWallet ?? "";
-    const refundChain = (home?.highBidderChain || DEFAULT_CHAIN) as WalletChainId;
-    const refundAmount = home?.highBid ?? 0;
-
     record.id = id;
-    record.city = (city && CITY_BOUNDS[city] ? city : player.city) as string;
-    record.highBid = amount;
-    record.highBidderWallet = wallet;
-    record.highBidderChain = chain;
-    record.highBidderName = player.name;
-    // The first bid opens the window; later bids raise the price, not the clock.
-    if (!live) {
-      const seconds = record.durationSeconds > 0 ? record.durationSeconds : auctionSeconds();
-      record.endsAt = Date.now() + seconds * 1000;
-    }
+    record.city = (city && CITY_BOUNDS[city] ? city : lot.city) as string;
+    record.owner = wallet;
+    record.ownerChain = chain;
+    record.ownerName = player.name;
+    record.lastPrice = price;
+    record.forSale = false;
+    record.askingPrice = 0;
+    record.locked = true;
     if (!home) this.state.homes.set(id, record);
 
-    await this.moveCredits(wallet, chain, -amount);
-    if (refundWallet) {
-      await this.moveCredits(refundWallet, refundChain, refundAmount);
-      const outbid = this.playerByWallet(refundWallet);
-      if (outbid) {
-        this.clients
-          .find((c) => c.sessionId === outbid.sessionId)
-          ?.send("home-outbid", { id, name: player.name, bid: amount });
-      }
+    if (!tokenConfigured()) {
+      // Dev path with no token: move the bookkeeping balance instead.
+      await this.moveTribute(wallet, chain, -price);
+      if (seller) await this.moveTribute(seller, sellerChain, price);
     }
-    await saveHomeAuction(this.toRow(record));
 
-    if (record.owner && record.owner !== wallet) {
-      await this.notify(record.owner, (record.ownerChain || DEFAULT_CHAIN) as WalletChainId, {
-        kind: "bid",
+    await saveHomeAuction(this.toRow(record));
+    this.broadcast("home-sold", { id, owner: wallet, ownerName: player.name, price });
+
+    await this.notify(wallet, chain, {
+      kind: "bought",
+      homeId: id,
+      body: `You bought a home in ${CITIES[record.city as CityId]?.name ?? record.city} for ${price} ${CURRENCY}.`,
+    });
+    if (seller && seller !== wallet) {
+      await this.notify(seller, sellerChain, {
+        kind: "sold",
         homeId: id,
-        body: `${player.name} bid ${amount} cr on your ${record.city} home.`,
+        body: `${player.name} bought your ${CITIES[record.city as CityId]?.name ?? record.city} home for ${price} ${CURRENCY}.`,
       });
     }
-    if (refundWallet) {
-      await this.notify(refundWallet, refundChain, {
-        kind: "outbid",
-        homeId: id,
-        body: `${player.name} outbid you at ${amount} cr. Your ${refundAmount} cr was refunded.`,
-      });
-    }
-    client.send("home-result", { id, ok: true, bid: amount, endsAt: record.endsAt });
+    client.send("home-result", { id, ok: true, price });
   }
 
   /** Push a message to a wallet: stored for later, and delivered now if online. */
@@ -1087,43 +1741,6 @@ export class WorldRoom extends Room<WorldState> {
     }
   }
 
-  private settleAuctions() {
-    const now = Date.now();
-    this.state.homes.forEach((home) => {
-      if (home.awaitingSeller) {
-        // The seller ran out of time to answer. Accepting on their behalf is
-        // the safe default: the winner's credits are already escrowed and
-        // holding them indefinitely is worse than completing the sale.
-        if (home.decideBy > 0 && now >= home.decideBy) void this.resolveOffer(home, true, "deadline");
-        return;
-      }
-      if (home.endsAt === 0 || now < home.endsAt || !home.highBidderWallet) return;
-
-      if (home.owner) {
-        // A player's home does not change hands automatically — the seller gets
-        // to accept or reject the winning bid.
-        home.awaitingSeller = true;
-        home.decideBy = now + acceptWindowSeconds() * 1000;
-        home.endsAt = 0;
-        void saveHomeAuction(this.toRow(home));
-        void this.notify(home.owner, (home.ownerChain || DEFAULT_CHAIN) as WalletChainId, {
-          kind: "offer",
-          homeId: home.id,
-          body: `Auction closed on your ${home.city} home. ${home.highBidderName} bid ${home.highBid} cr — accept or reject it.`,
-        });
-        void this.notify(home.highBidderWallet, (home.highBidderChain || DEFAULT_CHAIN) as WalletChainId, {
-          kind: "bid",
-          homeId: home.id,
-          body: `You won the bidding on a ${home.city} home at ${home.highBid} cr. Waiting on the seller to accept.`,
-        });
-        this.broadcast("home-offer", { id: home.id, owner: home.owner, bid: home.highBid });
-        return;
-      }
-
-      // Nobody owns it, so there is no seller to consult — the city just sells.
-      this.completeSale(home, "");
-    });
-  }
 
   private completeSale(home: HomeState, seller: string) {
     const sellerChain = (home.ownerChain || DEFAULT_CHAIN) as WalletChainId;
@@ -1150,17 +1767,17 @@ export class WorldRoom extends Room<WorldState> {
     home.highBidderName = "";
 
     if (seller && seller !== buyerWallet) {
-      void this.moveCredits(seller, sellerChain, price);
+      void this.moveTribute(seller, sellerChain, price);
       void this.notify(seller, sellerChain, {
         kind: "sold",
         homeId: home.id,
-        body: `You sold your ${home.city} home to ${buyerName} for ${price} cr.`,
+        body: `You sold your ${home.city} home to ${buyerName} for ${price} ${CURRENCY}.`,
       });
     }
     void this.notify(buyerWallet, buyerChain, {
       kind: "bought",
       homeId: home.id,
-      body: `You bought a home in ${home.city} for ${price} cr.`,
+      body: `You bought a home in ${CITIES[home.city as CityId]?.name ?? home.city} for ${price} ${CURRENCY}.`,
     });
     void saveHomeAuction(this.toRow(home));
     this.broadcast("home-sold", {
@@ -1168,62 +1785,100 @@ export class WorldRoom extends Room<WorldState> {
       city: home.city,
       owner: home.owner,
       ownerName: home.ownerName,
+      name: home.name,
       seller,
       bid: price,
     });
   }
 
-  private async resolveOffer(home: HomeState, accept: boolean, reason: "seller" | "deadline") {
-    if (!home.awaitingSeller || !home.highBidderWallet) return;
-    if (accept) {
-      this.completeSale(home, home.owner);
-      return;
+
+  /**
+   * Access tier from $TRIBE held, cached briefly so a join rush does not turn
+   * into one RPC round trip per player.
+   *
+   * Fails closed: any lookup error is tier 1, never the tier the client asked
+   * for. This gate is the only thing standing between a wallet with no tokens
+   * and the top district.
+   */
+  private async resolveHoldings(wallet: string, chain: WalletChainId): Promise<Holdings> {
+    if (!wallet) return { tier: 1, balance: 0 };
+    const key = `${chain}:${wallet.toLowerCase()}`;
+    const cached = this.holdingsCache.get(key);
+    if (cached && cached.at > Date.now() - HOLDINGS_CACHE_MS) return cached;
+    let holdings: Holdings = { tier: 1, balance: 0 };
+    try {
+      const lookup = await startingCityForWallet(wallet, chain);
+      holdings = { tier: CITIES[lookup.city].tier, balance: lookup.balance };
+    } catch (error) {
+      console.warn("[tribe] holdings lookup failed, defaulting to tier 1", error);
     }
-
-    // Rejected: hand the escrow straight back and take the home off the market.
-    const buyerWallet = home.highBidderWallet;
-    const buyerChain = (home.highBidderChain || DEFAULT_CHAIN) as WalletChainId;
-    const refund = home.highBid;
-    const city = home.city;
-    const sellerName = home.ownerName || "The seller";
-
-    home.awaitingSeller = false;
-    home.decideBy = 0;
-    home.forSale = false;
-    home.askingPrice = 0;
-    home.durationSeconds = 0;
-    home.highBid = 0;
-    home.highBidderWallet = "";
-    home.highBidderChain = "";
-    home.highBidderName = "";
-
-    await this.moveCredits(buyerWallet, buyerChain, refund);
-    await this.notify(buyerWallet, buyerChain, {
-      kind: "expired",
-      homeId: home.id,
-      body:
-        reason === "deadline"
-          ? `Your ${refund} cr bid on a ${city} home lapsed unanswered. Credits refunded.`
-          : `${sellerName} rejected your ${refund} cr bid on a ${city} home. Credits refunded.`,
-    });
-    await this.notify(home.owner, (home.ownerChain || DEFAULT_CHAIN) as WalletChainId, {
-      kind: "expired",
-      homeId: home.id,
-      body: `You rejected the ${refund} cr offer on your ${city} home. It is no longer listed.`,
-    });
-    void saveHomeAuction(this.toRow(home));
-    this.broadcast("home-rejected", { id: home.id, bid: refund });
+    this.holdingsCache.set(key, { ...holdings, at: Date.now() });
+    return holdings;
   }
 
-  onJoin(client: Client, options: JoinOptions = {}) {
-    const city = (options.city && CITY_BOUNDS[options.city] ? options.city : "trench") as CityId;
-    const spawn = CITY_BOUNDS[city].spawn;
+  /**
+   * Re-reads every connected wallet and pushes any change to that client.
+   *
+   * Tribute is the token in the player's own wallet, so the balance moves
+   * without the game doing anything - they can buy or send $TRIBE in another
+   * tab. Polling keeps the HUD honest, and a tier change is applied too, so
+   * buying your way into a district takes effect without reconnecting.
+   */
+  private async refreshHoldings() {
+    if (!tokenConfigured()) return;
+    const seen = new Set<string>();
+    for (const [sessionId, player] of this.state.players) {
+      if (!player.wallet || seen.has(player.wallet)) continue;
+      seen.add(player.wallet);
+      const chain = this.chainFor(sessionId);
+      this.holdingsCache.delete(`${chain}:${player.wallet.toLowerCase()}`);
+      const { tier, balance } = await this.resolveHoldings(player.wallet, chain);
+      player.accessTier = tier;
+      // Same cadence as the holdings read: a killed process never runs onLeave.
+      void this.rememberSpot(sessionId);
+      if (player.tribute === balance) continue;
+      player.tribute = balance;
+      this.sendBag(sessionId, player);
+    }
+  }
+
+  async onJoin(client: Client, options: JoinOptions = {}) {
+    const chain = options.chain ?? DEFAULT_CHAIN;
+    // Never options.accessTier. The client asks to spawn somewhere; holdings decide.
+    const { tier: accessTier, balance } = await this.resolveHoldings(options.wallet ?? "", chain);
+    const requested = (options.city && CITY_BOUNDS[options.city] ? options.city : "trench") as CityId;
+    const wallet = options.wallet ?? "";
+    const city = this.mayEnterAs(wallet, accessTier, requested) ? requested : "trench";
+
+    // Back where they left off, if they can still stand there. Holdings may have
+    // fallen since, so a saved spot inside a district they no longer reach falls
+    // back to the spawn rather than dropping them somewhere they cannot leave.
+    // The previous session is usually still live at this point, because a page
+    // refresh opens the new socket before the old one closes. Its in-memory
+    // position is both exact and available now; the save it is about to make
+    // lands after this read, so going to the database first would return the
+    // spot from the session before last.
+    const live = options.wallet ? this.playerByWallet(options.wallet) : null;
+    const saved: LastSpot | null =
+      live && !live.player.inBuilding
+        ? { city: live.player.city as CityId, x: live.player.x, z: live.player.z }
+        : options.wallet
+          ? await fetchLastSpot(options.wallet, chain)
+          : null;
+    const savedCity = saved ? cityAtPosition(saved.x, saved.z) : "void";
+    const canStand =
+      saved !== null &&
+      savedCity !== "void" &&
+      (savedCity === "gate" || this.mayEnterAs(wallet, accessTier, savedCity as CityId));
+    const spawn = canStand ? ([saved.x, CITY_BOUNDS[city].spawn[1], saved.z] as const) : CITY_BOUNDS[city].spawn;
     const player = new PlayerState();
     player.sessionId = client.sessionId;
     player.name = (options.name || "citizen").slice(0, 16);
     player.wallet = options.wallet ?? "";
-    player.city = city;
-    player.accessTier = options.accessTier ?? CITIES[city].tier;
+    // The district they are actually standing in, which is not always the one
+    // they asked to spawn in once a saved spot is restored.
+    player.city = canStand && savedCity !== "gate" ? (savedCity as CityId) : city;
+    player.accessTier = accessTier;
     player.x = spawn[0];
     player.y = spawn[1];
     player.z = spawn[2];
@@ -1237,23 +1892,36 @@ export class WorldRoom extends Room<WorldState> {
     player.accessories = options.accessories ?? "";
     const health = Number(options.health ?? options.brokemeter);
     player.health = Number.isFinite(health) ? Math.max(0, Math.min(100, health)) : 100;
-    player.credits = options.credits ?? 500;
+    // Tribute IS the token in the player's wallet, so the balance is read from
+    // the chain rather than granted or stored. The dev grant only stands in when
+    // no token is configured, so the game is still playable without one.
+    player.tribute = tokenConfigured() ? balance : TRIBUTE_DEV_GRANT;
     player.inventory = options.inventory ?? "[]";
     player.gun = options.gun ?? "";
     player.pet = options.pet ?? "";
-    this.chains.set(client.sessionId, options.chain ?? DEFAULT_CHAIN);
+    this.chains.set(client.sessionId, chain);
+    this.allowTeleport(client.sessionId);
     // One live session per wallet. Two tabs on the same wallet would each hold
-    // their own copy of the credit balance, so escrow taken from one would be
+    // their own copy of the Tribute balance, so escrow taken from one would be
     // invisible to the other and the stale tab could spend it twice.
     this.evictOtherSessions(player.wallet, client.sessionId);
     this.state.players.set(client.sessionId, player);
+    if (INTEREST_MANAGEMENT) {
+      client.view = new StateView();
+      // Build the full view before the first patch, not on the next 200ms tick.
+      this.playerGrid.rebuild(this.state.players.values());
+      this.syncViewFor(client);
+    }
     console.log(`[world] ${player.name} joined ${city} (tier ${player.accessTier})`);
 
-    // The stored balance is authoritative: it already has any auction escrow
-    // taken out of it, which the client's cached copy does not.
-    void this.adoptStoredCredits(client, player);
+    // Always push the balance: the client seeds one from its local character
+    // record, and nothing else would correct it.
+    this.sendBag(client.sessionId, player);
+    this.broadcastFleet();
+    if (!tokenConfigured()) void this.adoptStoredTribute(client, player);
     void this.deliverInbox(client, player);
     void this.syncFriends(client.sessionId);
+    this.refreshFriendsOf(player.wallet);
 
     const supabase = getSupabase();
     if (supabase) {
@@ -1266,16 +1934,62 @@ export class WorldRoom extends Room<WorldState> {
     }
   }
 
+/**
+   * Writes down where a player is standing, so signing back in returns them
+   * there rather than to the district spawn.
+   *
+   * Indoors is skipped: interiors live far above the map, and saving that would
+   * put them inside a building they may no longer own. The last outdoor spot is
+   * the useful one.
+   */
+  private rememberSpot(sessionId: string): Promise<SpotSave> {
+    const player = this.state.players.get(sessionId);
+    if (!player?.wallet) return Promise.resolve({ ok: false, reason: "no-wallet" });
+    if (player.inBuilding) return Promise.resolve({ ok: false, reason: "indoors" });
+    const city = cityAtPosition(player.x, player.z);
+    if (city === "void") return Promise.resolve({ ok: false, reason: "nowhere" });
+    const where = (city === "gate" ? player.city : city) as CityId;
+    return saveLastSpot(player.wallet, this.chainFor(sessionId), {
+      city: where,
+      x: player.x,
+      z: player.z,
+    }).then((ok) => (ok ? { ok: true, city: where } : { ok: false, reason: "offline" }));
+  }
+
   onLeave(client: Client) {
     this.sendToNearbyVoiceClients(client, "voice-left", { sessionId: client.sessionId });
+    this.endTradeFor(client.sessionId, "The other citizen left.");
+    void this.rememberSpot(client.sessionId);
     this.releaseVehicle(client.sessionId);
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
     this.chains.delete(client.sessionId);
+    this.moveBudget.delete(client.sessionId);
+    this.moveGraceUntil.delete(client.sessionId);
+    const leaving = this.state.players.get(client.sessionId);
+    const leavingWallet = leaving?.wallet ?? "";
+    // Drop them from every view that still holds them, so no client is left
+    // referencing an entity that no longer exists.
+    if (leaving && INTEREST_MANAGEMENT) {
+      for (const other of this.clients) other.view?.remove(leaving);
+    }
     this.state.players.delete(client.sessionId);
+    this.friendsOf.delete(leavingWallet);
+    this.refreshFriendsOf(leavingWallet);
+  }
+
+  onDispose() {
+    liveWorlds = Math.max(0, liveWorlds - 1);
+  }
+
+  /** Suspends the speed check briefly, for movement the server itself causes. */
+  private allowTeleport(sessionId: string) {
+    this.moveGraceUntil.set(sessionId, Date.now() + MOVE_GRACE_MS);
+    this.moveBudget.delete(sessionId);
   }
 
   private releaseVehicle(sessionId: string) {
+    this.allowTeleport(sessionId);
     const player = this.state.players.get(sessionId);
     if (player) {
       player.inVehicle = false;
@@ -1285,6 +1999,7 @@ export class WorldRoom extends Room<WorldState> {
       if (vehicle.driver === sessionId) {
         vehicle.driver = "";
         this.vehicleMotion.delete(vehicle.id);
+        this.vehicleSavedAt.delete(vehicle.id);
         // Remember where it was parked, not where it was bought.
         if (vehicle.owner) void savePlayerVehicle(this.vehicleRow(vehicle));
       }
@@ -1331,6 +2046,7 @@ export class WorldRoom extends Room<WorldState> {
       this.knockedUntil.set(targetSession, now + knockedMs);
       target.health = Math.max(0, target.health - damage);
       target.sitting = false;
+      target.lying = false;
       target.x += dirX * knockDistance;
       target.z += dirZ * knockDistance;
       this.broadcast("vehicle-hit", {
@@ -1347,10 +2063,13 @@ export class WorldRoom extends Room<WorldState> {
     });
   }
 
-  private vehicleBlocksPlayerMove(fromX: number, fromZ: number, toX: number, toZ: number) {
+  private vehicleBlocksPlayerMove(fromX: number, fromZ: number, toX: number, toZ: number, city?: string) {
     let blocked = false;
     this.state.vehicles.forEach((vehicle) => {
       if (blocked) return;
+      // Cars in another district cannot be in your way, and this runs on every
+      // move message, so skipping them early is the whole optimisation.
+      if (city && vehicle.city !== city) return;
       const depthAt = (x: number, z: number) => {
         const dx = x - vehicle.x;
         const dz = z - vehicle.z;

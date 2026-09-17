@@ -1,5 +1,5 @@
 {
-  "name": "the-block-web",
+  "name": "tribe-web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@colyseus/schema": "^5.0.32",
+    "@colyseus/sdk": "0.18.2",
     "@fontsource-variable/science-gothic": "^5.2.1",
-    "@the-block/shared": "file:../shared",
-    "colyseus.js": "^0.16.21",
+    "@tribe/shared": "file:../shared",
     "playcanvas": "^2.7.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

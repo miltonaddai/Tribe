@@ -1,4 +1,4 @@
-import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
+import { MapSchema, Schema, defineTypes, view } from "@colyseus/schema";
 
 export class PlayerState extends Schema {
   sessionId = "";
@@ -24,7 +24,10 @@ export class PlayerState extends Schema {
   inBuilding = false;
   buildingId = "";
   sitting = false;
-  credits = 500;
+  /** Lying down rather than sitting, so onlookers see a sleeper not a stander. */
+  lying = false;
+  /** The wallet's $TRIBE balance, pushed by the server. Never seeded here. */
+  tribute = 0;
   inventory = "[]";
   gun = "";
   pet = "";
@@ -53,7 +56,8 @@ defineTypes(PlayerState, {
   inBuilding: "boolean",
   buildingId: "string",
   sitting: "boolean",
-  credits: "number",
+  lying: "boolean",
+  tribute: "number",
   inventory: "string",
   gun: "string",
   pet: "string",
@@ -73,6 +77,10 @@ export class VehicleState extends Schema {
   owner = "";
   /** Owner-controlled. Unlocking lets anyone drive it; it stays theirs. */
   locked = false;
+  /** Owner has put it up for sale at askingPrice. */
+  forSale = false;
+  /** What the owner is asking. 0 when it is not for sale. */
+  askingPrice = 0;
 }
 defineTypes(VehicleState, {
   id: "string",
@@ -86,6 +94,8 @@ defineTypes(VehicleState, {
   driver: "string",
   owner: "string",
   locked: "boolean",
+  forSale: "boolean",
+  askingPrice: "number",
 });
 
 export class ChatLine extends Schema {
@@ -114,6 +124,8 @@ export class HomeState extends Schema {
   ownerName = "";
   /** Owner has put their home back on the market. Ignored while owner is empty. */
   forSale = false;
+  /** Owner's name for the place. Decoration, not identity; empty means unnamed. */
+  name = "";
   /** What the home last changed hands for, kept for the SOLD tag. */
   lastPrice = 0;
   /** Seller's asking price for the current listing. 0 = never-owned city home. */
@@ -139,6 +151,7 @@ defineTypes(HomeState, {
   owner: "string",
   ownerChain: "string",
   ownerName: "string",
+  name: "string",
   forSale: "boolean",
   lastPrice: "number",
   askingPrice: "number",
@@ -170,3 +183,27 @@ defineTypes(WorldState, {
   homeOpeningBid: "number",
   homeBidIncrement: "number",
 });
+
+/**
+ * Area-of-interest filtering: a client only receives players it can actually
+ * see. Without it the server sends every player to every player, which is
+ * O(n^2) and caps the world around 80.
+ *
+ * On by default. Measured at 500 players on Colyseus 0.18:
+ *   - bandwidth per client drops ~12x at realistic density (124 KB/s -> ~10)
+ *   - each client tracks ~40 neighbours instead of 500
+ *   - costs server CPU: event-loop p99 rises from ~25ms to ~50ms, because
+ *     every client now gets its own encode instead of one shared broadcast
+ * Set INTEREST_MANAGEMENT=false to fall back to a full broadcast.
+ *
+ * On Colyseus 0.16 this logged `"refId" not found` whenever a client joined
+ * while others were moving; the 0.18 upgrade resolved it.
+ *
+ * This must use the view() decorator directly: defineTypes() silently drops a
+ * `view` key in the field descriptor, so `view: true` above would do nothing.
+ */
+export const INTEREST_MANAGEMENT = process.env.INTEREST_MANAGEMENT !== "false";
+
+if (INTEREST_MANAGEMENT) {
+  view()(WorldState.prototype, "players");
+}

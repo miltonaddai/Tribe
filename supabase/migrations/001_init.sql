@@ -1,4 +1,4 @@
--- The Block — initial schema
+-- Tribe — initial schema
 -- Run in order from supabase/migrations/. Paste into Supabase SQL Editor if needed.
 -- Backend uses SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS.
 

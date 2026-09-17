@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { CityTheme } from "@the-block/shared";
+import type { CityTheme } from "@tribe/shared";
 
 export const TIME_OF_DAY = ["Local Time", "Always Day", "Always Night"] as const;
 
@@ -25,7 +25,7 @@ export function applySkyCycle(app: pc.AppBase, theme: CityTheme, day: number) {
   if (fill?.light) {
     const night = 1 - day;
     fill.light.color = new pc.Color(0.38 + night * 0.08, 0.48, 0.72 + night * 0.1);
-    fill.light.intensity = 0.16 + night * 0.28;
+    fill.light.intensity = 0.16 + night * 0.4;
   }
   return pal;
 }
@@ -62,22 +62,41 @@ function dayLook(theme: CityTheme) {
   };
 }
 
+/**
+ * How far a district's daytime palette is pulled toward night.
+ *
+ * Ambient is the main lever: it lifts every surface uniformly, so raising it
+ * brightens the streets without washing out the sky or flattening the lamps'
+ * pools. The sky stays deep - a bright sky at midnight reads as dusk, not night.
+ */
+const NIGHT_FLOOR = {
+  sky: [0.04, 0.05, 0.1] as [number, number, number],
+  fog: [0.08, 0.1, 0.16] as [number, number, number],
+  ambient: [0.14, 0.16, 0.24] as [number, number, number],
+};
+/** Ambient keeps more of the district's own colour than sky or fog do. */
+const NIGHT_MIX = { sky: 0.86, fog: 0.76, ambient: 0.68 };
+/** Moonlight. Enough to shape geometry so buildings are not flat silhouettes. */
+const MOONLIGHT = 0.34;
+
 function nightLook(theme: CityTheme) {
   if (theme.night) {
     return {
       sky: theme.sky,
       fog: theme.fog,
-      ambient: theme.ambient,
+      // Night-native districts are lit by their own neon, so they only need a
+      // nudge above their base ambient rather than the full lift.
+      ambient: mix3(theme.ambient, [0.16, 0.22, 0.18], 0.45),
       sun: theme.sun,
-      sunIntensity: 0.2,
+      sunIntensity: 0.3,
     };
   }
   return {
-    sky: mix3(theme.sky, [0.03, 0.04, 0.08], 0.88),
-    fog: mix3(theme.fog, [0.05, 0.06, 0.1], 0.82),
-    ambient: mix3(theme.ambient, [0.07, 0.08, 0.14], 0.78),
-    sun: [0.32, 0.4, 0.68] as [number, number, number],
-    sunIntensity: 0.22,
+    sky: mix3(theme.sky, NIGHT_FLOOR.sky, NIGHT_MIX.sky),
+    fog: mix3(theme.fog, NIGHT_FLOOR.fog, NIGHT_MIX.fog),
+    ambient: mix3(theme.ambient, NIGHT_FLOOR.ambient, NIGHT_MIX.ambient),
+    sun: [0.42, 0.5, 0.78] as [number, number, number],
+    sunIntensity: MOONLIGHT,
   };
 }
 

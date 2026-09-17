@@ -1,11 +1,11 @@
-import { cityFromBalance, DEFAULT_CHAIN, type CharacterRecord, type CityId, type WalletChainId } from "@the-block/shared";
-import { ethThresholds } from "./cityThresholds";
+import { cityFromBalance, DEFAULT_CHAIN, type CharacterRecord, type CityId, type WalletChainId } from "@tribe/shared";
+import { tributeThresholds } from "./cityThresholds";
+import { CHAIN_EXPLORER, CHAIN_ID, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC } from "./chain";
 import { hydrateCharacter, saveCharacter } from "./storage";
 import { activeProvider, clearActiveProvider, selectWallet, setActiveProvider } from "./evmWallets";
 
-const KEY = "the-block:wallet";
-const ROBINHOOD_CHAIN_ID = 46630;
-const ROBINHOOD_CHAIN_HEX = "0xb626";
+const KEY = "tribe:wallet";
+
 
 export type WalletState = {
   address: string;
@@ -13,7 +13,8 @@ export type WalletState = {
   city: CityId;
   demo: boolean;
   chain: WalletChainId;
-  symbol: "ETH";
+  /** What `balance` counts: TRIBE once the token gates districts, ETH before. */
+  symbol: "TRIBE";
 };
 
 export function loadWallet(): WalletState | null {
@@ -22,7 +23,7 @@ export function loadWallet(): WalletState | null {
   try {
     const parsed = JSON.parse(raw) as WalletState;
     // Older saves may carry a chain that is no longer supported.
-    return { ...parsed, chain: DEFAULT_CHAIN, symbol: "ETH" };
+    return { ...parsed, chain: DEFAULT_CHAIN, symbol: "TRIBE" };
   } catch {
     return null;
   }
@@ -41,14 +42,15 @@ export function shorten(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-export async function connectDemo(eth = 0.012): Promise<WalletState> {
+/** `held` is $TRIBE, matching the demo:<n> holdings the server reads back. */
+export async function connectDemo(held = 150_000): Promise<WalletState> {
   const state: WalletState = {
-    address: `demo:${eth}`,
-    balance: eth,
-    city: cityFromBalance(eth, ethThresholds()),
+    address: `demo:${held}`,
+    balance: held,
+    city: cityFromBalance(held, tributeThresholds()),
     demo: true,
     chain: DEFAULT_CHAIN,
-    symbol: "ETH",
+    symbol: "TRIBE",
   };
   saveWallet(state);
   return state;
@@ -63,15 +65,23 @@ export async function connectChain(chain: WalletChainId = DEFAULT_CHAIN, walletI
     body: JSON.stringify({ address, chain, message, signature }),
   }).then(async (r) => {
     if (!r.ok) throw new Error("Sign-in was rejected");
-    return r.json() as Promise<{ balance: number; city: CityId; character?: CharacterRecord | null }>;
+    return r.json() as Promise<{
+      balance: number;
+      city: CityId;
+      symbol?: "TRIBE";
+      character?: CharacterRecord | null;
+    }>;
   });
   const state: WalletState = {
     address,
     balance: verified.balance,
-    city: cityFromBalance(verified.balance, ethThresholds()),
+    // Take the server's answer rather than recomputing it. The gate depends on
+    // the $TRIBE balance and thresholds the server holds, and the room enforces
+    // it again on join, so a second local calculation could only disagree.
+    city: verified.city,
     demo: false,
     chain,
-    symbol: "ETH",
+    symbol: verified.symbol ?? "TRIBE",
   };
   saveWallet(state);
   const existing = hydrateCharacter(verified.character);
@@ -93,11 +103,11 @@ async function connectRobinhood(walletId?: string): Promise<string> {
 }
 
 async function ensureRobinhoodNetwork(ethereum: NonNullable<Window["ethereum"]>) {
-  if (await currentChainId(ethereum) === ROBINHOOD_CHAIN_ID) return;
+  if (await currentChainId(ethereum) === CHAIN_ID) return;
   try {
     await ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: ROBINHOOD_CHAIN_HEX }],
+      params: [{ chainId: CHAIN_ID_HEX }],
     });
   } catch (err) {
     const code = (err as { code?: number }).code;
@@ -106,23 +116,23 @@ async function ensureRobinhoodNetwork(ethereum: NonNullable<Window["ethereum"]>)
       method: "wallet_addEthereumChain",
       params: [
         {
-          chainId: ROBINHOOD_CHAIN_HEX,
-          chainName: "Robinhood Chain Testnet",
+          chainId: CHAIN_ID_HEX,
+          chainName: CHAIN_NAME,
           nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: ["https://rpc.testnet.chain.robinhood.com"],
-          blockExplorerUrls: ["https://explorer.testnet.chain.robinhood.com"],
+          rpcUrls: [CHAIN_RPC],
+          blockExplorerUrls: [CHAIN_EXPLORER],
         },
       ],
     });
-    if (await currentChainId(ethereum) !== ROBINHOOD_CHAIN_ID) {
+    if (await currentChainId(ethereum) !== CHAIN_ID) {
       await ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: ROBINHOOD_CHAIN_HEX }],
+        params: [{ chainId: CHAIN_ID_HEX }],
       });
     }
   }
-  if (await currentChainId(ethereum) !== ROBINHOOD_CHAIN_ID) {
-    throw new Error("Switch to Robinhood Chain Testnet to continue");
+  if (await currentChainId(ethereum) !== CHAIN_ID) {
+    throw new Error(`Switch to ${CHAIN_NAME} to continue`);
   }
 }
 

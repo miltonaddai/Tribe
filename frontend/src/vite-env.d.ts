@@ -5,10 +5,14 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string;
   readonly VITE_SUPABASE_ANON_KEY: string;
   readonly VITE_DEV_TOOLS: string;
-  readonly VITE_CITY_MIN_ETH_TRENCH: string;
-  readonly VITE_CITY_MIN_ETH_GAS: string;
-  readonly VITE_CITY_MIN_ETH_REALWORLD: string;
-  readonly VITE_CITY_MIN_ETH_VALHALLA: string;
+  readonly VITE_CHAIN_ID: string;
+  readonly VITE_CHAIN_NAME: string;
+  readonly VITE_CHAIN_RPC: string;
+  readonly VITE_CHAIN_EXPLORER: string;
+  readonly VITE_CITY_MIN_TRIBE_TRENCH: string;
+  readonly VITE_CITY_MIN_TRIBE_GAS: string;
+  readonly VITE_CITY_MIN_TRIBE_REALWORLD: string;
+  readonly VITE_CITY_MIN_TRIBE_VALHALLA: string;
 }
 
 type EthereumProvider = {

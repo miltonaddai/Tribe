@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { GameSettings } from "@the-block/shared";
-import { DEFAULT_SETTINGS } from "@the-block/shared";
+import type { GameSettings } from "@tribe/shared";
+import { DEFAULT_SETTINGS } from "@tribe/shared";
 import { loadSettings, persistSettings, saveSettings } from "../lib/storage";
 import { shorten } from "../lib/wallet";
 import { useWallet } from "../state/WalletStore";
@@ -40,7 +40,7 @@ export function SettingsModal({
         <div className="settings-head">
           <div>
             <h1>Settings</h1>
-            <p style={{ color: "#888" }}>Placeholder values — wiring into the live session as you save.</p>
+            <p style={{ color: "#888" }}>Changes apply straight away and are remembered on this device.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
             ✕

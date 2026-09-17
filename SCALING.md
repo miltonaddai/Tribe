@@ -1,10 +1,81 @@
-# Scaling The Block — 80 → 500 players per world
+# Scaling Tribe — 80 → 500 players per world
 
 Capacity plan for the world server and client renderer.
 
-> **Status of the numbers:** derived from reading the code paths, not from load tests.
-> The *ordering* of the ceilings is the confident part; the thresholds are for planning.
-> Phase 0 exists to replace them with measurements before anyone commits to a date.
+## Status — 500 players per world is working
+
+Implemented on branch `upgrade/colyseus-0.18` and **load-tested at 500 concurrent bots**.
+The original estimates below are kept for context; this section is measured.
+
+| Done | What |
+| --- | --- |
+| ✅ | Single world, `WORLD_MAX_PLAYERS=500`, overflow rejected with `WORLD_FULL` → queue screen |
+| ✅ | Phase 1: `syncMove` throttled to 20 Hz, remote players culled past 70 units, vehicle scan scoped to city |
+| ✅ | Phase 2: interest management via Colyseus `StateView` + spatial grid, with hysteresis (in 70 / out 95) |
+| ✅ | Friend presence and the world-map roster moved server-side, so filtering does not hide them |
+| ✅ | Colyseus 0.16 → 0.18 (`@colyseus/core` 0.18.14, schema 5.x, client `colyseus.js` → `@colyseus/sdk`) |
+| ✅ | Phase 3: citizen level-of-detail and entity pooling (60-66% fewer draw calls in a crowd) |
+| ✅ | Server-side movement speed check (token bucket), closing the client-authoritative movement exploit |
+| ⬜ | Phase 4: shard by district, multi-process |
+| ⬜ | Move store purchases server-side (credits still originate on the client) |
+| ⬜ | Browser verification — all load testing used the Node SDK, never a real browser |
+
+### Measured at 500 concurrent players
+
+Load split across 5 client processes so the harness was not the bottleneck.
+
+| Metric | Filtering off | Filtering on |
+| --- | --- | --- |
+| Players each client holds | 500 | ~40 (realistic density) |
+| Bandwidth per client | 124 KB/s | ~10 KB/s at 40 neighbours |
+| Server event-loop p50 | ~15 ms | ~21 ms |
+| Server event-loop p99 | ~25 ms | ~50 ms |
+| Server RSS | ~330 MB | ~350 MB |
+| Decoder errors | — | **0** |
+
+**Interest management costs server CPU.** Without it Colyseus encodes once and sends identical
+bytes to everyone; with it every client gets its own encode. It is still the right default:
+the alternative is ~500 Mbps of sustained egress and every browser decoding 500 players.
+
+**The p99 of ~50 ms sits right at the 50 ms patch interval.** That was on a development
+machine. A 1 shared vCPU instance is likely slower, so treat 500 as the ceiling for one core,
+not a comfortable operating point. Phase 4 (sharding) is what buys real headroom.
+
+### Why the 0.18 upgrade was necessary
+
+On 0.16, `StateView` filtering logged `"refId" not found` whenever a client joined while others
+were moving — reproduced on every run. The same test on 0.18 passed three runs and a 500-player
+load with zero decoder errors.
+
+### Client draw calls at 40 neighbours
+
+Cosmetics sit under one `detail` child culled past 34 units (restored inside 26).
+Measured on a headless PlayCanvas app:
+
+| Scene | Before | After | Saved |
+| --- | --- | --- | --- |
+| Valhalla crowd (crowned, kitted) | 2,520 | 854 | 66% |
+| Mixed crowd | 1,600 | 648 | 60% |
+| Plain crowd | 640 | 436 | 32% |
+
+A fully kitted citizen is 63 boxes and drops to 14; the crown alone is 22 of them.
+The silhouette and any held gun stay at every distance, so a distant player still
+reads as a person and as armed.
+
+### Things learned the hard way
+
+- `defineTypes()` **silently ignores a `view` key** in a field descriptor. Only the newer `schema()`
+  builder reads it, so `view` must be applied with the `view()` decorator. Schema 5 also marks
+  `defineTypes()` deprecated — migrating to `schema()` is worth doing before it is removed.
+- A single Node process running 500 test clients saturates itself and reports multi-second
+  latency that is not the server's. Measure server event-loop delay (`PERF_LOG=true`) instead.
+- Persisted auction rows survive between test runs and are restored on boot, so tests should
+  use a home nobody has bid on.
+
+---
+
+> **Original estimates below.** Derived from reading the code before any load testing. The
+> ordering of the ceilings held up; see the measured table above for real numbers.
 
 ---
 

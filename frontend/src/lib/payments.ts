@@ -7,6 +7,8 @@
  * player's tokens without them approving that exact transfer.
  */
 
+import { apiUrl } from "./api";
+
 export type TokenConfig = {
   address: string | null;
   payTo: string | null;
@@ -21,7 +23,7 @@ let cached: TokenConfig | null = null;
 export async function tokenConfig(): Promise<TokenConfig | null> {
   if (cached) return cached;
   try {
-    const res = await fetch("/api/token");
+    const res = await fetch(apiUrl("/api/token"));
     if (!res.ok) return null;
     cached = (await res.json()) as TokenConfig;
     return cached;

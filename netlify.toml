@@ -13,9 +13,11 @@
   publish = "dist"
 
 [build.environment]
-  # Vite 6 wants a modern Node; pin it so a change to Netlify's default image
-  # cannot alter the build out from under us.
-  NODE_VERSION = "20"
+  # 22 is a floor, not a preference: @colyseus/shared-types declares
+  # engines.node ">= 22.x", and Yarn 1 - which Netlify selects here because
+  # frontend/yarn.lock exists - treats that as fatal rather than a warning.
+  # Pinned so a change to Netlify's default image cannot move it.
+  NODE_VERSION = "22"
 
 # React Router owns the URLs. Without this, every route except "/" is a request
 # for a file that does not exist on disk - a visitor landing on /docs, or simply

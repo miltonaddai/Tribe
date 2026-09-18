@@ -1,9 +1,7 @@
 import "./loadEnv";
 import cors from "cors";
 import express from "express";
-import { createServer } from "http";
-import { Server } from "@colyseus/core";
-import { WebSocketTransport } from "@colyseus/ws-transport";
+import colyseusConfig, { listen } from "@colyseus/tools";
 import {
   CITIES,
   CITY_ORDER,
@@ -195,12 +193,17 @@ app.put("/api/settings", async (req, res) => {
   res.json({ ok: true });
 });
 
-const httpServer = createServer(app);
-const gameServer = new Server({
-  transport: new WebSocketTransport({ server: httpServer }),
-});
-
-gameServer.define("world", WorldRoom);
+/**
+ * The server is started through @colyseus/tools rather than by calling
+ * gameServer.listen() directly.
+ *
+ * Colyseus Cloud refuses the direct route outright - "Please install
+ * @colyseus/tools to be able to host on Colyseus Cloud", thrown from
+ * Server.listen - because the platform needs to choose the transport, port and
+ * process wiring itself. Locally this behaves the same as the hand-built
+ * WebSocketTransport it replaces, so there is only one code path to reason
+ * about rather than one for the laptop and one for production.
+ */
 
 // Opt-in load diagnostics: event-loop delay is the honest measure of whether
 // the server is keeping up, independent of how busy any client happens to be.
@@ -219,11 +222,22 @@ if (process.env.PERF_LOG === "true") {
   }, 2000);
 }
 
-// Adopt the token's decimals before serving: every balance conversion, and so
-// every district gate, depends on the answer.
-void initToken().then(() =>
-  gameServer.listen(port).then(() => {
-    console.log(`[tribe] Colyseus listening on ws://localhost:${port}`);
-    console.log(`[tribe] REST health at http://localhost:${port}/health`);
+void listen(
+  colyseusConfig({
+    initializeGameServer: (gameServer) => {
+      gameServer.define("world", WorldRoom);
+    },
+    // An express app is itself middleware, so the whole router built above -
+    // CORS, JSON parsing and every /api route - mounts onto the app that tools
+    // creates. Keeps the routes where they are instead of restructuring the
+    // file around the new entry point.
+    initializeExpress: (target) => {
+      target.use(app);
+    },
+    // Awaited by tools before the port opens, which is the guarantee this needs:
+    // every balance conversion, and so every district gate, depends on the
+    // token's decimals being known.
+    beforeListen: () => initToken(),
   }),
+  port,
 );

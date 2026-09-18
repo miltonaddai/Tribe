@@ -1,4 +1,5 @@
 import type { CharacterRecord, GameSettings, WalletChainId } from "@tribe/shared";
+import { apiUrl } from "./api";
 import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@tribe/shared";
 
 const CHAR = "tribe:character";
@@ -109,7 +110,7 @@ export async function persistCharacter(
   chain: WalletChainId,
 ): Promise<string | null> {
   try {
-    const res = await fetch("/api/characters", {
+    const res = await fetch(apiUrl("/api/characters"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...record, chain }),
@@ -132,7 +133,7 @@ export async function checkNameAvailable(
 ): Promise<{ available: boolean; reason: string | null }> {
   try {
     const params = new URLSearchParams({ name, address, chain });
-    const res = await fetch(`/api/names/check?${params}`);
+    const res = await fetch(apiUrl(`/api/names/check?${params}`));
     if (!res.ok) return { available: true, reason: null };
     const body = (await res.json()) as { available: boolean; reason: string | null };
     return body;
@@ -144,7 +145,7 @@ export async function checkNameAvailable(
 
 export async function persistSettings(address: string, chain: WalletChainId, settings: GameSettings) {
   try {
-    await fetch("/api/settings", {
+    await fetch(apiUrl("/api/settings"), {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ address, chain, settings }),

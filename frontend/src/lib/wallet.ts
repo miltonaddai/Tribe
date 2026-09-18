@@ -1,4 +1,5 @@
 import { cityFromBalance, DEFAULT_CHAIN, type CharacterRecord, type CityId, type WalletChainId } from "@tribe/shared";
+import { apiUrl } from "./api";
 import { tributeThresholds } from "./cityThresholds";
 import { CHAIN_EXPLORER, CHAIN_ID, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC } from "./chain";
 import { hydrateCharacter, saveCharacter } from "./storage";
@@ -59,7 +60,7 @@ export async function connectDemo(held = 150_000): Promise<WalletState> {
 export async function connectChain(chain: WalletChainId = DEFAULT_CHAIN, walletId?: string): Promise<WalletState> {
   const address = await connectRobinhood(walletId);
   const { message, signature } = await signIn(address, chain);
-  const verified = await fetch("/api/auth/verify", {
+  const verified = await fetch(apiUrl("/api/auth/verify"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ address, chain, message, signature }),
@@ -146,7 +147,9 @@ function currentChainId(ethereum: NonNullable<Window["ethereum"]>) {
 async function signIn(address: string, chain: WalletChainId) {
   const origin = window.location.origin;
   const issued = await fetch(
-    `/api/auth/nonce?address=${encodeURIComponent(address)}&chain=${chain}&origin=${encodeURIComponent(origin)}`,
+    apiUrl(
+      `/api/auth/nonce?address=${encodeURIComponent(address)}&chain=${chain}&origin=${encodeURIComponent(origin)}`,
+    ),
   ).then((r) => r.json() as Promise<{ message: string }>);
   if (!issued.message) throw new Error("Could not start sign-in");
   const signature = await signEvm(address, issued.message);

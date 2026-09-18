@@ -1,0 +1,27 @@
+# Netlify builds the frontend only. The backend is a long-lived WebSocket
+# server and lives on Colyseus Cloud; `shared/` is a library compiled into both.
+#
+# `base` is the directory Netlify runs the build in, but it still clones the
+# whole repository - which matters here, because frontend/package.json depends
+# on "@tribe/shared": "file:../shared". That path resolves only if the parent
+# directory came along.
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  # Relative to `base`, so this is frontend/dist.
+  publish = "dist"
+
+[build.environment]
+  # Vite 6 wants a modern Node; pin it so a change to Netlify's default image
+  # cannot alter the build out from under us.
+  NODE_VERSION = "20"
+
+# React Router owns the URLs. Without this, every route except "/" is a request
+# for a file that does not exist on disk - a visitor landing on /docs, or simply
+# reloading the page while in the game, gets Netlify's 404 instead of the app.
+# Must stay last: redirects are matched in order and this one matches everything.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

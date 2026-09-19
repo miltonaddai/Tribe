@@ -116,6 +116,13 @@ const PLAYER_MAX_SPEED = 14;
  * PLAYER_MAX_SPEED. A budget rather than a per-message allowance because a
  * per-message one is farmable: send moves twice as often, travel twice as far.
  */
+/**
+ * How often dirty health is written. Long enough that a firefight costs one
+ * write rather than dozens, short enough that a crashed server loses only a few
+ * seconds of damage.
+ */
+const HEALTH_FLUSH_MS = 20_000;
+
 const MOVE_BURST = 6;
 /** Teleports the server performs itself — spawn, doors, leaving a car. */
 const MOVE_GRACE_MS = 1200;
@@ -201,6 +208,9 @@ export class WorldRoom extends Room<{ state: WorldState }> {
   private vehicleMotion = new Map<string, { x: number; z: number; at: number }>();
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
+  /** Sessions whose health has moved since the last write, and what was written. */
+  private healthDirty = new Set<string>();
+  private healthSaved = new Map<string, number>();
   /** Live trade sessions, and an index from each participant to their session. */
   private trades = new Map<string, TradeSession>();
   private tradeOf = new Map<string, string>();
@@ -399,7 +409,10 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.allowTeleport(client.sessionId);
       player.inBuilding = true;
       player.buildingId = id;
-      if (isHospital(id)) player.health = 100;
+      if (isHospital(id)) {
+        player.health = 100;
+        this.markHealth(client.sessionId);
+      }
     });
 
     this.onMessage("exit-building", (client) => {
@@ -668,6 +681,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       if (from.inBuilding && from.buildingId !== to.buildingId) return;
 
       to.health = Math.max(0, to.health - spec.damage);
+      this.markHealth(toSession, to.health <= 0);
       to.sitting = false;
       to.lying = false;
 
@@ -699,6 +713,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
 
       const melee = gunSpec(from.gun);
       to.health = Math.max(0, to.health - (melee && !melee.ranged ? melee.damage : 18));
+      this.markHealth(toSession, to.health <= 0);
       to.sitting = false;
       to.lying = false;
       if (dist > 0.05) {
@@ -836,8 +851,11 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     });
 
     this.setSimulationInterval(() => {
-      this.state.players.forEach((player) => {
-        if (player.inBuilding && isHospital(player.buildingId)) player.health = 100;
+      this.state.players.forEach((player, sessionId) => {
+        if (player.inBuilding && isHospital(player.buildingId) && player.health !== 100) {
+          player.health = 100;
+          this.markHealth(sessionId);
+        }
       });
     }, 200);
 
@@ -848,6 +866,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // refresh never re-reads something still fresh.
     this.clock.setInterval(() => void this.refreshHoldings(), HOLDINGS_CACHE_MS);
     this.clock.setInterval(() => this.sweepTrades(), 2000);
+    this.clock.setInterval(() => this.flushHealth(), HEALTH_FLUSH_MS);
 
   }
 
@@ -1091,6 +1110,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       // Say why before the socket closes; onLeave alone gives the client no reason.
       client?.send("session-replaced", {});
       this.endTradeFor(sessionId, "The other citizen signed in elsewhere.");
+      this.flushHealth(sessionId);
       // Before the state entry goes, not after: onLeave fires once the socket
       // closes, and by then this lookup would find nothing and save nothing.
       // A page refresh always lands here rather than in a clean leave - the
@@ -1299,6 +1319,38 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       void saveCharacterState(wallet, chain, { inventory });
     }
     return inventory;
+  }
+
+  /**
+   * Health is written on a timer, not on every hit.
+   *
+   * A firefight moves a health bar several times a second, and each of those is
+   * a database round trip if you write them as they happen - for a value nobody
+   * reads until the player comes back. So changes only mark the player dirty,
+   * and a single sweep every HEALTH_FLUSH_MS writes whatever actually moved.
+   *
+   * Two exceptions get written at once, because both are points where the next
+   * read matters and the player may not be around for the sweep: dropping to
+   * zero, and leaving.
+   */
+  private markHealth(sessionId: string, immediate = false) {
+    this.healthDirty.add(sessionId);
+    if (immediate) this.flushHealth(sessionId);
+  }
+
+  /** Writes dirty health. With no sessionId, sweeps everyone. */
+  private flushHealth(sessionId?: string) {
+    const ids = sessionId ? [sessionId] : [...this.healthDirty];
+    for (const id of ids) {
+      this.healthDirty.delete(id);
+      const player = this.state.players.get(id);
+      if (!player?.wallet) continue;
+      // Skip anything that ended up back where the database already has it -
+      // a player shot down to 60 and healed to 100 needs no write at all.
+      if (this.healthSaved.get(id) === player.health) continue;
+      this.healthSaved.set(id, player.health);
+      void saveCharacterState(player.wallet, this.chainFor(id), { health: player.health });
+    }
   }
 
   /** Persists a player's goods. Called wherever the server changes them. */
@@ -1987,8 +2039,12 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       .split(",")
       .filter((id) => id && hasItem(owned, id as never))
       .join(",");
-    const health = Number(options.health ?? options.brokemeter);
-    player.health = Number.isFinite(health) ? Math.max(0, Math.min(100, health)) : 100;
+    // From the database, not the client - health is a consequence of being shot
+    // and of visiting a hospital, both of which the server decides. Taking the
+    // browser's word let a downed player reconnect at full health.
+    const stored_health = Number(stored?.brokemeter);
+    player.health = Number.isFinite(stored_health) ? Math.max(0, Math.min(100, stored_health)) : 100;
+    this.healthSaved.set(client.sessionId, player.health);
     // Tribute IS the token in the player's wallet, so the balance is read from
     // the chain rather than granted or stored. The dev grant only stands in when
     // no token is configured, so the game is still playable without one.
@@ -2065,12 +2121,14 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   onLeave(client: Client) {
     this.sendToNearbyVoiceClients(client, "voice-left", { sessionId: client.sessionId });
     this.endTradeFor(client.sessionId, "The other citizen left.");
+    this.flushHealth(client.sessionId);
     void this.rememberSpot(client.sessionId);
     this.releaseVehicle(client.sessionId);
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
     this.chains.delete(client.sessionId);
     this.moveBudget.delete(client.sessionId);
+    this.healthSaved.delete(client.sessionId);
     this.moveGraceUntil.delete(client.sessionId);
     const leaving = this.state.players.get(client.sessionId);
     const leavingWallet = leaving?.wallet ?? "";
@@ -2151,6 +2209,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const knockedMs = Math.round(Math.min(2900, 1650 + speed * 55));
       this.knockedUntil.set(targetSession, now + knockedMs);
       target.health = Math.max(0, target.health - damage);
+      this.markHealth(targetSession, target.health <= 0);
       target.sitting = false;
       target.lying = false;
       target.x += dirX * knockDistance;

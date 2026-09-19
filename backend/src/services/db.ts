@@ -499,6 +499,8 @@ export async function saveCharacterState(
     equippedGun?: string | null;
     equippedPet?: string | null;
     accessories?: string[];
+    /** Stored in the brokemeter column, which is what health used to be called. */
+    health?: number;
   },
 ) {
   const supabase = getSupabase();
@@ -509,6 +511,7 @@ export async function saveCharacterState(
   if (patch.equippedGun !== undefined) row.equipped_gun = patch.equippedGun || null;
   if (patch.equippedPet !== undefined) row.equipped_pet = patch.equippedPet || null;
   if (patch.accessories) row.accessories = patch.accessories;
+  if (patch.health !== undefined) row.brokemeter = Math.max(0, Math.min(100, Math.round(patch.health)));
   if (Object.keys(row).length === 0) return;
 
   const { error } = await supabase

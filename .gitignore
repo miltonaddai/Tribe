@@ -12,5 +12,9 @@ coverage
 !.vscode/extensions.json
 frontend/dist
 backend/dist
-supabase
+# The schema itself is tracked - without it a fresh environment cannot be
+# rebuilt, and the only copy was one laptop. Migrations are DDL and RLS
+# policies, no keys; anything else Supabase drops in here stays ignored.
+supabase/*
+!supabase/migrations/
 promo

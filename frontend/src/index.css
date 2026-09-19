@@ -4325,6 +4325,21 @@ button {
   color: #7a7a7a;
 }
 
+/*
+ * The address itself. Monospaced so the characters can be compared one by one,
+ * which is the only thing this page is for, and allowed to break anywhere: 42
+ * characters will not sit beside the label on a phone, and an address that
+ * runs off the side of the screen cannot be checked at all.
+ */
+.addr-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #111;
+  word-break: break-all;
+  user-select: all;
+}
+
 .addr-what {
   margin-top: 4px;
   font-size: 14px;

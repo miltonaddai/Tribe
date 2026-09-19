@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   CATALOG,
@@ -10,6 +10,7 @@ import {
   HOME_PRICE,
 } from "@tribe/shared";
 import { Header } from "../components/Header";
+import { SiteFooter } from "../components/SiteFooter";
 
 const SECTIONS = [
   { id: "how-to-play", label: "How to Play" },
@@ -20,10 +21,19 @@ const SECTIONS = [
   { id: "property", label: "Homes & Cars" },
   { id: "governance", label: "City Governance" },
   { id: "health", label: "Health" },
+  { id: "token", label: "Token" },
 ];
+
+const CITY_SHOTS = {
+  trench: { file: "trench-city.png", label: "a residential street at night", width: 1533, height: 1232 },
+  gas: { file: "gas-city.png", label: "the store district at night", width: 1589, height: 1196 },
+  realworld: { file: "real-world.png", label: "an avenue seen from a car at night", width: 1395, height: 1187 },
+  valhalla: { file: "valhalla.png", label: "the high-rise car district at night", width: 1737, height: 1259 },
+} as const;
 
 /** Old links still land somewhere sensible. */
 const ALIASES: Record<string, string> = {
+  addresses: "token",
   moving: "access",
   brokemeter: "health",
   store: "market",
@@ -42,8 +52,9 @@ export function DocsPage() {
   }, [hash, active]);
 
   return (
-    <div className="docs-layout">
+    <div className="docs-scroll">
       <Header solid />
+      <div className="docs-layout">
       <aside className="docs-side">
         <h2>DOCUMENTATION</h2>
         {SECTIONS.map((s) => (
@@ -68,6 +79,8 @@ export function DocsPage() {
         <p className="docs-crumb">TRIBE — DOCS</p>
         {body}
       </main>
+      <SiteFooter className="docs-footer" />
+      </div>
     </div>
   );
 }
@@ -90,7 +103,62 @@ function homeRange(city: keyof typeof HOME_PRICE) {
   return `${n(base)} to ${n(base * 2)}`;
 }
 
+/**
+ * The addresses page.
+ *
+ * Exists to be the one place a player can check an address against, because the
+ * alternative is that they check against whatever a stranger posts. So it is
+ * deliberately blunt about what is not published yet: an empty row that says
+ * "coming soon" is a verifiable fact, while a page that simply omits an address
+ * leaves room for someone else to supply one.
+ */
+function Addresses() {
+  const rows = [
+    {
+      name: "Official $TRIBE contract",
+      what: "The token itself. Every balance, gate check and purchase reads from this contract.",
+    },
+    {
+      name: "Dev wallet",
+      what: "The team wallet. Store purchases are paid to this address.",
+    },
+    {
+      name: "Game store wallet",
+      what: "Where in-game store payments settle. Published so a purchase can be checked on the explorer.",
+    },
+  ];
+
+  return (
+    <>
+      <h1>Token</h1>
+      <p>
+        Nothing here is live yet. When each address is published it will appear on this page first —
+        check anything you are about to send funds to against this list, and treat an address from
+        anywhere else as wrong until it matches.
+      </p>
+
+      <div className="addr-list">
+        {rows.map((r) => (
+          <div className="addr-row" key={r.name}>
+            <div className="addr-head">
+              <span className="addr-name">{r.name}</span>
+              <span className="addr-soon">Coming soon</span>
+            </div>
+            <p className="addr-what">{r.what}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="docs-note">
+        Tribe will never DM you an address, and never ask for your seed phrase or private key. Any
+        address that does not appear on this page is not ours.
+      </div>
+    </>
+  );
+}
+
 function content(id: string) {
+  if (id === "token") return <Addresses />;
   if (id === "overview") {
     return (
       <>
@@ -141,8 +209,18 @@ function content(id: string) {
         <div className="city-grid">
           {CITY_ORDER.map((cid) => {
             const c = CITIES[cid];
+            const shot = CITY_SHOTS[cid];
             return (
-              <article key={cid} className="city-card" style={{ borderTopColor: c.accent }}>
+              <article key={cid} className="city-card" style={{ "--city": c.accent } as CSSProperties}>
+                {/* Captured in the district it names, not a mock-up. */}
+                <img
+                  className="city-shot"
+                  src={`/images/cities/${shot.file}`}
+                  alt={`${c.name}: ${shot.label}`}
+                  width={shot.width}
+                  height={shot.height}
+                  loading="lazy"
+                />
                 <h3>
                   {c.tagline}: {c.name}
                 </h3>

@@ -3,6 +3,7 @@ import { WalletProvider } from "./state/WalletStore";
 import { DevLauncher } from "./components/DevLauncher";
 import { LandingPage } from "./pages/LandingPage";
 import { DocsPage } from "./pages/DocsPage";
+import { LegalPage } from "./pages/LegalPage";
 import { CreateCharacterPage } from "./pages/CreateCharacterPage";
 import { GamePage } from "./pages/GamePage";
 
@@ -15,6 +16,8 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/docs/:section" element={<DocsPage />} />
+            <Route path="/privacy" element={<LegalPage />} />
+            <Route path="/terms" element={<LegalPage />} />
             <Route path="/create" element={<CreateCharacterPage />} />
             <Route path="/play" element={<GamePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

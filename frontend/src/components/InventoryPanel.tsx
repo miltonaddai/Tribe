@@ -67,7 +67,9 @@ export function InventoryPanel({
   // see what exists and what it takes to carry it - only your access tier
   // decides what you can actually buy. Retired items are the exception: they
   // cannot be bought at any tier, so listing them would only mislead.
-  const stock = CATALOG.filter((item) => item.listed !== false);
+  // Outfits are sold at the fashion house, not here - listing them in the
+  // general store would offer a purchase with no way to put the thing on.
+  const stock = CATALOG.filter((item) => item.listed !== false && item.kind !== "outfit");
   const equipped = new Set<string>([...accessories, gun ?? "", pet ?? ""].filter(Boolean));
 
   return (

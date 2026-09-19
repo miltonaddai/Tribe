@@ -1,5 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Header } from "../components/Header";
+import { SiteFooter } from "../components/SiteFooter";
+import { BuyTokenFab } from "../components/BuyTokenFab";
 import { useWallet } from "../state/WalletStore";
 import { loadCharacterForWallet } from "../lib/storage";
 
@@ -25,7 +27,7 @@ export function LandingPage() {
         playsInline
         poster="/images/landing-bg.jpg"
       >
-        <source src="/lnading-page-hero-video.mp4" type="video/mp4" />
+        <source src="/tribe-trailer.mp4" type="video/mp4" />
       </video>
       <Header />
       <div className="landing-hero">
@@ -44,6 +46,8 @@ export function LandingPage() {
           </span>
         </button>
       </div>
+      <BuyTokenFab />
+      <SiteFooter />
     </div>
   );
 }

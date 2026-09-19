@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useWallet } from "../state/WalletStore";
 import { shorten } from "../lib/wallet";
 
@@ -27,16 +28,75 @@ function WalletIcon() {
   );
 }
 
+/** Three bars, or a cross once the menu is open. */
+function BurgerIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      {open ? (
+        <>
+          <path d="M6 6 L18 18" />
+          <path d="M18 6 L6 18" />
+        </>
+      ) : (
+        <>
+          <path d="M4 7h16" />
+          <path d="M4 12h16" />
+          <path d="M4 17h16" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 export function Header({ solid = false }: { solid?: boolean }) {
   const { wallet, disconnect, openPicker } = useWallet();
+  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const root = useRef<HTMLElement>(null);
+
+  // Navigating is a decision; the menu has served its purpose by then.
+  useEffect(() => setOpen(false), [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    // Reaching for a wider window is as much a dismissal as tapping away: the
+    // panel is a mobile affordance and has no meaning once the bar fits.
+    const onResize = () => setOpen(false);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
 
   return (
-    <header className={`site-header ${solid ? "solid" : ""}`}>
+    <header className={`site-header ${solid ? "solid" : ""}`} ref={root}>
       <Link to="/" className="brand">
         <CubeLogo />
         Tribe
       </Link>
-      <div className="header-actions">
+
+      <button
+        type="button"
+        className="header-burger"
+        aria-expanded={open}
+        aria-controls="header-menu"
+        aria-label={open ? "Close menu" : "Open menu"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <BurgerIcon open={open} />
+      </button>
+
+      <div className={open ? "header-actions open" : "header-actions"} id="header-menu">
         <Link to="/docs" className="docs-link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M7 3h8l5 5v13H7z" />
@@ -45,14 +105,31 @@ export function Header({ solid = false }: { solid?: boolean }) {
           Docs
         </Link>
         {wallet ? (
-          <button className="btn btn-accent btn-fill" onClick={disconnect} type="button">
+          <button
+            className="btn btn-accent btn-fill"
+            onClick={() => {
+              setOpen(false);
+              disconnect();
+            }}
+            type="button"
+          >
             <span className="btn-fill-inner">
               <WalletIcon />
-              Connected · {wallet.symbol} · {shorten(wallet.address)}
+              {/* The full label needs room the phone bar does not have, so the
+                  narrow layout keeps the address and drops the prose. */}
+              <span className="wallet-label-full">Connected · {wallet.symbol} · {shorten(wallet.address)}</span>
+              <span className="wallet-label-short">{shorten(wallet.address)}</span>
             </span>
           </button>
         ) : (
-          <button className="btn btn-accent btn-fill" onClick={openPicker} type="button">
+          <button
+            className="btn btn-accent btn-fill"
+            onClick={() => {
+              setOpen(false);
+              openPicker();
+            }}
+            type="button"
+          >
             <span className="btn-fill-inner">
               <WalletIcon />
               Connect Wallet

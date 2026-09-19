@@ -1168,6 +1168,44 @@ function placeLandmark(
     return;
   }
 
+  if (kind === "fashion") {
+    // Narrower and taller than its neighbours, with a glazed front: a boutique
+    // reads as a shopfront rather than a civic block.
+    const w = 13;
+    const d = 10;
+    const h = 8.6;
+    const face = z + d / 2;
+    box(root, id, [x, h / 2, z], [w, h, d], "#2B2438");
+    // Full-height display window either side of the door, lit from inside so
+    // the building still reads at night.
+    for (const side of [-1, 1]) {
+      box(root, `${id}-glass-${side}`, [x + side * 3.5, 2.3, face + 0.08], [4.2, 4.2, 0.14], "#F3E4C9", {
+        emissive: "#FFD9A0",
+        intensity: 1.8,
+        glow: "sign",
+      });
+      box(root, `${id}-mullion-${side}`, [x + side * 3.5, 2.3, face + 0.16], [0.16, 4.2, 0.1], "#1A1520");
+    }
+    box(root, `${id}-canopy`, [x, 4.8, face + 0.9], [w * 0.92, 0.26, 1.8], "#C9A227");
+    for (const side of [-1, 1]) {
+      box(root, `${id}-canopy-post-${side}`, [x + side * (w * 0.4), 2.4, face + 1.7], [0.14, 4.6, 0.14], "#C9A227");
+    }
+    // Vertical blade sign, the way a boutique announces itself down a street
+    // rather than across its own frontage.
+    box(root, `${id}-blade`, [x - w / 2 - 0.3, 6.1, face - 1.2], [0.2, 3.4, 1.5], "#C9A227", {
+      emissive: "#F0C548",
+      intensity: 3,
+      glow: "sign",
+    });
+    box(root, `${id}-sign`, [x, 6.2, face + 0.12], [5.2, 0.9, 0.14], "#E8B34A", {
+      emissive: "#E8B34A",
+      intensity: 2.4,
+      glow: "sign",
+    });
+    addEnterable(root, theme, id, x, z, w, d, h, colliders, interactables, interiors, seats, "fashion", "Fashion House", h + 2.2);
+    return;
+  }
+
   if (kind === "hospital") {
     const w = 16;
     const d = 12;

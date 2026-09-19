@@ -1,5 +1,5 @@
 import { cityFromBalance, DEFAULT_CHAIN, type CharacterRecord, type CityId, type WalletChainId } from "@tribe/shared";
-import { apiUrl } from "./api";
+import { apiJson, apiUrl, assertJson } from "./api";
 import { tributeThresholds } from "./cityThresholds";
 import { CHAIN_EXPLORER, CHAIN_ID, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC } from "./chain";
 import { hydrateCharacter, saveCharacter } from "./storage";
@@ -65,6 +65,8 @@ export async function connectChain(chain: WalletChainId = DEFAULT_CHAIN, walletI
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ address, chain, message, signature }),
   }).then(async (r) => {
+    // Content type first: a 200 of HTML is the site answering, not a rejection.
+    assertJson(r);
     if (!r.ok) throw new Error("Sign-in was rejected");
     return r.json() as Promise<{
       balance: number;
@@ -146,11 +148,9 @@ function currentChainId(ethereum: NonNullable<Window["ethereum"]>) {
 
 async function signIn(address: string, chain: WalletChainId) {
   const origin = window.location.origin;
-  const issued = await fetch(
-    apiUrl(
-      `/api/auth/nonce?address=${encodeURIComponent(address)}&chain=${chain}&origin=${encodeURIComponent(origin)}`,
-    ),
-  ).then((r) => r.json() as Promise<{ message: string }>);
+  const issued = await apiJson<{ message: string }>(
+    `/api/auth/nonce?address=${encodeURIComponent(address)}&chain=${chain}&origin=${encodeURIComponent(origin)}`,
+  );
   if (!issued.message) throw new Error("Could not start sign-in");
   const signature = await signEvm(address, issued.message);
   return { message: issued.message, signature };

@@ -4,6 +4,7 @@ import { CURRENCY,
   type CrimeReport,
   type OutfitId,
   type CityThreshold,
+  HOSPITAL_BEDS,
   isTierGated,
   armSlots,
   ownsOutfit,
@@ -314,6 +315,8 @@ export type HudState = {
   inStore: boolean;
   /** Standing in a police station: unlocks the blotter panel. */
   inStation: boolean;
+  /** On the ward: healing, movement locked. */
+  recovering: boolean;
   /** Standing in the fashion house: unlocks the wardrobe. */
   inFashion: boolean;
   /** Down the sights right now, so the quick-action button can say "exit". */
@@ -438,6 +441,8 @@ export class GameEngine {
   private lastMoveSync = 0;
   private gateUntil = 0;
   /** Resolver for a save the pause menu is waiting on, if any. */
+  /** Laid up on the ward: healing, and not going anywhere. */
+  private recovering = false;
   private spotSaveWaiting: ((result: SpotSaveResult) => void) | null = null;
   private gateMessage: string | null = null;
   private chat: { name: string; text: string }[] = [];
@@ -1129,6 +1134,14 @@ export class GameEngine {
         // here - before the world is ever shown - is what removes the visible
         // hop from the wrong city to the right one.
         this.adoptSpawn(player as { x?: number; y?: number; z?: number; city?: string });
+        const self = player as { recovering?: boolean; bedSlot?: number };
+        $(player).listen("recovering", (value) => {
+          const was = this.recovering;
+          this.recovering = Boolean(value);
+          if (this.recovering && !was) this.admitToWard(Number(self.bedSlot ?? -1));
+          // Discharged: back on your feet where you were treated.
+          if (!this.recovering && was) this.clearSit(true);
+        });
         const incoming = (player as { health?: number }).health;
         if (typeof incoming === "number" && Number.isFinite(incoming)) this.health = clampHealth(incoming);
         $(player).listen("health", (value) => {
@@ -2158,6 +2171,18 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       player.setEulerAngles(0, (this.yaw * 180) / Math.PI, 0);
     }
 
+    if (this.recovering) {
+      // Held down rather than merely ignored: the usual "any input stands you
+      // up" rule would have a patient climb off the bed on their first step.
+      const seat = this.sitSeat;
+      applyCitizenMotion(player, seat?.lie ? "lie" : "idle", this.animT);
+      if (seat) {
+        player.setPosition(seat.x, seat.sitY, seat.z);
+        this.poseOnSeat(player, seat);
+      }
+      return;
+    }
+
     if (this.sitting) {
       if (forward || turn || this.keys.has(" ") || this.pad.x || this.pad.z) this.clearSit(true);
       else {
@@ -2860,7 +2885,8 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     const p = this.player.getPosition();
     const near = this.nearestInteractable();
     let prompt: string | null = null;
-    if (this.inVehicle) prompt = this.driving ? null : "Press E to exit vehicle";
+    if (this.recovering) prompt = null;
+    else if (this.inVehicle) prompt = this.driving ? null : "Press E to exit vehicle";
     else if (this.inBuilding?.interiorKind === "store") prompt = "Store — press I to shop · E to exit";
     else if (this.inBuilding?.interiorKind === "hospital") prompt = "Hospital — health refilling · E to exit";
     else if (this.inBuilding?.interiorKind === "police") prompt = "Police Station — press R for the blotter · E to exit";
@@ -2941,6 +2967,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       inventory: this.inventory,
       inStore: this.inBuilding?.interiorKind === "store",
       inStation: this.inBuilding?.interiorKind === "police",
+      recovering: this.recovering,
       inFashion: this.inBuilding?.interiorKind === "fashion",
       aiming: this.adsActive(),
       outfit: this.look?.outfit ?? "hi-vis",
@@ -3765,6 +3792,57 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
     this.onSpawned?.();
     this.onSpawned = null;
+  }
+
+  /**
+   * Puts the local player on the ward after the server says they were downed.
+   *
+   * The server decides the admission - it owns health and it owns the beds -
+   * but interiors are client geometry, so it can only say "bed 3". This finds
+   * the hospital for the district and lays the body on that bed.
+   *
+   * With no bed (-1) the patient recovers on their feet by the door, which is
+   * the case that must not fail: refusing them a place to heal would leave them
+   * downed outside with no way back.
+   */
+  private admitToWard(slot: number) {
+    if (!this.player || !this.world) return;
+    const door = this.world.interactables.find(
+      (item) => item.kind === "door" && item.interiorKind === "hospital" && item.city === this.city,
+    );
+    if (!door?.interior) return;
+
+    // You can be downed inside another building, and its interior would
+    // otherwise stay lit behind the ward.
+    if (this.inBuilding && this.inBuilding.id !== door.id) {
+      const previous = this.world.interiors.get(this.inBuilding.id);
+      if (previous) previous.enabled = false;
+    }
+    const interior = this.world.interiors.get(door.id);
+    if (interior) interior.enabled = true;
+    this.inBuilding = door;
+    this.inVehicle = null;
+    this.vy = 0;
+    this.grounded = true;
+    this.snapCamera = true;
+
+    const bed = slot >= 0 ? HOSPITAL_BEDS[slot] : null;
+    if (bed) {
+      const seat: Seat = {
+        x: door.interior.x + bed.x,
+        z: door.interior.z + bed.z,
+        yaw: bed.yaw,
+        sitY: door.interior.y + bed.top,
+        lie: true,
+      };
+      this.sitOn(seat);
+    } else {
+      // Standing room only. By the door, out of the aisle.
+      this.clearSit();
+      this.player.setPosition(door.interior.x - 2.4, door.interior.y, door.interior.z + (door.spawnZ ?? 6));
+      this.yaw = Math.PI;
+    }
+    this.releaseAim();
   }
 
   /** Whether the player is stood in the fashion house, for the I-key binding. */

@@ -40,6 +40,7 @@ const EMPTY: HudState = {
   inventory: [],
   inStore: false,
   inStation: false,
+  recovering: false,
   inFashion: false,
   aiming: false,
   outfit: "hi-vis",
@@ -210,7 +211,7 @@ export function GamePage() {
   // for aiming, and a trapped cursor cannot click Buy.
   const anyPanelOpen =
     invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused ||
-    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || Boolean(shot) ||
+    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || hud.recovering || Boolean(shot) ||
     Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt);
   useEffect(() => {
     // Tell the engine either way: it must not grab the cursor back while a
@@ -584,6 +585,21 @@ export function GamePage() {
 
       {hud.gateMessage && <div className="gate-toast">{hud.gateMessage}</div>}
       {hud.notice && <div className="gate-toast home-toast">{hud.notice}</div>}
+      {/* The ward. Shows the bar filling rather than a countdown, because the
+          bar is the thing that decides when you can move. */}
+      {hud.recovering && (
+        <div className="ward" role="status" aria-live="polite">
+          <p className="ward-kicker">YOU WERE DOWNED</p>
+          <p className="ward-body">
+            Patched up at the hospital. You can move once the bar is full.
+          </p>
+          <div className="ward-bar">
+            <span style={{ width: `${Math.max(0, Math.min(100, hud.health))}%` }} />
+          </div>
+          <p className="ward-count">{Math.max(0, Math.ceil((100 - hud.health) * 0.3))}s</p>
+        </div>
+      )}
+
       {hud.prompt && <div className="prompt">{hud.prompt}</div>}
 
       {/* Bottom-right action row, sat left of the minimap. One container so the

@@ -124,10 +124,15 @@ export async function shareShot(blob: Blob, text: string): Promise<boolean> {
   }
 }
 
-/** Opens X's composer with the text filled in. The image is attached by hand. */
+/**
+ * Opens X's composer with the text filled in.
+ *
+ * Text only - an intent link has no way to carry a file, which is why the
+ * caller puts the image on the clipboard first. No `url` parameter either: X
+ * appends that after the text, and the link we want is already in it.
+ */
 export function openPostComposer(text: string) {
   const url = new URL("https://x.com/intent/post");
   url.searchParams.set("text", text);
-  url.searchParams.set("url", window.location.origin);
   window.open(url.toString(), "_blank", "noopener,noreferrer");
 }

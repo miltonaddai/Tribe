@@ -160,34 +160,95 @@ function g_swing(kind: PetId) {
   return GAIT[kind]?.swing ?? GAIT.mutt.swing;
 }
 
+/**
+ * An unscaled entity to hang scaled meshes off.
+ *
+ * box() sets localScale, so anything parented to a box inherits that scale -
+ * multiplying both its own size and its offset. The head used to be a child of
+ * the body box, which shrank it to about a fifth of its size and pulled it
+ * inside the torso: present in the scene graph, invisible in the game. Legs
+ * never had the problem because addLeg already builds a bare joint first.
+ *
+ * Groups also give the animation a real pivot: rotating a head group swings the
+ * head about the neck, where rotating a head *mesh* would spin it about its own
+ * middle.
+ */
+function group(parent: pc.Entity, name: string, pos: [number, number, number]) {
+  const e = new pc.Entity(name);
+  e.setLocalPosition(pos[0], pos[1], pos[2]);
+  parent.addChild(e);
+  return e;
+}
+
+const DOG_COAT = "#8B5A2B";
+const DOG_DARK = "#6B4423";
+
 function createDog(parent: pc.Entity, name: string) {
   const dog = new pc.Entity(name);
   parent.addChild(dog);
-  const body = box(dog, "body", [0, 0.3, 0], [0.28, 0.22, 0.55], "#8B5A2B");
-  box(body, "head", [0, 0.12, 0.3], [0.22, 0.2, 0.22], "#8B5A2B");
-  box(body, "snout", [0, 0.04, 0.42], [0.12, 0.1, 0.14], "#6B4423");
-  box(body, "ear-l", [-0.08, 0.24, 0.26], [0.06, 0.12, 0.06], "#6B4423");
-  box(body, "ear-r", [0.08, 0.24, 0.26], [0.06, 0.12, 0.06], "#6B4423");
-  box(body, "tail", [0, 0.06, -0.32], [0.06, 0.08, 0.16], "#6B4423");
-  addLeg(dog, "leg-fl", [-0.1, 0.2, 0.16], 0.2, 0.08, "#6B4423");
-  addLeg(dog, "leg-fr", [0.1, 0.2, 0.16], 0.2, 0.08, "#6B4423");
-  addLeg(dog, "leg-bl", [-0.1, 0.2, -0.16], 0.2, 0.08, "#6B4423");
-  addLeg(dog, "leg-br", [0.1, 0.2, -0.16], 0.2, 0.08, "#6B4423");
+
+  // Animated: applyPetMotion moves and tilts this, and everything on it.
+  const body = group(dog, "body", [0, 0.3, 0]);
+  box(body, "body-mesh", [0, 0, 0], [0.28, 0.22, 0.55], DOG_COAT);
+  box(body, "chest", [0, -0.02, 0.2], [0.26, 0.2, 0.18], DOG_COAT);
+
+  // Pivoted at the neck so the nod reads as a nod.
+  const head = group(body, "head", [0, 0.1, 0.26]);
+  box(head, "skull", [0, 0.04, 0.06], [0.22, 0.2, 0.22], DOG_COAT);
+  box(head, "snout", [0, -0.01, 0.18], [0.13, 0.11, 0.15], DOG_DARK);
+  box(head, "nose", [0, 0.02, 0.26], [0.07, 0.055, 0.03], "#241A12");
+  box(head, "brow", [0, 0.12, 0.13], [0.2, 0.05, 0.08], DOG_DARK);
+  for (const [side, x] of [["l", -0.085], ["r", 0.085]] as const) {
+    // Flopped outward, which is most of what makes a dog read as a dog.
+    const ear = group(head, `ear-${side}`, [x, 0.12, 0.01]);
+    ear.setLocalEulerAngles(0, 0, side === "l" ? 18 : -18);
+    box(ear, `ear-${side}-mesh`, [0, -0.04, 0], [0.06, 0.16, 0.07], DOG_DARK);
+    box(head, `eye-${side}`, [x * 0.65, 0.08, 0.165], [0.04, 0.04, 0.02], "#161616");
+  }
+
+  const tail = group(body, "tail", [0, 0.08, -0.28]);
+  box(tail, "tail-mesh", [0, 0.05, -0.08], [0.07, 0.09, 0.2], DOG_DARK);
+
+  addLeg(dog, "leg-fl", [-0.1, 0.2, 0.16], 0.2, 0.08, DOG_DARK);
+  addLeg(dog, "leg-fr", [0.1, 0.2, 0.16], 0.2, 0.08, DOG_DARK);
+  addLeg(dog, "leg-bl", [-0.1, 0.2, -0.16], 0.2, 0.08, DOG_DARK);
+  addLeg(dog, "leg-br", [0.1, 0.2, -0.16], 0.2, 0.08, DOG_DARK);
   return dog;
 }
+
+const CAT_COAT = "#D4D4D8";
+const CAT_FACE = "#E5E7EB";
+const CAT_DARK = "#9CA3AF";
 
 function createCat(parent: pc.Entity, name: string) {
   const cat = new pc.Entity(name);
   parent.addChild(cat);
-  const body = box(cat, "body", [0, 0.24, 0], [0.22, 0.16, 0.42], "#D4D4D8");
-  box(body, "head", [0, 0.14, 0.24], [0.2, 0.18, 0.2], "#E5E7EB");
-  box(body, "ear-l", [-0.07, 0.26, 0.22], [0.06, 0.12, 0.06], "#D4D4D8");
-  box(body, "ear-r", [0.07, 0.26, 0.22], [0.06, 0.12, 0.06], "#D4D4D8");
-  box(body, "tail", [0, 0.16, -0.28], [0.05, 0.05, 0.3], "#9CA3AF");
-  addLeg(cat, "leg-fl", [-0.08, 0.16, 0.12], 0.16, 0.06, "#9CA3AF");
-  addLeg(cat, "leg-fr", [0.08, 0.16, 0.12], 0.16, 0.06, "#9CA3AF");
-  addLeg(cat, "leg-bl", [-0.08, 0.16, -0.12], 0.16, 0.06, "#9CA3AF");
-  addLeg(cat, "leg-br", [0.08, 0.16, -0.12], 0.16, 0.06, "#9CA3AF");
+
+  const body = group(cat, "body", [0, 0.24, 0]);
+  box(body, "body-mesh", [0, 0, 0], [0.22, 0.16, 0.42], CAT_COAT);
+
+  const head = group(body, "head", [0, 0.09, 0.2]);
+  box(head, "skull", [0, 0.03, 0.05], [0.2, 0.18, 0.2], CAT_FACE);
+  box(head, "muzzle", [0, -0.03, 0.13], [0.11, 0.07, 0.07], CAT_FACE);
+  box(head, "nose", [0, -0.01, 0.165], [0.04, 0.03, 0.02], "#E8A0A8");
+  for (const [side, x] of [["l", -0.062], ["r", 0.062]] as const) {
+    // Upright and tilted out: a cat is mostly ears.
+    const ear = group(head, `ear-${side}`, [x, 0.12, 0.02]);
+    ear.setLocalEulerAngles(0, 0, side === "l" ? -12 : 12);
+    box(ear, `ear-${side}-mesh`, [0, 0.03, 0], [0.06, 0.11, 0.05], CAT_COAT);
+    box(ear, `ear-${side}-inner`, [0, 0.02, 0.016], [0.032, 0.06, 0.02], "#E8A0A8");
+    box(head, `eye-${side}`, [x * 0.8, 0.05, 0.148], [0.035, 0.035, 0.02], "#2F7D4F");
+  }
+
+  // Carried upright, the way a cat walks. The animation swings it from here.
+  const tail = group(body, "tail", [0, 0.05, -0.2]);
+  box(tail, "tail-mesh", [0, 0.13, -0.03], [0.05, 0.28, 0.05], CAT_DARK);
+  box(tail, "tail-tip", [0, 0.28, -0.04], [0.052, 0.06, 0.052], CAT_FACE);
+
+  addLeg(cat, "leg-fl", [-0.08, 0.16, 0.12], 0.16, 0.06, CAT_DARK);
+  addLeg(cat, "leg-fr", [0.08, 0.16, 0.12], 0.16, 0.06, CAT_DARK);
+  addLeg(cat, "leg-bl", [-0.08, 0.16, -0.12], 0.16, 0.06, CAT_DARK);
+  addLeg(cat, "leg-br", [0.08, 0.16, -0.12], 0.16, 0.06, CAT_DARK);
   return cat;
 }
 

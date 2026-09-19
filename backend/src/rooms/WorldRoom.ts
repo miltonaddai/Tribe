@@ -1,5 +1,6 @@
 import { Room, type Client } from "@colyseus/core";
 import { fileReport, recentReports } from "../services/crimes";
+import { fetchCharacter, purchasedItemIds, saveCharacterState } from "../services/db";
 import { tributeThresholds } from "../services/cityThresholds";
 import {
   otherSide,
@@ -17,6 +18,8 @@ import { CURRENCY,
   CITY_BOUNDS,
   CITIES,
   cityEntered,
+  type CharacterRecord,
+  type InventoryStack,
   ownsOutfit,
   isOutfitId,
   isTierGated,
@@ -606,7 +609,10 @@ export class WorldRoom extends Room<{ state: WorldState }> {
     this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string; outfit?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
-      if (typeof data.inventory === "string") player.inventory = data.inventory.slice(0, 4000);
+      // data.inventory is deliberately ignored. What a wallet owns is decided
+      // by purchases and trades the server itself performed, not by what the
+      // browser reports holding - accepting it was how paid items ended up
+      // living in localStorage, and how a crafted client could mint them.
       // The balance is never taken from the client. Tribute is a real token held
       // as a deposited float, so a client-supplied figure is a mint instruction
       // from an untrusted source. Every change runs through the server: purchases
@@ -622,6 +628,9 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       if (typeof data.outfit === "string" && isOutfitId(data.outfit)) {
         if (ownsOutfit(decodeInventory(player.inventory), data.outfit)) player.outfit = data.outfit;
       }
+      // Equipment is a preference rather than ownership, but it still belongs
+      // on the server so it survives a different browser.
+      this.persistGoods(client.sessionId, player);
     });
 
     this.onMessage("shoot", (client, data: { toSession?: string }) => {
@@ -1227,6 +1236,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       }
     }
 
+    this.persistGoods(session.a.sessionId, a);
+    this.persistGoods(session.b.sessionId, b);
     this.sendBag(session.a.sessionId, a);
     this.sendBag(session.b.sessionId, b);
     const names = { [session.a.sessionId]: b.name, [session.b.sessionId]: a.name };
@@ -1255,6 +1266,51 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   private endTradeFor(sessionId: string, reason: string) {
     const session = this.tradeFor(sessionId);
     if (session) this.closeTrade(session, reason);
+  }
+
+  /**
+   * What this wallet owns, from the server's own records.
+   *
+   * The stored inventory, merged with every item the payment receipts say was
+   * paid for. The merge exists because inventory was previously kept in the
+   * browser: a wallet can have receipts for a pistol and a cat while its
+   * character row still shows only the accessories picked on the day it was
+   * created. Receipts are the stronger evidence - nothing is written there
+   * until a transfer has been verified on chain.
+   *
+   * Writes the reconciled result straight back, so this is self-healing: after
+   * one join the character row is correct and the merge is a no-op.
+   */
+  private async ownedInventory(
+    wallet: string,
+    chain: WalletChainId,
+    stored: CharacterRecord | null,
+  ): Promise<InventoryStack[]> {
+    if (!wallet) return [];
+    const inventory = stored?.inventory ? [...stored.inventory] : [];
+    let added = false;
+    for (const id of await purchasedItemIds(wallet, chain)) {
+      if (!isItemId(id)) continue;
+      if (hasItem(inventory, id)) continue;
+      inventory.push({ id, qty: 1 });
+      added = true;
+    }
+    if (added || (stored && stored.inventory.length !== inventory.length)) {
+      void saveCharacterState(wallet, chain, { inventory });
+    }
+    return inventory;
+  }
+
+  /** Persists a player's goods. Called wherever the server changes them. */
+  private persistGoods(sessionId: string, player: PlayerState) {
+    if (!player.wallet) return;
+    void saveCharacterState(player.wallet, this.chainFor(sessionId), {
+      inventory: decodeInventory(player.inventory),
+      equippedGun: player.gun || null,
+      equippedPet: player.pet || null,
+      outfit: player.outfit || undefined,
+      accessories: player.accessories ? player.accessories.split(",").filter(Boolean) : [],
+    });
   }
 
   /** Exactly one session per wallet is live, so this is unambiguous. */
@@ -1494,6 +1550,9 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     }
 
     player.inventory = encodeInventory(addItem(inventory, item.id));
+    // Written before the player is told, so a crash between the two costs a
+    // notification rather than the thing they just paid for.
+    this.persistGoods(client.sessionId, player);
     this.sendBag(client.sessionId, player);
     client.send("buy-item-result", { ok: true, name: item.name });
     // Every purchase leaves a receipt, so the inbox is a full record of what a
@@ -1880,6 +1939,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // position is both exact and available now; the save it is about to make
     // lands after this read, so going to the database first would return the
     // spot from the session before last.
+    const stored = wallet ? await fetchCharacter(wallet, chain) : null;
     const live = options.wallet ? this.playerByWallet(options.wallet) : null;
     const saved: LastSpot | null =
       live && !live.player.inBuilding
@@ -1904,23 +1964,41 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     player.x = spawn[0];
     player.y = spawn[1];
     player.z = spawn[2];
+    // Owned goods come from the server, never from the joining client.
+    //
+    // This used to be `options.inventory` - whatever the browser sent. Items
+    // bought with real $TRIBE therefore lived in localStorage: invisible on
+    // another machine, gone when site data was cleared, and forgeable by a
+    // crafted client. The database is the record now, reconciled once against
+    // the payment receipts so nothing bought before this change is lost.
+    const owned = await this.ownedInventory(wallet, chain, stored);
+    player.inventory = encodeInventory(owned);
     player.bodyType = options.bodyType ?? "regular";
     player.skinTone = options.skinTone ?? "#F6D7B0";
-    player.outfit = options.outfit ?? "hi-vis";
+    // Free outfits need no receipt; paid ones do. Character creation lets you
+    // pick any of them, so without this a Valhalla Gold jacket cost nothing.
+    const wanted = options.outfit ?? "hi-vis";
+    player.outfit = isOutfitId(wanted) && ownsOutfit(owned, wanted) ? wanted : "hi-vis";
     player.pantsColor = options.pantsColor ?? "#3A3A3A";
     player.shoe = options.shoe ?? "sneakers";
     player.shoeColor = options.shoeColor ?? "#111111";
     player.headwear = options.headwear ?? "hardhat";
-    player.accessories = options.accessories ?? "";
+    player.accessories = (options.accessories ?? "")
+      .split(",")
+      .filter((id) => id && hasItem(owned, id as never))
+      .join(",");
     const health = Number(options.health ?? options.brokemeter);
     player.health = Number.isFinite(health) ? Math.max(0, Math.min(100, health)) : 100;
     // Tribute IS the token in the player's wallet, so the balance is read from
     // the chain rather than granted or stored. The dev grant only stands in when
     // no token is configured, so the game is still playable without one.
     player.tribute = tokenConfigured() ? balance : TRIBUTE_DEV_GRANT;
-    player.inventory = options.inventory ?? "[]";
-    player.gun = options.gun ?? "";
-    player.pet = options.pet ?? "";
+    // What you carry is checked against what you own, for the same reason the
+    // inventory is: a gun, a pet, an accessory and half the outfits are all
+    // bought with $TRIBE, and every one of these used to be taken on the
+    // client's word. A rifle claimed here shoots with a rifle's range.
+    player.gun = hasItem(owned, (options.gun ?? "") as never) ? options.gun ?? "" : "";
+    player.pet = hasItem(owned, (options.pet ?? "") as never) ? options.pet ?? "" : "";
     this.chains.set(client.sessionId, chain);
     this.allowTeleport(client.sessionId);
     // One live session per wallet. Two tabs on the same wallet would each hold

@@ -1140,7 +1140,7 @@ export class GameEngine {
           this.recovering = Boolean(value);
           if (this.recovering && !was) this.admitToWard(Number(self.bedSlot ?? -1));
           // Discharged: back on your feet where you were treated.
-          if (!this.recovering && was) this.clearSit(true);
+          if (!this.recovering && was) this.leaveWard();
         });
         const incoming = (player as { health?: number }).health;
         if (typeof incoming === "number" && Number.isFinite(incoming)) this.health = clampHealth(incoming);
@@ -2801,13 +2801,33 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
    * which drops you inside whatever happens to be there - a wall, most often,
    * and there is no way to walk out of one.
    */
+  /**
+   * Whether a point is on the floor of the room you are in. Indoors the walls
+   * are a clamp on movement rather than colliders, so `blocked` cannot see
+   * them - anything placing a player by hand has to ask this instead.
+   */
+  private insideRoom(x: number, z: number) {
+    const door = this.inBuilding;
+    if (!door?.interior) return true;
+    return (
+      Math.abs(x - door.interior.x) <= (door.halfW ?? 4.2) &&
+      Math.abs(z - door.interior.z) <= (door.halfD ?? 4.2)
+    );
+  }
+
   private freeSpotAround(x: number, z: number) {
-    const ring = 2.8;
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
-      const sx = x + Math.cos(a) * ring;
-      const sz = z + Math.sin(a) * ring;
-      if (!this.blocked(sx, sz) && this.allowed(x, z, sx, sz)) return { x: sx, z: sz };
+    // Closer rings after the first, so a spot against a wall still has
+    // somewhere to go. A bed on the east wall of the ward has no clear ground
+    // 2.8 units away that is not inside the wall itself, and landing there
+    // left the player wedged: the clamp then refuses every step back in.
+    for (const ring of [2.8, 2.0, 1.4]) {
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        const sx = x + Math.cos(a) * ring;
+        const sz = z + Math.sin(a) * ring;
+        if (!this.insideRoom(sx, sz)) continue;
+        if (!this.blocked(sx, sz) && this.allowed(x, z, sx, sz)) return { x: sx, z: sz };
+      }
     }
     // Every direction is blocked: the car's own position is at least reachable,
     // since it drove in.
@@ -3838,6 +3858,29 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     this.syncRemotes();
     this.syncMove();
     this.setNotice("Patched up and sent on your way.");
+  }
+
+  /**
+   * Off the bed and into the aisle. Standing up where you lay would leave you
+   * in the furniture, and the nearest clear ground to a bed against the east
+   * wall is the wall - so the step is towards the middle of the room, which is
+   * open by construction.
+   */
+  private leaveWard() {
+    const seat = this.sitSeat;
+    const interior = this.inBuilding?.interior;
+    this.clearSit();
+    if (!this.player) return;
+    if (seat && interior) {
+      const dx = interior.x - seat.x;
+      const dz = interior.z - seat.z;
+      const length = Math.hypot(dx, dz) || 1;
+      this.player.setPosition(seat.x + (dx / length) * 2.2, interior.y, seat.z + (dz / length) * 2.2);
+    }
+    this.vy = 0;
+    this.grounded = true;
+    this.snapCamera = true;
+    this.syncMove();
   }
 
   private admitToWard(slot: number) {

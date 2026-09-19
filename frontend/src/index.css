@@ -4381,7 +4381,7 @@ button {
 }
 
 .ward-body {
-  margin: 6px 0 12px;
+  margin: 12px 0 0;
   font-size: 12px;
   line-height: 1.5;
   color: #b9b9c2;
@@ -4395,17 +4395,31 @@ button {
 }
 
 /* Width is the health value itself, so the bar cannot disagree with the rule
-   that lets the player up. */
+   that lets the player up. Eased over slightly longer than the server's 200ms
+   tick, so the fill reads as one continuous sweep rather than five steps a
+   second. */
 .ward-bar span {
   display: block;
   height: 100%;
   background: linear-gradient(to right, #E0556B, #56C271);
-  transition: width 220ms linear;
+  transition: width 260ms linear;
 }
 
-.ward-count {
-  margin-top: 8px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+/* The clock leads: a bar creeping towards full does not answer "how long",
+   which is the only thing a player pinned to a bed wants to know. */
+.ward-clock {
+  margin: 10px 0 12px;
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #f2f2f5;
+}
+
+.ward-clock span {
+  margin-left: 2px;
+  font-size: 18px;
+  font-weight: 600;
   color: #7c7c86;
 }
+

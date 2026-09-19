@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@tribe/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, RECOVERY_MS, armSlots, gunSpec } from "@tribe/shared";
 import type { GameSettings } from "@tribe/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
@@ -585,18 +585,19 @@ export function GamePage() {
 
       {hud.gateMessage && <div className="gate-toast">{hud.gateMessage}</div>}
       {hud.notice && <div className="gate-toast home-toast">{hud.notice}</div>}
-      {/* The ward. Shows the bar filling rather than a countdown, because the
-          bar is the thing that decides when you can move. */}
+      {/* The ward. Both readouts come off the health value, so the clock can
+          never disagree with the bar or with the rule that lets you up. */}
       {hud.recovering && (
         <div className="ward" role="status" aria-live="polite">
           <p className="ward-kicker">YOU WERE DOWNED</p>
-          <p className="ward-body">
-            Patched up at the hospital. You can move once the bar is full.
+          <p className="ward-clock">
+            {Math.max(0, Math.ceil((100 - hud.health) * (RECOVERY_MS / 100_000)))}
+            <span>s</span>
           </p>
           <div className="ward-bar">
             <span style={{ width: `${Math.max(0, Math.min(100, hud.health))}%` }} />
           </div>
-          <p className="ward-count">{Math.max(0, Math.ceil((100 - hud.health) * 0.3))}s</p>
+          <p className="ward-body">Patched up at the hospital. You can move once the bar is full.</p>
         </div>
       )}
 

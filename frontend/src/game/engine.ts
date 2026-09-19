@@ -47,7 +47,7 @@ import { loadWallet } from "../lib/wallet";
 import { VoiceChat, loadOutputDevice, saveOutputDevice } from "../lib/voiceChat";
 import { payForPurchase, paymentsRequired } from "../lib/payments";
 import { playGunshot, setSfxVolume } from "../lib/sfx";
-import { createPcApp, destroyPcApp, entityYaw, hitsAabb, material, setCycleGlow } from "./pcApp";
+import { createPcApp, destroyPcApp, entityYaw, hitsAabb, material, setCycleGlow, type Aabb } from "./pcApp";
 import { createCitizen, setCitizenDetail, type Appearance } from "./character";
 import { createVehicle } from "./vehicles";
 import { applyAimPose, applyCitizenMotion } from "./motion";
@@ -157,6 +157,17 @@ const REMOTE_WALK_HOLD_MS = 160;
 const REMOTE_LERP = 12;
 /** Past this a move is a teleport - spawn, a door, leaving a car - so snap. */
 const REMOTE_SNAP = 4;
+
+/*
+ * TEMPORARY RESCUE HATCH - set back to null when the job is done.
+ *
+ * A car is wedged in the wall of this city's hospital. While this names a
+ * city, that one building's collider is ignored for the local player, on foot
+ * and at the wheel, so the car can be reached and reversed out. Nothing else
+ * changes: every other wall still stops you, other players are unaffected, and
+ * the server never had building collision to begin with.
+ */
+const WALL_PASS_CITY: string | null = "trench";
 
 /** Cars travel further per patch than people, so they need more room before a snap. */
 const VEHICLE_SNAP = 12;
@@ -417,6 +428,8 @@ export class GameEngine {
   private snapCamera = false;
   private inVehicle: string | null = null;
   private inBuilding: Interactable | null = null;
+  /** TEMPORARY - see wallPass(). undefined means "not looked up yet". */
+  private wallPassBoxes: Set<Aabb> | undefined = undefined;
   private sitting = false;
   private sitSeat: Seat | null = null;
   private speed = 9;
@@ -2205,8 +2218,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       if (Math.abs(nx - cx) <= hw) x = nx;
       if (Math.abs(nz - cz) <= hd) z = nz;
     } else {
-      if (!this.blocked(nx, z) && !this.vehicleBlocksMove(x, z, nx, z) && this.allowed(x, z, nx, z)) x = nx;
-      if (!this.blocked(x, nz) && !this.vehicleBlocksMove(x, z, x, nz) && this.allowed(x, z, x, nz)) z = nz;
+      const pass = this.wallPass();
+      if (!this.blocked(nx, z, 0.55, pass) && !this.vehicleBlocksMove(x, z, nx, z) && this.allowed(x, z, nx, z)) x = nx;
+      if (!this.blocked(x, nz, 0.55, pass) && !this.vehicleBlocksMove(x, z, x, nz) && this.allowed(x, z, x, nz)) z = nz;
     }
 
     const moving = forward !== 0;
@@ -2272,7 +2286,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     const nx = pos.x + Math.sin(this.yaw) * this.vehicleSpeed * dt;
     const nz = pos.z + Math.cos(this.yaw) * this.vehicleSpeed * dt;
     const hitsVehicle = this.vehicleBlocksVehicleMove(handle.id, nx, nz, this.yaw, handle.kind);
-    if (this.allowed(pos.x, pos.z, nx, nz) && !this.blocked(nx, nz, 2.1) && !hitsVehicle) {
+    if (this.allowed(pos.x, pos.z, nx, nz) && !this.blocked(nx, nz, 2.1, this.wallPass()) && !hitsVehicle) {
       handle.entity.setPosition(nx, WALK_Y, nz);
       this.player.setPosition(nx, WALK_Y, nz);
     } else if (hitsVehicle) {
@@ -2601,12 +2615,50 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
   }
 
-  private blocked(x: number, z: number, radius = 0.55) {
+  private blocked(x: number, z: number, radius = 0.55, ignore?: Set<Aabb>) {
     // Indoors the world colliders are the building's outer shell; the props in
     // the room have their own list.
     const inside = this.inBuilding?.obstacles;
     if (inside?.some((a) => hitsAabb(x, z, radius, a))) return true;
-    return this.world?.colliders.some((a) => hitsAabb(x, z, radius, a)) ?? false;
+    return this.world?.colliders.some((a) => !ignore?.has(a) && hitsAabb(x, z, radius, a)) ?? false;
+  }
+
+  /**
+   * TEMPORARY - delete this method, WALL_PASS_CITY, and the two calls to it
+   * once the car wedged in the Trench hospital has been driven out.
+   *
+   * Hands back that one building's collider so it can be passed through. It is
+   * found rather than hard-coded, and it is a single box: every other wall in
+   * the city still stops you.
+   */
+  private wallPass(): Set<Aabb> | undefined {
+    if (!WALL_PASS_CITY) return undefined;
+    if (this.wallPassBoxes) return this.wallPassBoxes;
+    const boxes = new Set<Aabb>();
+    this.wallPassBoxes = boxes;
+    const door = this.world?.interactables.find(
+      (item) => item.kind === "door" && item.interiorKind === "hospital" && item.city === WALL_PASS_CITY,
+    );
+    const colliders = this.world?.colliders;
+    if (!door || !colliders) return boxes;
+    // addEnterable puts the door 0.8 outside the south face, so a point 1.2
+    // back from it is inside that building's main box and no other.
+    const shell = colliders.find(
+      (a) => door.x >= a.minX && door.x <= a.maxX && door.z - 1.2 >= a.minZ && door.z - 1.2 <= a.maxZ,
+    );
+    if (!shell) return boxes;
+    // The hospital is three boxes, not one - the shell, the east wing and the
+    // ambulance bay - and a car can be wedged in any of them. Containment
+    // rather than overlap, so a neighbour on the same block is not swept in:
+    // the wing and the bay each sit within 1.5 units of the shell.
+    const pad = 2;
+    for (const a of colliders) {
+      const within =
+        a.minX >= shell.minX - pad && a.maxX <= shell.maxX + pad &&
+        a.minZ >= shell.minZ - pad && a.maxZ <= shell.maxZ + pad;
+      if (within) boxes.add(a);
+    }
+    return boxes;
   }
 
   private vehicleBlocksMove(fromX: number, fromZ: number, toX: number, toZ: number) {

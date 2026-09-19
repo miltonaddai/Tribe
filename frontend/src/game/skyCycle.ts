@@ -52,13 +52,18 @@ function dayLook(theme: CityTheme) {
       sunIntensity: 1.15,
     };
   }
-  // Night-native districts still get a muted daylight so neon can read in the sun.
+  // A night-native district still gets its own daylight - green-cast rather
+  // than blue, so it never reads as the same city as its neighbours - but a
+  // full one. Muting it to protect the neon cost 40% of the light the other
+  // districts get (lit luma 0.37 against their 0.62) on top of a building
+  // palette that is already near-black, and midday looked like dusk. The neon
+  // is dimmed by setCycleGlow in daylight anyway, which is the right lever.
   return {
-    sky: [0.4, 0.55, 0.52] as [number, number, number],
-    fog: [0.42, 0.56, 0.5] as [number, number, number],
-    ambient: [0.34, 0.44, 0.38] as [number, number, number],
-    sun: [0.7, 0.85, 0.72] as [number, number, number],
-    sunIntensity: 0.9,
+    sky: [0.52, 0.72, 0.66] as [number, number, number],
+    fog: [0.62, 0.76, 0.7] as [number, number, number],
+    ambient: [0.5, 0.58, 0.52] as [number, number, number],
+    sun: [0.92, 1.0, 0.9] as [number, number, number],
+    sunIntensity: 1.12,
   };
 }
 

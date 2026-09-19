@@ -304,13 +304,32 @@ button {
   z-index: 0;
 }
 
+/*
+ * The single scrim over the hero video. One rule on purpose: a second
+ * .landing::after does not layer with this one, it fights it - the later
+ * background wins while an earlier height can still apply, which lands the
+ * overlay somewhere neither rule asked for.
+ *
+ * Light across the top, where it only needs to hold the header and headline,
+ * then ramping hard through the lower third so the call to action and the
+ * footer sit on something solid rather than on whatever frame is playing.
+ * Stops are eased rather than linear: a straight fade shows as a visible band
+ * across the middle of the shot.
+ */
 .landing::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0.48) 55%, rgba(0, 0, 0, 0.62));
-  pointer-events: none;
   z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(8, 8, 11, 0.34) 0%,
+    rgba(8, 8, 11, 0.30) 32%,
+    rgba(8, 8, 11, 0.48) 56%,
+    rgba(8, 8, 11, 0.78) 80%,
+    rgba(8, 8, 11, 0.95) 100%
+  );
 }
 
 .landing-hero {
@@ -358,49 +377,75 @@ button {
   text-shadow: 0 1px 16px rgba(0, 0, 0, 0.7);
 }
 
-.docs-layout {
+/*
+ * The grid is centred on the same 1180px column the header uses, rather than
+ * running edge to edge. Previously the sidebar started at the far left while
+ * the header floated centred above it, so the two never lined up at any window
+ * width - the wider the screen, the further apart they drifted.
+ *
+ * It also scrolls as a page now. It used to be fixed-height with each pane
+ * scrolling on its own, which is why there was nowhere for a footer to sit.
+ */
+/*
+ * The scroller. body has overflow:hidden and a fixed height - this app never
+ * scrolls the document - so a page that needs to scroll has to own a scrolling
+ * element of its own. It is full width rather than the centred column so the
+ * scrollbar sits at the edge of the window where it belongs, not down the
+ * middle of the text.
+ */
+.docs-scroll {
   height: 100%;
-  display: grid;
-  grid-template-columns: 280px 1fr;
+  overflow-y: auto;
   background: #fff;
   color: #111;
-  overflow: hidden;
-  padding: 82px 0 14px 14px;
+}
+
+.docs-layout {
+  /* Fills the scroller even when the page is short, so the footer has
+     somewhere to be pushed to. box-sizing is border-box globally, so the 88px
+     of top padding comes out of this rather than adding to it. */
+  min-height: 100%;
+  width: min(1180px, calc(100% - 28px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  /*
+   * Two rows: the content row takes whatever is left, the footer takes only
+   * what it needs. Without this the rows were implicit and sized to content,
+   * so on a short page like Governance the footer came to rest directly under
+   * the last paragraph with a field of white beneath it.
+   */
+  grid-template-rows: 1fr auto;
+  align-items: start;
+  /* Column gap only. A shared `gap` also spaced the footer row 36px off the
+     content, which pushed a short page just past the viewport and made it
+     scroll for no reason. The footer sets its own breathing room instead. */
+  column-gap: 36px;
+  row-gap: 0;
+  padding: 88px 0 0;
 }
 
 .docs-side {
+  position: sticky;
+  /* Clears the floating header, which overlaps the top of the page. */
+  top: 88px;
+  max-height: calc(100dvh - 108px);
+  overflow: auto;
+  padding: 22px 24px;
   background: #000;
   color: #fff;
-  padding: 24px 28px;
-  overflow: auto;
-  min-height: 0;
-  border-radius: 0 0 8px 8px;
+  border-radius: 8px;
 }
 
+/* A measured column rather than the full width of the screen: prose set across
+   1500px is unreadable, and the old max-width on paragraphs alone left every
+   heading and table stranded against the left edge. */
 .docs-main {
-  padding: 28px 56px 48px;
-  overflow: auto;
-  min-height: 0;
+  width: 100%;
+  max-width: 820px;
+  padding: 0 0 64px;
 }
 
-/* Docs main is the one light surface in the app, so it inverts the thumb. */
-.docs-main::-webkit-scrollbar-thumb {
-  background-color: #cfcfcf;
-}
-
-.docs-main::-webkit-scrollbar-thumb:hover {
-  background-color: #ababab;
-}
-
-.docs-main::-webkit-scrollbar-thumb:active {
-  background-color: var(--accent);
-}
-
-@supports not selector(::-webkit-scrollbar) {
-  .docs-main {
-    scrollbar-color: #cfcfcf transparent;
-  }
-}
 
 .docs-side h2 {
   font-size: 11px;
@@ -425,11 +470,24 @@ button {
   background: transparent;
 }
 
+/*
+ * The selected page, in the same amber as the wallet button. It used to be
+ * #fff - identical to every inactive link - so weight alone carried the
+ * selection, which is a weak signal in a list that is already bold-ish.
+ *
+ * Higher specificity than .docs-side .sub, so a selected city keeps the colour
+ * instead of falling back to the muted grey of the sub-list.
+ */
 .docs-side a.active,
 .docs-side button.active {
-  color: #fff;
+  color: var(--accent);
   font-weight: 700;
   background: transparent;
+}
+
+.docs-side a:hover,
+.docs-side button:hover {
+  color: var(--accent-hover);
 }
 
 .docs-side .sub {
@@ -449,14 +507,14 @@ button {
 }
 
 .docs-main h1 {
-  font-size: 56px;
+  font-size: 48px;
   font-stretch: 160%;
   font-weight: 800;
   margin-bottom: 16px;
 }
 
 .docs-main h2 {
-  font-size: 28px;
+  font-size: 26px;
   font-stretch: 150%;
   margin: 28px 0 12px;
 }
@@ -498,15 +556,21 @@ button {
   margin: 22px 0 8px;
 }
 
+/*
+ * A callout, set as an aside rather than as a coloured slab. The accent bar
+ * down one edge is a stock template device - it shouts for attention without
+ * earning it, and three of them on a page start to look like a warning label
+ * factory. A quiet rule above the text does the same work: it separates the
+ * note from the prose without pretending to be more important than it is.
+ */
 .docs-note {
   max-width: 760px;
-  margin: 18px 0 8px;
-  padding: 14px 16px;
-  background: #111;
-  color: #f4f0e6;
+  margin: 26px 0 10px;
+  padding: 16px 0 0;
+  border-top: 1px solid #111;
+  color: #333;
   font-size: 15px;
-  line-height: 1.55;
-  border-left: 4px solid #ffb830;
+  line-height: 1.6;
 }
 
 .docs-table {
@@ -523,6 +587,13 @@ button {
   vertical-align: top;
   padding: 10px 12px;
   border-bottom: 1px solid #e4e4e4;
+}
+
+.docs-table th {
+  color: #6b6b6b;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .docs-table th {
@@ -546,14 +617,27 @@ button {
   max-width: 820px;
 }
 
+/*
+ * The city's colour reads as a mark beside its name rather than as a stripe
+ * across the top of a box. Same information, without the banner.
+ */
 .city-card {
-  border: 1px solid #ddd;
-  padding: 16px 18px 18px;
-  background: #fafafa;
-  border-top-width: 6px;
+  padding: 2px 0 18px;
+}
+
+.city-card h3::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--city, #999);
 }
 
 .city-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-stretch: 140%;
   font-size: 18px;
   margin-bottom: 8px;
@@ -2820,9 +2904,6 @@ button {
   .preview-wrap {
     height: min(60vh, 420px);
   }
-  .docs-side {
-    display: none;
-  }
   .docs-table td:first-child {
     white-space: normal;
   }
@@ -3279,4 +3360,997 @@ button {
     top: 68px;
     padding: 10px 12px;
   }
+}
+
+/* ---- Fashion house wardrobe --------------------------------------------- */
+/*
+ * Pinned right rather than centred: the mirror puts your character in the
+ * middle of the screen, and a panel over the top of it would hide the one thing
+ * you opened it to look at. Falls back to centred on a narrow screen, where
+ * there is no room to stand beside it anyway.
+ */
+.wardrobe {
+  position: absolute;
+  z-index: 14;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  width: min(400px, calc(100vw - 32px));
+  max-height: min(82dvh, 660px);
+  overflow-y: auto;
+  padding: 18px;
+  background: rgba(16, 12, 20, 0.96);
+  border: 1px solid #3a2f47;
+}
+
+.wardrobe-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.wardrobe-head h2 {
+  font-stretch: 140%;
+}
+
+.wardrobe-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #b9a4d0;
+}
+
+.wardrobe-x {
+  width: auto;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.wardrobe-group {
+  margin: 14px 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8f7fa6;
+}
+
+.fit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #2a2135;
+}
+
+.fit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid #2a2135;
+}
+
+.fit-row.worn {
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.fit-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: #ece6f3;
+}
+
+.fit-price {
+  font-size: 11px;
+  color: #E8B34A;
+}
+
+.fit-blurb {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #8f83a0;
+}
+
+.fit-btn {
+  width: auto;
+  flex-shrink: 0;
+  padding: 5px 14px;
+  font-size: 12px;
+}
+
+.fit-worn {
+  flex-shrink: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #E8B34A;
+}
+
+.wardrobe-note {
+  margin-top: 14px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #7e738f;
+}
+
+@media (max-width: 900px) {
+  .wardrobe {
+    right: 50%;
+    transform: translate(50%, -50%);
+  }
+}
+
+.wardrobe-error {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f0a9a9;
+  background: rgba(190, 60, 60, 0.12);
+  border: 1px solid #5c2b2b;
+}
+
+/*
+ * The camera-control hint. Sits above the movement pad rather than centre
+ * screen: it must be legible without standing in front of the thing the player
+ * is trying to look at. Non-interactive, so it never eats a click.
+ */
+.pan-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+  background: rgba(8, 8, 8, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.pan-hint-key {
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #cfcfcf;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+}
+
+
+/*
+ * First-person toggle. Sits left of the minimap (240px wide at right: 18px),
+ * clear of both it and the centred camera hint.
+ */
+.aim-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #cfcfcf;
+  background: rgba(8, 8, 8, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.aim-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.aim-toggle.on {
+  color: #fff;
+  border-color: #8c2f2f;
+  background: rgba(46, 10, 10, 0.88);
+}
+
+/* Reads as a reticle: hollow when lowered, hot when down the sights. */
+.aim-dot {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.aim-toggle.on .aim-dot {
+  background: #E04545;
+  border-color: #E04545;
+  box-shadow: 0 0 8px rgba(224, 69, 69, 0.7);
+}
+
+.aim-key {
+  padding: 1px 5px;
+  font-size: 10px;
+  color: #9a9a9a;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+}
+
+
+/*
+ * Bottom-right action row. Anchored left of the minimap (240px wide at
+ * right: 18px) so the two controls read as one group, and laid out
+ * right-to-left so the Aim button keeps the same spot whether or not the
+ * camera hint is still showing beside it.
+ */
+.hud-actions {
+  position: absolute;
+  z-index: 9;
+  right: 274px;
+  bottom: 26px;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 10px;
+}
+
+/* On a phone the minimap and pad crowd the bottom; stack the row above them. */
+@media (max-width: 720px) {
+  .hud-actions {
+    right: 18px;
+    bottom: auto;
+    top: 140px;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+}
+
+/* ---- Screenshot ---------------------------------------------------------- */
+.shot-btn {
+  color: #cfcfcf;
+}
+
+.shot-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.shot-modal {
+  position: absolute;
+  z-index: 15;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(88dvh, 780px);
+  overflow-y: auto;
+  padding: 16px;
+  background: rgba(10, 10, 10, 0.97);
+  border: 1px solid #2c2c2c;
+}
+
+.shot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.shot-head h3 {
+  font-stretch: 140%;
+}
+
+.shot-x {
+  width: auto;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+/* The shot keeps its own aspect ratio; the box just bounds it. */
+.shot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #262626;
+}
+
+.shot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.shot-actions .btn {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 108px;
+}
+
+.shot-note {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #8a8a8a;
+}
+
+/* ---- Boot loader ---------------------------------------------------------
+   Covers the canvas until the server has said which district the player is in.
+   Opaque on purpose: the point is that nobody sees the cached guess at all. */
+.boot {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #0b0b0f;
+}
+
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(280px, calc(100vw - 48px));
+}
+
+.boot-mark {
+  font-stretch: 140%;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: #E8B34A;
+}
+
+.boot-bar {
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* An indeterminate sweep: the wait is a network round trip, so there is no
+   honest percentage to show. */
+.boot-bar span {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: #E8B34A;
+  animation: boot-sweep 1.15s ease-in-out infinite;
+}
+
+@keyframes boot-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.boot-note {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7c7c86;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-bar span {
+    width: 100%;
+    animation: none;
+  }
+}
+
+/* ---- Landing footer ------------------------------------------------------
+   Sits over the hero video, so it is anchored to the bottom rather than in
+   flow, and kept deliberately quiet: a strip of small type that is there when
+   looked for and ignorable when not. */
+.site-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 14px 24px;
+  /* No background of its own: the hero's gradient overlay already darkens this
+     strip, and stacking a second one only crushes the bottom of the frame. */
+}
+
+.site-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 18px;
+  max-width: 1240px;
+  margin: 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.footer-mark {
+  font-stretch: 140%;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.footer-ca {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.footer-ca-label {
+  font-weight: 700;
+  color: rgba(232, 179, 74, 0.9);
+}
+
+/* A button, not text: the address is there to be copied. */
+.footer-ca-value {
+  padding: 0;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.72);
+  background: none;
+  border: none;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+
+.footer-ca-value:hover {
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.6);
+}
+
+.footer-ca-link {
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+}
+
+.footer-ca-link:hover {
+  color: #fff;
+}
+
+.footer-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.footer-links a {
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  color: #fff;
+}
+
+.footer-x {
+  display: inline-flex;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .site-footer-inner {
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+/* ---- Legal pages --------------------------------------------------------- */
+.legal-page {
+  min-height: 100dvh;
+  background: #0b0b0f;
+}
+
+.legal-main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 22px 80px;
+  color: #c9c9d1;
+  line-height: 1.65;
+}
+
+.legal-main h1 {
+  margin: 6px 0 4px;
+  font-stretch: 140%;
+  font-size: 30px;
+  color: #f2f2f5;
+}
+
+.legal-main h2 {
+  margin: 28px 0 8px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #E8B34A;
+}
+
+.legal-main p {
+  margin-bottom: 12px;
+}
+
+.legal-main ul {
+  margin: 0 0 12px 18px;
+}
+
+.legal-main li {
+  margin-bottom: 8px;
+}
+
+.legal-main strong {
+  color: #eaeaef;
+}
+
+.legal-main a {
+  color: #E8B34A;
+}
+
+.legal-updated {
+  margin-bottom: 22px;
+  font-size: 12px;
+  color: #74747f;
+}
+
+.legal-foot {
+  margin-top: 34px;
+  padding-top: 16px;
+  border-top: 1px solid #22222a;
+  font-size: 13px;
+}
+
+/* ---- Buy-token floating button ------------------------------------------
+   Above the footer strip, clear of the hero's call to action. */
+.buy-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 68px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.buy-fab-btn {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  color: #FFB830;
+  background: #0a0a0a;
+  border: 1px solid rgba(255, 184, 48, 0.35);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.buy-fab-btn svg {
+  width: 26px;
+  height: 26px;
+}
+
+.buy-fab-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 184, 48, 0.75);
+}
+
+.buy-fab.open .buy-fab-btn {
+  border-color: #FFB830;
+}
+
+.buy-fab-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 190px;
+  /* Rises into place rather than appearing, so the link between the circle and
+     the panel is visible rather than inferred. */
+  animation: buy-fab-in 150ms ease-out;
+}
+
+@keyframes buy-fab-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.buy-fab-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 13px;
+  text-decoration: none;
+  background: rgba(10, 10, 10, 0.95);
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+}
+
+.buy-fab-link:hover {
+  border-color: rgba(255, 184, 48, 0.6);
+}
+
+.buy-fab-link-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2f2f5;
+}
+
+.buy-fab-link-note {
+  font-size: 11px;
+  color: #8a8a93;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buy-fab-menu { animation: none; }
+  .buy-fab-btn { transition: none; }
+}
+
+@media (max-width: 640px) {
+  .buy-fab {
+    right: 16px;
+    bottom: 76px;
+  }
+}
+
+/* ---- Header: narrow layout ----------------------------------------------
+   The bar holds a brand, a docs link and a wallet button whose label carries an
+   address. Below ~720px that will not fit on one line, so the actions collapse
+   behind a menu button. */
+
+/* Hidden by default rather than shown-then-hidden: the wide layout is the one
+   most visitors get, and it should not have to undo anything. */
+.header-burger {
+  display: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: #fff;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.header-burger:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.wallet-label-short {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .site-header {
+    height: 52px;
+    padding: 0 10px 0 14px;
+  }
+
+  .header-burger {
+    display: grid;
+  }
+
+  /*
+   * The actions become a panel under the bar. Anchored to the header rather
+   * than the viewport so it tracks the bar's own centring and width, and stays
+   * put on pages where the header is solid rather than floating.
+   */
+  .header-actions {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(10, 10, 10, 0.96);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .header-actions.open {
+    display: flex;
+  }
+
+  .header-actions .docs-link {
+    justify-content: center;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+  }
+
+  .header-actions .btn {
+    width: 100%;
+  }
+
+  /* Swap the wallet label for the short one, which fits a phone. */
+  .wallet-label-full {
+    display: none;
+  }
+
+  .wallet-label-short {
+    display: inline;
+  }
+}
+
+/* The footer spans both docs columns and is pushed to the full width of the
+   page rather than the reading column, so it reads as the page's foot rather
+   than the end of the article. */
+.docs-footer {
+  grid-column: 1 / -1;
+  position: static;
+  background: none;
+  margin-top: 28px;
+  padding: 14px 0 18px;
+  border-top: 1px solid #e4e4e4;
+}
+
+/* On white the footer's light-on-dark palette would be invisible. */
+.docs-footer .site-footer-inner {
+  max-width: none;
+  color: #6b6b6b;
+}
+
+.docs-footer .footer-mark {
+  color: #111;
+}
+
+.docs-footer .footer-links a,
+.docs-footer .footer-ca-value,
+.docs-footer .footer-ca-link {
+  color: #555;
+}
+
+.docs-footer .footer-ca-value {
+  border-bottom-color: #bbb;
+}
+
+.docs-footer .footer-links a:hover,
+.docs-footer .footer-ca-value:hover,
+.docs-footer .footer-ca-link:hover {
+  color: #111;
+}
+
+@media (max-width: 860px) {
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    padding: 84px 18px 0;
+  }
+
+  /*
+   * Stacked above the article rather than hidden. It used to be display:none
+   * below 900px, which left a phone with no way to reach any other doc page -
+   * the nav is the only route between them. Sticking is what does not work on a
+   * short screen, not the nav itself.
+   */
+  .docs-side {
+    position: static;
+    max-height: none;
+  }
+
+  /*
+   * A wrapped row of chips rather than a stack. Eight full-width bars ate most
+   * of a phone screen before any prose started; inline-block got them onto
+   * shared lines but wrapped raggedly, because each link still filled its own
+   * box. Flex on the container with the links shrunk to their text gives an
+   * even row that tapping still targets comfortably.
+   */
+  .docs-side {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  /* The heading names what is plainly a nav; on a phone it is just height. */
+  .docs-side h2 {
+    display: none;
+  }
+
+  .docs-side > div {
+    display: contents;
+  }
+
+  .docs-side a {
+    width: auto;
+    padding: 7px 12px;
+    font-size: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+  }
+
+  .docs-side a.active {
+    border-color: var(--accent);
+  }
+
+  /* City sub-links live in the page body on a phone; repeating them here would
+     double the chip count for one section. */
+  .docs-side .sub {
+    display: none;
+  }
+
+  .docs-main h1 {
+    font-size: 30px;
+    line-height: 1.1;
+  }
+
+  .docs-main h2 {
+    font-size: 21px;
+  }
+
+  .docs-main p,
+  .docs-main li {
+    font-size: 15px;
+  }
+
+  /* A table narrower than its content scrolls on its own rather than pushing
+     the whole page sideways. */
+  .docs-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .docs-main h1 {
+    font-size: 34px;
+  }
+}
+
+/* ---- Desktop-only notice -------------------------------------------------
+   Shown in place of the game on a touch device or a window too narrow to fit
+   the HUD. */
+.desktop-only {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 24px;
+  background: #0b0b0f;
+  color: #c9c9d1;
+}
+
+.desktop-only-card {
+  max-width: 460px;
+  text-align: center;
+}
+
+.desktop-only-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 18px;
+  color: #FFB830;
+  border: 1px solid rgba(255, 184, 48, 0.35);
+  border-radius: 50%;
+}
+
+.desktop-only-mark svg {
+  width: 30px;
+  height: 30px;
+}
+
+.desktop-only h1 {
+  margin-bottom: 12px;
+  font-stretch: 150%;
+  font-size: 26px;
+  line-height: 1.2;
+  color: #f2f2f5;
+}
+
+.desktop-only p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.desktop-only-sub {
+  margin-top: 10px;
+  color: #8a8a93;
+}
+
+.desktop-only strong {
+  color: #E8B34A;
+}
+
+.desktop-only-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.desktop-only-actions .btn {
+  width: auto;
+  min-width: 150px;
+  text-decoration: none;
+}
+
+/* Stands in for the address before launch. Italic and muted so it reads as a
+   state rather than as a value someone might try to copy. */
+.footer-ca-soon {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.docs-footer .footer-ca-soon {
+  color: #777;
+}
+
+/* ---- Docs: official addresses -------------------------------------------- */
+.addr-list {
+  margin: 20px 0 8px;
+  max-width: 760px;
+}
+
+/* Rows on a rule, like a table without the chrome. No accent edge, no filled
+   panel - the content is three lines of text and does not need a container. */
+.addr-row {
+  padding: 14px 2px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.addr-row:first-child {
+  border-top: 1px solid #e8e8e8;
+}
+
+.addr-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.addr-name {
+  font-weight: 700;
+  font-size: 16px;
+  color: #111;
+}
+
+/* Italic and muted: a state, not a value to be copied. */
+.addr-soon {
+  font-style: italic;
+  font-size: 13px;
+  color: #7a7a7a;
+}
+
+.addr-what {
+  margin-top: 4px;
+  font-size: 14px;
+  color: #555;
+}
+
+/*
+ * One in-game view per district, all in the same box.
+ *
+ * The source screenshots are hand-taken and range from 1.18 to 1.38 in ratio,
+ * so `height: auto` rendered four different heights and the cards no longer
+ * lined up. A fixed ratio with object-fit: cover crops each to the same frame
+ * instead of letting the capture decide the layout. 4:3 sits in the middle of
+ * that spread, so nothing loses much.
+ */
+.city-shot {
+  display: block;
+  width: 100%;
+  /* height:auto is load-bearing, not tidiness. The <img> carries a height
+     attribute for layout stability, which acts as a presentational hint and
+     pins the element to the capture's own pixel height - and an explicit height
+     beats aspect-ratio, so without this the ratio below is simply ignored. */
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  margin-bottom: 12px;
+  background: #ddd;
+  border: 1px solid #e4e4e4;
 }

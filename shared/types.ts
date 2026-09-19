@@ -208,3 +208,14 @@ export const DEFAULT_SETTINGS = {
 };
 
 export type GameSettings = typeof DEFAULT_SETTINGS;
+
+/** The display name for an outfit id, for UI that has no catalog entry to read. */
+export function outfitLabel(id: string): string {
+  return OUTFITS.find((o) => o.id === id)?.label ?? id;
+}
+
+const OUTFIT_IDS = new Set<string>(OUTFITS.map((o) => o.id));
+
+export function isOutfitId(id: string): id is OutfitId {
+  return OUTFIT_IDS.has(id);
+}

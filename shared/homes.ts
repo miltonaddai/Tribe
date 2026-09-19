@@ -4,7 +4,7 @@ import { CITIES, CITY_BOUNDS, CITY_GRID, CITY_ORDER, CITY_SIZE, HOME_PRICE, type
  * Which grid lots carry a landmark rather than a house. Lives here rather than
  * in the renderer so the server can derive the same home set the client builds.
  */
-export type LandmarkKind = "townhouse" | "hospital" | "police" | "store" | "dealer" | "park";
+export type LandmarkKind = "townhouse" | "hospital" | "police" | "store" | "dealer" | "fashion" | "park";
 
 /**
  * Landmark facades are hand-built facing +Z, so landmarks sit on the rows where
@@ -18,6 +18,10 @@ export const LANDMARKS: { gx: number; gz: number; kind: LandmarkKind }[] = [
   { gx: 0, gz: 1, kind: "police" },
   { gx: 3, gz: 1, kind: "store" },
   { gx: 1, gz: 2, kind: "dealer" },
+  // Next door to the store, which puts the two retail fronts on one row.
+  // Deliberately not (4, 2) or (3, 2): those lots are homes players own, and a
+  // landmark there would delete a house somebody paid for.
+  { gx: 2, gz: 1, kind: "fashion" },
   // The park has no facade, so it is free to sit on any row.
   { gx: 4, gz: 3, kind: "park" },
 ];

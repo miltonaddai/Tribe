@@ -1,10 +1,10 @@
-import type { AccessoryId } from "./types";
+import type { AccessoryId, OutfitId } from "./types";
 
-export type ItemKind = "accessory" | "gun" | "pet";
+export type ItemKind = "accessory" | "gun" | "pet" | "outfit";
 
 export type GunId = "pipe" | "pistol" | "rifle";
 export type PetId = "mutt" | "cat";
-export type ItemId = AccessoryId | GunId | PetId;
+export type ItemId = AccessoryId | GunId | PetId | OutfitId;
 
 export type InventoryStack = {
   id: ItemId;
@@ -54,11 +54,33 @@ export type GunSpec = {
   spread: number;
 };
 
+/**
+ * Ranges are bounded by interest management, not by taste: the server only
+ * replicates another player once they are within AOI_IN (70 units), so a weapon
+ * that outranged that would be aiming at people the client has never been told
+ * about. The rifle sits below it with margin; nothing should be raised past ~65
+ * without raising AOI_IN to match.
+ */
 export const GUNS: GunSpec[] = [
   { id: "pipe", label: "Lead Pipe", ranged: false, range: 2.8, damage: 26, cooldownMs: 520, aim: 0.12, spread: 0 },
-  { id: "pistol", label: "Sidearm", ranged: true, range: 30, damage: 22, cooldownMs: 420, aim: 0, spread: 1.5 },
-  { id: "rifle", label: "Street Rifle", ranged: true, range: 55, damage: 34, cooldownMs: 700, aim: 0, spread: 1.2 },
+  { id: "pistol", label: "Sidearm", ranged: true, range: 45, damage: 22, cooldownMs: 420, aim: 0, spread: 1.5 },
+  { id: "rifle", label: "Street Rifle", ranged: true, range: 65, damage: 34, cooldownMs: 700, aim: 0, spread: 1.2 },
 ];
+
+/**
+ * Weapons with a quick-arm slot, in slot order.
+ *
+ * Retired weapons are left out. The Lead Pipe is still a real weapon - anyone
+ * who bought one before it was withdrawn keeps it, and it still swings - but it
+ * is no longer sold, so handing it the first slot would give almost every
+ * player a number key that does nothing. Owners can still equip it from the
+ * inventory.
+ *
+ * Derived rather than listed so the slots cannot drift from the catalogue.
+ */
+export function armSlots(): GunSpec[] {
+  return GUNS.filter((g) => catalogItem(g.id)?.listed !== false);
+}
 
 export function gunSpec(id: string | null | undefined): GunSpec | null {
   return GUNS.find((g) => g.id === id) ?? null;
@@ -97,6 +119,19 @@ export const CATALOG: CatalogItem[] = [
   { id: "rifle", kind: "gun", name: "Street Rifle", blurb: "Long, loud, and a little extra.", price: 5000, tier: 4, unique: true },
   { id: "mutt", kind: "pet", name: "Block Mutt", blurb: "Follows you. Judges nobody.", price: 2500, tier: 1, unique: true },
   { id: "cat", kind: "pet", name: "Alley Cat", blurb: "Follows you when it feels like it.", price: 3000, tier: 2, unique: true },
+
+  // Outfits sold at the fashion house. Only the paid ones are catalog items:
+  // Every one is tier 1, because clothes are priced rather than gated - a
+  // Trench player who saves up can wear Valhalla Gold. See isTierGated().
+  // the free outfits need no ownership record, because everybody has them.
+  // Kept here rather than in a parallel shop so buying one goes through the
+  // same on-chain payment, the same uniqueness check and the same inventory
+  // that every other purchase already uses.
+  { id: "puffer", kind: "outfit", name: "Puffer Jacket", blurb: "Bulk, in a good way.", price: 1500, tier: 1, unique: true },
+  { id: "suit", kind: "outfit", name: "Suit & Tie", blurb: "For when the deal is large.", price: 2000, tier: 1, unique: true },
+  { id: "trench-coat", kind: "outfit", name: "Trench Coat", blurb: "Named for the district, worn everywhere.", price: 2500, tier: 1, unique: true },
+  { id: "neon", kind: "outfit", name: "Neon Runner", blurb: "Visible from the next block.", price: 3000, tier: 1, unique: true },
+  { id: "gold", kind: "outfit", name: "Valhalla Gold", blurb: "Subtlety is not the point.", price: 5000, tier: 1, unique: true },
 ];
 
 const CATALOG_MAP = new Map(CATALOG.map((item) => [item.id, item]));
@@ -122,9 +157,34 @@ export function isPetId(id: string): id is PetId {
   return PETS.some((p) => p.id === id);
 }
 
-/** What the store will actually sell you. Retired items never appear. */
+/**
+ * What the general store will sell you. Retired items never appear, and neither
+ * do outfits: those are sold at the fashion house, where there is a mirror and
+ * somewhere to put them on.
+ */
 export function storeStock(tier: number) {
-  return CATALOG.filter((item) => item.listed !== false && item.tier <= tier);
+  return CATALOG.filter(
+    (item) => item.listed !== false && item.kind !== "outfit" && item.tier <= tier,
+  );
+}
+
+/**
+ * What the fashion house sells. No tier argument: clothes are not gated by
+ * district, only by price, so every visitor sees the same rail.
+ */
+export function outfitStock() {
+  return CATALOG.filter((item) => item.kind === "outfit" && item.listed !== false);
+}
+
+/**
+ * Whether access tier restricts buying this at all.
+ *
+ * Only outfits are exempt. Guns, pets and accessories still belong to the
+ * district that sells them; clothes are self-expression, and locking those
+ * behind holdings makes the poorest players the most identifiable.
+ */
+export function isTierGated(item: CatalogItem): boolean {
+  return item.kind !== "outfit";
 }
 
 /** Whether the store may still sell this. Re-checked server-side on purchase. */
@@ -188,4 +248,22 @@ export function decodeInventory(raw: string | undefined | null): InventoryStack[
   } catch {
     return [];
   }
+}
+
+/**
+ * What an outfit costs, and therefore whether it needs buying at all.
+ *
+ * Derived from the catalog rather than listed separately: an outfit with a
+ * catalog entry is sold, and one without is free to everyone. Keeping it a
+ * derivation means the two can never disagree about which is which.
+ */
+export function outfitPrice(id: string): number {
+  const item = catalogItem(id);
+  return item?.kind === "outfit" ? item.price : 0;
+}
+
+/** Free outfits need no ownership record; paid ones must be in the inventory. */
+export function ownsOutfit(inventory: InventoryStack[], id: string): boolean {
+  if (outfitPrice(id) === 0) return true;
+  return hasItem(inventory, id as ItemId);
 }

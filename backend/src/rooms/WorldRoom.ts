@@ -1,5 +1,6 @@
 import { Room, type Client } from "@colyseus/core";
 import { fileReport, recentReports } from "../services/crimes";
+import { tributeThresholds } from "../services/cityThresholds";
 import {
   otherSide,
   ownSide,
@@ -15,8 +16,10 @@ import { CURRENCY,
   homePrice,
   CITY_BOUNDS,
   CITIES,
-  canEnterCity,
   cityEntered,
+  ownsOutfit,
+  isOutfitId,
+  isTierGated,
   DEFAULT_CHAIN,
   cityAtPosition,
   gunSpec,
@@ -268,6 +271,8 @@ export class WorldRoom extends Room<{ state: WorldState }> {
           city: entering,
           requiredTier: CITIES[entering].tier,
           yourTier: player.accessTier,
+          requiredTribute: tributeThresholds().find((t) => t.city === entering)?.min ?? 0,
+          yourTribute: player.tribute,
         });
         return;
       }
@@ -598,7 +603,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.closeTrade(session, `${name} cancelled the trade.`);
     });
 
-    this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string }) => {
+    this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string; outfit?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       if (typeof data.inventory === "string") player.inventory = data.inventory.slice(0, 4000);
@@ -609,6 +614,14 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       if (typeof data.gun === "string") player.gun = data.gun.slice(0, 24);
       if (typeof data.pet === "string") player.pet = data.pet.slice(0, 24);
       if (typeof data.accessories === "string") player.accessories = data.accessories.slice(0, 120);
+      // Outfits are checked rather than taken on trust: a paid one has to be in
+      // the inventory the server holds. Unlike a gun or a pet, which are only
+      // worn if the client also equips them locally, an unowned outfit claimed
+      // here would be visible on that player to everyone in the city - a free
+      // Valhalla Gold for anyone willing to edit a message.
+      if (typeof data.outfit === "string" && isOutfitId(data.outfit)) {
+        if (ownsOutfit(decodeInventory(player.inventory), data.outfit)) player.outfit = data.outfit;
+      }
     });
 
     this.onMessage("shoot", (client, data: { toSession?: string }) => {
@@ -1099,12 +1112,13 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
    * client gates on, and the two cannot drift.
    */
   private mayEnter(player: PlayerState, city: CityId): boolean {
-    return this.mayEnterAs(player.wallet, player.accessTier, city);
+    return this.mayEnterAs(player.wallet, player.tribute, city);
   }
 
   /** The same rule during onJoin, before there is a PlayerState to ask. */
-  private mayEnterAs(wallet: string, tier: number, city: CityId): boolean {
-    if (canEnterCity(tier, city)) return true;
+  private mayEnterAs(wallet: string, tribute: number, city: CityId): boolean {
+    const required = tributeThresholds().find((row) => row.city === city)?.min ?? 0;
+    if (tribute >= required) return true;
     return this.ownsHomeIn(wallet, city);
   }
 
@@ -1452,7 +1466,11 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // has to be, or existing owners would lose theirs - so the sale is refused
     // here rather than relying on the client not to ask.
     if (item.listed === false) return fail(`${item.name} is no longer sold.`);
-    if (item.tier > player.accessTier) return fail(`${item.name} needs tier ${item.tier}.`);
+    // Clothes are exempt: the fashion house prices its stock, it does not gate
+    // it by district. Everything else still needs the tier that sells it.
+    if (isTierGated(item) && item.tier > player.accessTier) {
+      return fail(`${item.name} needs tier ${item.tier}.`);
+    }
 
     const inventory = decodeInventory(player.inventory);
     if (item.unique && hasItem(inventory, item.id)) return fail("You already own that.");
@@ -1833,12 +1851,16 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const chain = this.chainFor(sessionId);
       this.holdingsCache.delete(`${chain}:${player.wallet.toLowerCase()}`);
       const { tier, balance } = await this.resolveHoldings(player.wallet, chain);
+      const tierChanged = player.accessTier !== tier;
+      const balanceChanged = player.tribute !== balance;
       player.accessTier = tier;
       // Same cadence as the holdings read: a killed process never runs onLeave.
       void this.rememberSpot(sessionId);
-      if (player.tribute === balance) continue;
       player.tribute = balance;
-      this.sendBag(sessionId, player);
+      // A live gate-threshold change can move the player to another tier while
+      // their wallet balance stays exactly the same. The client predicts gate
+      // access locally, so it must receive either kind of holdings change.
+      if (tierChanged || balanceChanged) this.sendBag(sessionId, player);
     }
   }
 
@@ -1848,7 +1870,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const { tier: accessTier, balance } = await this.resolveHoldings(options.wallet ?? "", chain);
     const requested = (options.city && CITY_BOUNDS[options.city] ? options.city : "trench") as CityId;
     const wallet = options.wallet ?? "";
-    const city = this.mayEnterAs(wallet, accessTier, requested) ? requested : "trench";
+    const city = this.mayEnterAs(wallet, balance, requested) ? requested : "trench";
 
     // Back where they left off, if they can still stand there. Holdings may have
     // fallen since, so a saved spot inside a district they no longer reach falls
@@ -1869,7 +1891,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const canStand =
       saved !== null &&
       savedCity !== "void" &&
-      (savedCity === "gate" || this.mayEnterAs(wallet, accessTier, savedCity as CityId));
+      (savedCity === "gate" || this.mayEnterAs(wallet, balance, savedCity as CityId));
     const spawn = canStand ? ([saved.x, CITY_BOUNDS[city].spawn[1], saved.z] as const) : CITY_BOUNDS[city].spawn;
     const player = new PlayerState();
     player.sessionId = client.sessionId;
@@ -1913,6 +1935,12 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.syncViewFor(client);
     }
     console.log(`[world] ${player.name} joined ${city} (tier ${player.accessTier})`);
+
+    // The gate thresholds the server actually enforces. The client keeps its own
+    // copy from VITE_CITY_MIN_TRIBE_*, but that is a separate env that can drift
+    // from this one - and a gate message quoting a figure nobody is enforcing is
+    // worse than no figure at all.
+    client.send("gates", { thresholds: tributeThresholds() });
 
     // Always push the balance: the client seeds one from its local character
     // record, and nothing else would correct it.

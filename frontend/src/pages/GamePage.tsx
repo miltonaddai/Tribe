@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, gunSpec } from "@tribe/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@tribe/shared";
 import type { GameSettings } from "@tribe/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
@@ -11,6 +11,10 @@ import { InventoryPanel, itemName } from "../components/InventoryPanel";
 import { FriendsTab } from "../components/FriendsTab";
 import { TradePanel } from "../components/TradePanel";
 import { CrimeBoard } from "../components/CrimeBoard";
+import { Wardrobe } from "../components/Wardrobe";
+import { ShotPreview } from "../components/ShotPreview";
+import { DesktopOnly } from "../components/DesktopOnly";
+import { playBlock, type Blocked } from "../lib/device";
 import { MiniMap, zoneLabel } from "../components/MiniMap";
 import { AudioOutputPicker } from "../components/AudioOutputPicker";
 import { loadOutputDevice } from "../lib/voiceChat";
@@ -36,6 +40,9 @@ const EMPTY: HudState = {
   inventory: [],
   inStore: false,
   inStation: false,
+  inFashion: false,
+  aiming: false,
+  outfit: "hi-vis",
   inTownhall: false,
   crimeReports: [],
   gun: null,
@@ -160,6 +167,14 @@ export function GamePage() {
   const [whisperText, setWhisperText] = useState("");
   const [tradeOpen, setTradeOpen] = useState(false);
   const [crimeOpen, setCrimeOpen] = useState(false);
+  const [fitOpen, setFitOpen] = useState(false);
+  const [shot, setShot] = useState<Blob | null>(null);
+  const [shooting, setShooting] = useState(false);
+  // Held up until the server says which district we are actually in.
+  const [loading, setLoading] = useState(true);
+  // Re-checked on resize so a desktop window dragged narrow recovers by being
+  // widened again, rather than needing a reload.
+  const [blocked, setBlocked] = useState<Blocked>(() => playBlock());
   const [invOpen, setInvOpen] = useState(false);
   const [listPrice, setListPrice] = useState("");
   const [homeName, setHomeName] = useState("");
@@ -195,7 +210,7 @@ export function GamePage() {
   // for aiming, and a trapped cursor cannot click Buy.
   const anyPanelOpen =
     invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused ||
-    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen ||
+    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || Boolean(shot) ||
     Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt);
   useEffect(() => {
     // Tell the engine either way: it must not grab the cursor back while a
@@ -203,7 +218,29 @@ export function GamePage() {
     engineRef.current?.setUiOpen(anyPanelOpen);
   }, [anyPanelOpen]);
 
+  // Declared as a ref-free closure over setState only, so the key handler bound
+  // once on mount still calls a working version.
+  const takeShot = () => {
+    const engine = engineRef.current;
+    if (!engine || typeof engine.captureShot !== "function") return;
+    setShooting(true);
+    void engine.captureShot().then((blob) => {
+      setShooting(false);
+      if (blob) setShot(blob);
+    });
+  };
+
   useEffect(() => {
+    const onResize = () => setBlocked(playBlock());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    // Nothing starts on a device that cannot play. Guarding here rather than
+    // hiding the canvas matters: booting the engine would download and build a
+    // whole 3D city on a phone that is about to be turned away.
+    if (blocked) return;
     const wallet = loadWallet();
     const character = wallet ? loadCharacterForWallet(wallet.address, wallet.chain) : loadCharacter();
     if (!character) {
@@ -214,7 +251,9 @@ export function GamePage() {
     if (!canvas) return;
     const engine = new GameEngine();
     engineRef.current = engine;
-    void engine.start(canvas, character, loadSettings(), setHud);
+    // start() now resolves once the authoritative spawn has been applied, so
+    // the canvas stays behind the loader until the player is in the right city.
+    void engine.start(canvas, character, loadSettings(), setHud).finally(() => setLoading(false));
     if (openSettings) setSettingsOpen(true);
 
     const onKey = (e: KeyboardEvent) => {
@@ -233,10 +272,17 @@ export function GamePage() {
       }
       if (e.key === "t" || e.key === "T") setTradeOpen(true);
       if (e.key === "i" || e.key === "I") {
+        // Inside the fashion house, I is the wardrobe: it is the reason you
+        // walked in, and the inventory is still reachable from the HUD button.
+        if (engine.inFashionHouse()) {
+          setFitOpen((open) => !open);
+          return;
+        }
         setInvOpen((open) => !open);
         setBuyError(null);
       }
       if (e.key === "r" || e.key === "R") setCrimeOpen((open) => !open);
+      if (e.key === "p" || e.key === "P") takeShot();
       if (e.key === "m" || e.key === "M") setMapOpen((open) => !open);
       if (e.key === "n" || e.key === "N") setInboxOpen((open) => !open);
       if (e.key === "Escape") {
@@ -273,7 +319,7 @@ export function GamePage() {
       window.removeEventListener("keydown", onKey);
       engine.dispose();
     };
-  }, [nav, cityKey, openSettings]);
+  }, [nav, cityKey, openSettings, blocked]);
 
   useEffect(() => {
     const line = hud.lastWhisper;
@@ -301,6 +347,23 @@ export function GamePage() {
   useEffect(() => {
     if (!hud.inStation) setCrimeOpen(false);
   }, [hud.inStation]);
+
+  // Walking out closes the wardrobe; you change clothes at the shop.
+  useEffect(() => {
+    if (!hud.inFashion) setFitOpen(false);
+  }, [hud.inFashion]);
+
+  // A failure from a previous visit is not news on the next one.
+  useEffect(() => {
+    if (fitOpen) setBuyError(null);
+  }, [fitOpen]);
+
+  // The mirror follows the wardrobe: open it and the camera swings to your
+  // front, close it and the normal follow camera comes back. Also cleared on
+  // the way out of the building, in case the panel never closed properly.
+  useEffect(() => {
+    engineRef.current?.setMirrorView(fitOpen && hud.inFashion);
+  }, [fitOpen, hud.inFashion]);
 
   useEffect(() => {
     if (paused && document.pointerLockElement) document.exitPointerLock();
@@ -372,6 +435,9 @@ export function GamePage() {
   const thread = whisperTarget
     ? hud.whispers.filter((w) => w.fromSession === whisperTarget.sessionId || w.toSession === whisperTarget.sessionId)
     : [];
+
+  // Before anything else: a device that cannot play never sees the canvas.
+  if (blocked) return <DesktopOnly reason={blocked} />;
 
   return (
     <div className="game-root">
@@ -504,9 +570,70 @@ export function GamePage() {
           {hud.aimTarget && <span className="crosshair-name">{hud.aimTarget}</span>}
         </div>
       )}
+      {loading && (
+        <div className="boot" role="status" aria-live="polite">
+          <div className="boot-card">
+            <p className="boot-mark">TRIBE</p>
+            <div className="boot-bar">
+              <span />
+            </div>
+            <p className="boot-note">Finding your district…</p>
+          </div>
+        </div>
+      )}
+
       {hud.gateMessage && <div className="gate-toast">{hud.gateMessage}</div>}
       {hud.notice && <div className="gate-toast home-toast">{hud.notice}</div>}
       {hud.prompt && <div className="prompt">{hud.prompt}</div>}
+
+      {/* Bottom-right action row, sat left of the minimap. One container so the
+          two sit together and the hint keeps its place when the Aim button is
+          absent - positioning each separately meant the hint jumped sideways
+          the moment a weapon was drawn. */}
+      {!anyPanelOpen && (
+        <div className="hud-actions">
+          {/* A standing legend, not a one-time tip. Nothing on screen suggests
+              the right button turns the camera, and the control is used
+              constantly - so it stays put beside Aim rather than vanishing once
+              the player has managed it. */}
+          <div className="pan-hint">
+            <span className="pan-hint-key">Right click</span> to pan
+          </div>
+
+          <button
+            className="aim-toggle shot-btn"
+            type="button"
+            disabled={shooting}
+            onClick={takeShot}
+            title="Screenshot (P)"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M2 5.5h2.6l1-1.6h4.8l1 1.6H14v7.2H2z" />
+              <circle cx="8" cy="9" r="2.4" />
+            </svg>
+            {shooting ? "…" : "Photo"}
+            <span className="aim-key">P</span>
+          </button>
+
+          {/* Quick action for first-person mode. Only with a ranged weapon out,
+              since that is the only thing aiming applies to. On a touch device
+              this is the only way in or out; on desktop it doubles as a
+              reminder that X does the same, because a locked pointer cannot
+              click it. */}
+          {gunSpec(hud.gun)?.ranged && (
+            <button
+              className={hud.aiming ? "aim-toggle on" : "aim-toggle"}
+              type="button"
+              onClick={() => engineRef.current?.toggleHolster()}
+              title={hud.aiming ? "Lower weapon (X)" : "Raise weapon and aim (X)"}
+            >
+              <span className="aim-dot" aria-hidden="true" />
+              {hud.aiming ? "Exit aim" : "Aim"}
+              <span className="aim-key">X</span>
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="hud-move">
         <div className="move-pad">
@@ -554,6 +681,15 @@ export function GamePage() {
                 ["G", "Add friend"],
                 ["T", "Trade"],
                 ["M", "Map"],
+                // Read off the same list the keys are bound from, so the help
+                // cannot claim a slot that does not exist.
+                [
+                  armSlots().length > 1 ? `1-${armSlots().length}` : "1",
+                  `Draw ${armSlots().map((g) => g.label).join(" / ")}`,
+                ],
+                ["0", "Put weapon away"],
+                ["P", "Screenshot"],
+                ["X", "Lower / raise weapon"],
                 ["Esc", "Pause"],
               ].map(([key, what]) => (
                 <li key={key}>
@@ -933,6 +1069,25 @@ export function GamePage() {
           </p>
           <p className="townhall-hang">Take a seat, meet your district, and hang out.</p>
         </aside>
+      )}
+
+      {fitOpen && hud.inFashion && (
+        <Wardrobe
+          inventory={hud.inventory}
+          current={hud.outfit}
+          tribute={hud.tribute}
+          error={buyError}
+          onWear={(id) => engineRef.current?.wearOutfit(id as never)}
+          onBuy={(id) => {
+            setBuyError(null);
+            void engineRef.current?.buyItem(id as ItemId).then((err) => setBuyError(err ?? null));
+          }}
+          onClose={() => setFitOpen(false)}
+        />
+      )}
+
+      {shot && (
+        <ShotPreview blob={shot} caption={hud.block} onClose={() => setShot(null)} />
       )}
 
       {crimeOpen && hud.inStation && (

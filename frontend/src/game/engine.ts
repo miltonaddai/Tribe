@@ -2,13 +2,18 @@ import * as pc from "playcanvas";
 import { getStateCallbacks, type Room } from "@colyseus/sdk";
 import { CURRENCY,
   type CrimeReport,
+  type OutfitId,
+  type CityThreshold,
+  isTierGated,
+  armSlots,
+  ownsOutfit,
+  outfitLabel,
   MIN_ASKING_PRICE,
   homePrice,
   parseHomeId,
   CITIES,
   CITY_BOUNDS,
   addItem,
-  canEnterCity,
   cityEntered,
   catalogItem,
   DEFAULT_CHAIN,
@@ -34,6 +39,8 @@ import { CURRENCY,
   type ItemId,
   type PetId,
 } from "@tribe/shared";
+import { composeShot, snapshot } from "../lib/screenshot";
+import { tributeThresholds } from "../lib/cityThresholds";
 import { joinWorld, type JoinFailure } from "../lib/colyseus";
 import { loadCharacter, saveCharacter } from "../lib/storage";
 import { loadWallet } from "../lib/wallet";
@@ -111,6 +118,39 @@ function layFlat(entity: pc.Entity) {
   entity.rotateLocal(90, 0, 0);
   entity.rotateLocal(0, 180, 0);
 }
+
+/**
+ * Look feel. LOOK_SMOOTH is the fraction of banked movement still outstanding
+ * after one second - lower is snappier, and this is low enough that the camera
+ * feels direct while still absorbing an uneven event stream.
+ */
+/** Shot round speed, world units a second. Fast enough to read as a bullet. */
+const BOLT_SPEED = 220;
+/** How long the streak behind the round is allowed to grow. */
+const TRAIL_LEN = 2.6;
+/** Muzzle flash duration. Short: a flash you can study is a lamp. */
+const MUZZLE_FLASH_MS = 70;
+
+/** How long to wait for the server's spawn before showing the world anyway. */
+const SPAWN_WAIT_MS = 6000;
+
+const LOOK_SMOOTH = 1e-7;
+const LOOK_SENS = 0.0024;
+/** A single movement event larger than this is a driver hiccup, not a flick. */
+const MOUSE_SPIKE = 180;
+
+/**
+ * Aim-down-sights camera. The eye sits a little forward of the head so the
+ * player's own body falls behind the camera rather than filling the view.
+ */
+const ADS_EYE_HEIGHT = 1.62;
+const ADS_EYE_FORWARD = 0.52;
+const ADS_FOV = 58;
+/** Aiming can look much further up and down than the orbit camera allows. */
+const ADS_PITCH = 1.15;
+
+/** How far in front of the player the fashion-house mirror sits. */
+const MIRROR_DIST = 3.2;
 
 const REMOTE_WALK_HOLD_MS = 160;
 /** How fast a remote body closes on its last known position. */
@@ -274,6 +314,11 @@ export type HudState = {
   inStore: boolean;
   /** Standing in a police station: unlocks the blotter panel. */
   inStation: boolean;
+  /** Standing in the fashion house: unlocks the wardrobe. */
+  inFashion: boolean;
+  /** Down the sights right now, so the quick-action button can say "exit". */
+  aiming: boolean;
+  outfit: string;
   /** Standing in the town hall, which is a placeholder for now. */
   inTownhall: boolean;
   crimeReports: CrimeReport[];
@@ -416,7 +461,39 @@ export class GameEngine {
   private pointerLocked = false;
   /** A panel is open, so the cursor belongs to the UI, not to aiming. */
   private uiOpen = false;
+  /** True once the server's spawn has been applied, so it happens only once. */
+  private spawned = false;
+  /** Resolves start()'s wait for that first authoritative position. */
+  private onSpawned: (() => void) | null = null;
+  /** Front-on camera, for checking an outfit at the fashion house. */
+  private mirrorView = false;
   private rightHeld = false;
+  /**
+   * Weapon lowered. Equipped but not aiming - the state a player is in between
+   * drawing and putting it away, which the game previously had no way to be in.
+   */
+  private holstered = false;
+  /** Live shot effects, advanced every frame in updateShotFx(). */
+  private shots: {
+    bolt: pc.Entity;
+    trail: pc.Entity;
+    from: { x: number; y: number; z: number };
+    dir: { x: number; y: number; z: number };
+    dist: number;
+    travelled: number;
+  }[] = [];
+  private puffs: {
+    e: pc.Entity;
+    life: number;
+    ttl: number;
+    size: number;
+    drift?: { x: number; y: number; z: number };
+  }[] = [];
+  private muzzleLight: pc.Entity | null = null;
+  private muzzleFlash = 0;
+  /** Mouse movement banked since the last frame, applied in applyLook(). */
+  private lookDx = 0;
+  private lookDy = 0;
   private remoteYaw = new Map<string, number>();
   private localName = "citizen";
   private look: Appearance | null = null;
@@ -446,6 +523,12 @@ export class GameEngine {
   private remotePets = new Map<string, pc.Entity>();
   private remotePetWalk = new Map<string, PetWalker>();
   private remoteLookKey = new Map<string, string>();
+  /**
+   * What each district costs to enter, as the server enforces it. Seeded from
+   * the local env so a message is possible before the server answers, then
+   * replaced by the authoritative list on join.
+   */
+  private gateCosts: CityThreshold[] = tributeThresholds();
   private crimeReports: CrimeReport[] = [];
   private tradeInvite: { fromSession: string; fromName: string } | null = null;
   private trade: TradeView | null = null;
@@ -537,6 +620,25 @@ export class GameEngine {
     this.joinFailure = joined.reason ?? null;
     if (this.room) this.voice = new VoiceChat(this.room);
     this.bindRoom();
+    this.emitHud();
+
+    // Hold until the server has placed us, so the caller can keep the loader up
+    // rather than showing a city we may be about to leave. Bounded: a failed or
+    // refused join never delivers a player, and waiting forever would be a
+    // permanent loading screen instead of a brief wrong city.
+    if (this.room && !joined.reason) {
+      await new Promise<void>((resolve) => {
+        if (this.spawned) return resolve();
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        this.onSpawned = finish;
+        window.setTimeout(finish, SPAWN_WAIT_MS);
+      });
+    }
     this.emitHud();
   }
 
@@ -677,10 +779,16 @@ export class GameEngine {
    * free to anyone willing to edit a number.
    */
   async buyItem(id: ItemId): Promise<string | null> {
-    if (this.inBuilding?.interiorKind !== "store") return "Walk into a Store to buy.";
     const item = catalogItem(id);
     if (!item) return "Unknown item.";
-    if (item.tier > this.accessTier) return `Needs tier ${item.tier}.`;
+    // Which counter carries it. This used to be "store" for everything, which
+    // silently refused every outfit: they are sold at the fashion house, so the
+    // guard rejected the purchase before the wallet was ever asked.
+    const counter = item.kind === "outfit" ? "fashion" : "store";
+    if (this.inBuilding?.interiorKind !== counter) {
+      return counter === "fashion" ? "Walk into the Fashion House to buy that." : "Walk into a Store to buy.";
+    }
+    if (isTierGated(item) && item.tier > this.accessTier) return `Needs tier ${item.tier}.`;
     if (this.tribute < item.price) return `Not enough ${CURRENCY}.`;
     if (item.unique && hasItem(this.inventory, item.id)) return "You already own that.";
     if (this.paying) return null;
@@ -704,9 +812,40 @@ export class GameEngine {
     }
   }
 
-/** A ranged weapon is out, so the mouse should be aiming it. */
+/**
+   * Down the sights: a ranged weapon is raised and the pointer is captured.
+   *
+   * This is the state that swaps the orbit camera for a first-person one, so it
+   * deliberately requires the cursor to actually be held - a weapon raised while
+   * a panel has the cursor is not aiming at anything.
+   */
+  private adsActive() {
+    return this.rangedOut() && (this.pointerLocked || this.rightHeld) && !this.uiOpen;
+  }
+
+  /** A ranged weapon is out, so the mouse should be aiming it. */
   private rangedOut() {
-    return Boolean(gunSpec(this.gun)?.ranged) && this.health > 0;
+    return Boolean(gunSpec(this.gun)?.ranged) && this.health > 0 && !this.holstered;
+  }
+
+  /**
+   * Lowers or raises an equipped weapon.
+   *
+   * Aiming engages by itself when a gun is drawn, which is what makes it feel
+   * immediate - but that needs a deliberate way out that is not "fight the
+   * browser". Holstering keeps the weapon equipped and simply stops aiming, so
+   * the cursor comes back and the camera returns to the normal follow.
+   */
+  toggleHolster() {
+    if (!gunSpec(this.gun)?.ranged) return;
+    this.holstered = !this.holstered;
+    if (this.holstered) {
+      this.releaseAim();
+      this.setNotice("Weapon lowered — X to raise it.");
+    } else {
+      this.captureAim();
+      this.setNotice("Weapon raised.");
+    }
   }
 
   /** Hands the cursor back - for opening a panel, or putting the gun away. */
@@ -747,14 +886,24 @@ export class GameEngine {
       this.refreshLook();
       return;
     }
+    if (item.kind === "outfit") {
+      this.wearOutfit(id as OutfitId);
+      return;
+    }
     if (item.kind === "gun") {
       this.gun = this.gun === id ? null : (id as GunId);
+      // Taking a weapon out means taking it out, not taking out a holstered one.
+      this.holstered = false;
       if (this.look) this.look.gun = this.gun;
       this.refreshLook();
       // Drawing a weapon starts aiming right away where it can; putting one
       // away hands the cursor back, or it stays trapped with nothing to aim.
       if (this.rangedOut()) this.captureAim();
       else this.releaseAim();
+      // Without this the weapon was local-only: persistBag is what sends the
+      // loadout, and the gun branch used to return before reaching it, so
+      // everyone else saw an unarmed player.
+      this.persistBag();
       return;
     }
     this.petKind = this.petKind === id ? null : (id as PetId);
@@ -812,6 +961,15 @@ export class GameEngine {
         if (mapped === "l" && !e.repeat) this.toggleLock();
         if (mapped === "h" && !e.repeat) this.promptHomeName();
         if (mapped === "g" && !e.repeat) this.addFriend();
+        if (mapped === "x" && !e.repeat) this.toggleHolster();
+        // Number keys draw a weapon, 0 puts it away. Pressing the slot already
+        // in hand disarms, so each key is its own opposite. The range follows
+        // armSlots() rather than a hard-coded "1-3", so retiring or adding a
+        // weapon moves the bindings with it.
+        if (!e.repeat && /^[1-9]$/.test(mapped) && Number(mapped) <= armSlots().length) {
+          this.quickArm(Number(mapped));
+        }
+        if (mapped === "0" && !e.repeat) this.disarm();
         if (mapped in { w: 1, a: 1, s: 1, d: 1, " ": 1, shift: 1, arrowup: 1, arrowdown: 1, arrowleft: 1, arrowright: 1 }) {
           e.preventDefault();
         }
@@ -851,15 +1009,26 @@ export class GameEngine {
     // The browser can drop the lock on its own - Escape, tab-out, a UI panel -
     // so the aiming flag follows the real lock state rather than guessing.
     const onLockChange = () => {
-      this.pointerLocked = document.pointerLockElement === canvas;
+      const locked = document.pointerLockElement === canvas;
+      // Losing the lock while armed is the player asking to stop aiming, and
+      // Escape is the only exit the browser offers them. Without this the next
+      // keypress re-captured instantly, so aim mode could not be left at all -
+      // pressing Escape and then walking put you straight back in it.
+      // A panel taking the cursor is not that, so it is excluded.
+      if (this.pointerLocked && !locked && !this.uiOpen && this.rangedOut()) this.holstered = true;
+      this.pointerLocked = locked;
       this.looking = this.pointerLocked || this.rightHeld;
     };
     const onMouseMove = (e: MouseEvent) => {
       if (!this.looking) return;
-      this.yaw -= e.movementX * 0.0024;
-      const lo = this.inBuilding ? -0.28 : -0.32;
-      const hi = this.inBuilding ? 0.48 : 1.2;
-      this.pitch = Math.max(lo, Math.min(hi, this.pitch - e.movementY * 0.002));
+      // Banked, not applied. Pointer lock delivers movement events at whatever
+      // rate the mouse reports - often several per frame on a high-polling
+      // mouse, sometimes one big one after a stall - and turning the camera on
+      // each of them made the motion track the event timing rather than the
+      // hand. A single spike is clamped too: a 400px jump is a driver hiccup,
+      // not an intended 180.
+      this.lookDx += Math.max(-MOUSE_SPIKE, Math.min(MOUSE_SPIKE, e.movementX));
+      this.lookDy += Math.max(-MOUSE_SPIKE, Math.min(MOUSE_SPIKE, e.movementY));
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keydown", onKeyAim);
@@ -884,8 +1053,8 @@ export class GameEngine {
     if (!room) return;
     const $ = getStateCallbacks(room);
 
-    room.onMessage("gate-denied", (msg: { city: CityId }) => {
-      this.gateMessage = `${CITIES[msg.city].name} is gated. Work your way up — you cannot buy in.`;
+    room.onMessage("gate-denied", (msg: { city: CityId; requiredTribute?: number; yourTribute?: number }) => {
+      this.gateMessage = this.gateText(msg.city, msg.requiredTribute, msg.yourTribute);
       this.gateUntil = performance.now() + 2800;
     });
     room.onMessage("whisper", (msg: WhisperLine) => {
@@ -917,6 +1086,9 @@ export class GameEngine {
         this.vehicleSpeed = 0;
       },
     );
+    room.onMessage("gates", (msg: { thresholds?: CityThreshold[] }) => {
+      if (Array.isArray(msg.thresholds) && msg.thresholds.length > 0) this.gateCosts = msg.thresholds;
+    });
     room.onMessage("crime-list", (msg: { reports?: CrimeReport[] }) => {
       this.crimeReports = Array.isArray(msg.reports) ? msg.reports : [];
     });
@@ -951,6 +1123,12 @@ export class GameEngine {
 
     $(room.state).players.onAdd((player, sessionId) => {
       if (sessionId === room.sessionId) {
+        // Where the server says we are. Until this arrives the player is stood
+        // at the cached home city's spawn, which is a guess: holdings may have
+        // changed, and a saved last position beats it outright. Adopting it
+        // here - before the world is ever shown - is what removes the visible
+        // hop from the wrong city to the right one.
+        this.adoptSpawn(player as { x?: number; y?: number; z?: number; city?: string });
         const incoming = (player as { health?: number }).health;
         if (typeof incoming === "number" && Number.isFinite(incoming)) this.health = clampHealth(incoming);
         $(player).listen("health", (value) => {
@@ -1038,7 +1216,7 @@ export class GameEngine {
       const shooter = this.remotes.get(String(msg.fromSession))?.getPosition();
       const hit = msg.toSession === room.sessionId ? this.player?.getPosition() : this.remotes.get(String(msg.toSession))?.getPosition();
       if (shooter && hit) {
-        this.drawTracer(shooter.x, shooter.y + 1.35, shooter.z, hit.x, hit.y + 1.2, hit.z);
+        this.spawnShotFx(shooter.x, shooter.y + 1.35, shooter.z, hit.x, hit.y + 1.2, hit.z);
       }
       const now = performance.now();
       if (msg.toSession === room.sessionId) {
@@ -1823,6 +2001,8 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     this.lastDt = dt;
     this.animT += dt;
     if (!this.player || !this.camera || !this.app) return;
+    this.applyLook(dt);
+    this.updateShotFx(dt);
     if (this.inVehicle) this.updateVehicle(dt);
     else this.updateWalk(dt);
     this.syncRemotes();
@@ -2246,6 +2426,32 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     let targetY = pos.y + (indoor ? 1.45 : 2.1) + Math.sin(elev) * (indoor ? dist * 0.5 : dist);
     let targetZ = pos.z - Math.cos(this.yaw) * planar;
 
+    // Down the sights: the camera stops orbiting and sits at the eye.
+    //
+    // This is the whole difference between third and first person. Orbiting
+    // swings the camera around the player on a 16-unit arm, so a small mouse
+    // move sweeps the entire world sideways - the aim moves because the scene
+    // moved. From the eye, the view rotates about its own position instead, and
+    // only the direction changes. The world stays where it is.
+    if (this.adsActive()) {
+      targetX = pos.x + Math.sin(this.yaw) * ADS_EYE_FORWARD;
+      targetY = pos.y + ADS_EYE_HEIGHT;
+      targetZ = pos.z + Math.cos(this.yaw) * ADS_EYE_FORWARD;
+      // No easing: a head does not lag behind its owner. Anything less than
+      // glued reads as swimming.
+      this.snapCamera = true;
+    }
+
+    // The mirror: swing round to the front. The sign on the offset is the whole
+    // trick - the follow camera sits at -forward, so +forward puts it where a
+    // mirror would be, facing back at you. Turning with A/D then shows your
+    // sides, because the camera keeps station ahead of wherever you face.
+    if (this.mirrorView) {
+      targetX = pos.x + Math.sin(this.yaw) * MIRROR_DIST;
+      targetY = pos.y + 1.55;
+      targetZ = pos.z + Math.cos(this.yaw) * MIRROR_DIST;
+    }
+
     if (indoor?.interior) {
       const m = 0.9;
       const cx = indoor.interior.x;
@@ -2270,7 +2476,23 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     );
     const lookAhead = indoor ? 2.4 : 6;
     const lookHeight = indoor ? 1.35 : Math.max(0.4, 1.6 + (0.38 - elev) * 18);
-    cam.lookAt(pos.x + Math.sin(this.yaw) * lookAhead, pos.y + lookHeight, pos.z + Math.cos(this.yaw) * lookAhead);
+    if (this.adsActive()) {
+      // Straight down the barrel. Positive pitch is up here, which is what a
+      // shooter expects - the orbit camera reads the same value as "how far the
+      // camera has risen", and rising means looking down at the player.
+      const cp = Math.cos(this.pitch);
+      const eye = cam.getPosition();
+      cam.lookAt(
+        eye.x + Math.sin(this.yaw) * cp,
+        eye.y + Math.sin(this.pitch),
+        eye.z + Math.cos(this.yaw) * cp,
+      );
+      return;
+    }
+    // Looking at the player rather than past them, or the mirror would frame
+    // the wall behind their head.
+    if (this.mirrorView) cam.lookAt(pos.x, pos.y + 1.05, pos.z);
+    else cam.lookAt(pos.x + Math.sin(this.yaw) * lookAhead, pos.y + lookHeight, pos.z + Math.cos(this.yaw) * lookAhead);
   }
 
 /**
@@ -2365,11 +2587,11 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       const kind = this.inBuilding.interiorKind;
       this.app.scene.fog.start = 12;
       this.app.scene.fog.end = kind === "townhall" ? 48 : 32;
-      this.camera.camera.fov = kind === "townhall" ? 50 : 56;
+      this.camera.camera.fov = this.adsActive() ? ADS_FOV : kind === "townhall" ? 50 : 56;
       this.camera.camera.farClip = 60;
       this.app.scene.ambientLight = new pc.Color(0.55, 0.52, 0.48);
-    } else if (this.camera.camera.fov !== 42) {
-      this.camera.camera.fov = 42;
+    } else if (this.camera.camera.fov !== (this.adsActive() ? ADS_FOV : 42)) {
+      this.camera.camera.fov = this.adsActive() ? ADS_FOV : 42;
       this.camera.camera.farClip = 70 + (this.settings?.renderDistance ?? 40) * 2.6;
       this.app.scene.fog.start = 50;
     }
@@ -2487,7 +2709,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     const entering = cityEntered(fromX, fromZ, toX, toZ);
     if (!entering) return true;
     if (!this.mayEnter(entering)) {
-      this.gateMessage = `${CITIES[entering].name} is gated to Tier ${CITIES[entering].tier}+. Higher-city citizens can come down; you cannot go up yet.`;
+      this.gateMessage = this.gateText(entering);
       this.gateUntil = performance.now() + 2600;
       return false;
     }
@@ -2503,7 +2725,8 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
    * predicts the same answer the server will give and there is no rubber-band.
    */
   private mayEnter(city: CityId): boolean {
-    if (canEnterCity(this.accessTier, city)) return true;
+    const required = this.gateCosts.find((row) => row.city === city)?.min;
+    if (required != null && this.tribute >= required) return true;
     if (!this.wallet) return false;
     for (const home of this.homes.values()) {
       if (home.city === city && home.owner === this.wallet) return true;
@@ -2642,6 +2865,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     else if (this.inBuilding?.interiorKind === "hospital") prompt = "Hospital — health refilling · E to exit";
     else if (this.inBuilding?.interiorKind === "police") prompt = "Police Station — press R for the blotter · E to exit";
     else if (this.inBuilding?.interiorKind === "townhall") prompt = "Town Hall — take a seat with C · E to exit";
+    else if (this.inBuilding?.interiorKind === "fashion") prompt = "Fashion House — press I to change · E to exit";
     else if (this.inBuilding && !this.sitting && !this.nearestSeat()) prompt = "Press E to exit building";
     else if (this.sitting) prompt = this.sitSeat?.lie ? "Press C or WASD to get up" : "Press C or WASD to stand";
     else if (this.nearestSeat()) prompt = this.nearestSeat()?.lie ? "Press C to lie down" : "Press C to sit";
@@ -2717,6 +2941,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       inventory: this.inventory,
       inStore: this.inBuilding?.interiorKind === "store",
       inStation: this.inBuilding?.interiorKind === "police",
+      inFashion: this.inBuilding?.interiorKind === "fashion",
+      aiming: this.adsActive(),
+      outfit: this.look?.outfit ?? "hi-vis",
       inTownhall: this.inBuilding?.interiorKind === "townhall",
       crimeReports: this.crimeReports,
       gun: this.gun,
@@ -3025,7 +3252,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     // Always draw the shot, so a miss reads as a miss rather than as nothing.
     const dx = Math.sin(this.yaw);
     const dz = Math.cos(this.yaw);
-    this.drawTracer(
+    this.spawnShotFx(
       from.x + dx * 0.6,
       from.y + 1.35,
       from.z + dz * 0.6,
@@ -3039,21 +3266,155 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     else this.hitNpc(target.npc, spec.damage);
   }
 
-  /** A thin emissive streak along the shot, cleaned up on a timer. */
-  private drawTracer(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) {
+  /**
+   * The shot: muzzle flash, a round that travels, and an impact.
+   *
+   * What this replaces was a single box the full length of the shot, switched on
+   * for 70ms and switched off. It read as a static stick appearing in the air,
+   * because nothing about it moved - the eye was given no direction, no speed
+   * and no point of origin.
+   *
+   * Now a round leaves the barrel and crosses the distance, dragging a short
+   * trail, and something happens where it lands. The travel time is real but
+   * brief: at 220 units a second a shot across the plaza takes about a seventh
+   * of a second, which is long enough to see and too short to feel sluggish.
+   *
+   * Everything fades by scale rather than by opacity, because material() hands
+   * out shared cached materials - dimming one would dim every object drawn with
+   * the same colour.
+   */
+  private spawnShotFx(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) {
     if (!this.app) return;
-    const len = Math.hypot(x2 - x1, y2 - y1, z2 - z1);
-    if (len < 0.2) return;
-    const tracer = new pc.Entity("tracer");
-    tracer.addComponent("render", {
+    const dist = Math.hypot(x2 - x1, y2 - y1, z2 - z1);
+    if (dist < 0.2) return;
+    const inv = 1 / dist;
+    const dir = { x: (x2 - x1) * inv, y: (y2 - y1) * inv, z: (z2 - z1) * inv };
+
+    const bolt = new pc.Entity("bolt");
+    bolt.addComponent("render", {
       type: "box",
-      material: material("#FFE7A0", { emissive: "#FFF3C4", intensity: 8 }),
+      material: material("#FFF6D0", { emissive: "#FFF6D0", intensity: 12 }),
     });
-    tracer.setLocalScale(0.055, 0.055, len);
-    tracer.setPosition((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
-    tracer.lookAt(x2, y2, z2);
-    this.app.root.addChild(tracer);
-    window.setTimeout(() => tracer.destroy(), 70);
+    bolt.setLocalScale(0.09, 0.09, 0.8);
+    bolt.setPosition(x1, y1, z1);
+    bolt.lookAt(x2, y2, z2);
+    this.app.root.addChild(bolt);
+
+    const trail = new pc.Entity("trail");
+    trail.addComponent("render", {
+      type: "box",
+      material: material("#FFC86A", { emissive: "#FFC86A", intensity: 6 }),
+    });
+    trail.setLocalScale(0.035, 0.035, 0.01);
+    this.app.root.addChild(trail);
+
+    this.shots.push({ bolt, trail, from: { x: x1, y: y1, z: z1 }, dir, dist, travelled: 0 });
+
+    // Muzzle flash: a brief flare at the barrel, plus one real light so the
+    // shooter and the ground around them actually brighten for a frame or two.
+    this.spawnPuff(x1, y1, z1, 0.42, 0.07, "#FFE9A8");
+    this.flashMuzzle(x1, y1, z1);
+  }
+
+  /** A shrinking emissive cube. The whole vocabulary of these effects. */
+  private spawnPuff(x: number, y: number, z: number, size: number, ttl: number, hex: string, drift?: { x: number; y: number; z: number }) {
+    if (!this.app) return;
+    const e = new pc.Entity("fx");
+    e.addComponent("render", { type: "box", material: material(hex, { emissive: hex, intensity: 9 }) });
+    e.setLocalScale(size, size, size);
+    e.setPosition(x, y, z);
+    this.app.root.addChild(e);
+    this.puffs.push({ e, life: 0, ttl, size, drift });
+  }
+
+  /**
+   * One reusable light for every muzzle flash.
+   *
+   * Created once and moved, rather than a new light per shot: lights are the
+   * expensive thing in this renderer, and a firefight would otherwise add one
+   * per trigger pull.
+   */
+  private flashMuzzle(x: number, y: number, z: number) {
+    if (!this.app) return;
+    if (!this.muzzleLight) {
+      this.muzzleLight = new pc.Entity("muzzle-light");
+      this.muzzleLight.addComponent("light", {
+        type: "omni",
+        color: new pc.Color(1, 0.88, 0.62),
+        range: 9,
+        intensity: 0,
+        castShadows: false,
+      });
+      this.app.root.addChild(this.muzzleLight);
+    }
+    this.muzzleLight.setPosition(x, y, z);
+    this.muzzleFlash = MUZZLE_FLASH_MS / 1000;
+  }
+
+  /** Advances every live shot, puff and the muzzle light. */
+  private updateShotFx(dt: number) {
+    for (let i = this.shots.length - 1; i >= 0; i--) {
+      const s = this.shots[i];
+      s.travelled = Math.min(s.dist, s.travelled + BOLT_SPEED * dt);
+      const hx = s.from.x + s.dir.x * s.travelled;
+      const hy = s.from.y + s.dir.y * s.travelled;
+      const hz = s.from.z + s.dir.z * s.travelled;
+      s.bolt.setPosition(hx, hy, hz);
+
+      // The trail runs from just behind the round back toward the muzzle, and
+      // is capped so it reads as a streak rather than a growing beam.
+      const tail = Math.min(TRAIL_LEN, s.travelled);
+      if (tail > 0.05) {
+        s.trail.enabled = true;
+        s.trail.setLocalScale(0.035, 0.035, tail);
+        s.trail.setPosition(hx - s.dir.x * tail * 0.5, hy - s.dir.y * tail * 0.5, hz - s.dir.z * tail * 0.5);
+        s.trail.lookAt(hx, hy, hz);
+      } else {
+        s.trail.enabled = false;
+      }
+
+      if (s.travelled >= s.dist) {
+        // Impact: one bright core and a handful of sparks thrown back toward
+        // the shooter, which is the direction debris actually comes off.
+        this.spawnPuff(hx, hy, hz, 0.5, 0.1, "#FFD08A");
+        for (let k = 0; k < 5; k++) {
+          const a = (k / 5) * Math.PI * 2;
+          this.spawnPuff(hx, hy, hz, 0.13, 0.22, "#FFA23E", {
+            x: -s.dir.x * 2.2 + Math.cos(a) * 2.4,
+            y: 1.6 + Math.sin(a) * 1.2,
+            z: -s.dir.z * 2.2 + Math.sin(a) * 2.4,
+          });
+        }
+        s.bolt.destroy();
+        s.trail.destroy();
+        this.shots.splice(i, 1);
+      }
+    }
+
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const p = this.puffs[i];
+      p.life += dt;
+      const k = p.life / p.ttl;
+      if (k >= 1) {
+        p.e.destroy();
+        this.puffs.splice(i, 1);
+        continue;
+      }
+      if (p.drift) {
+        const q = p.e.getPosition();
+        // Gravity on the sparks, so they arc instead of sliding.
+        p.drift.y -= 9 * dt;
+        p.e.setPosition(q.x + p.drift.x * dt, q.y + p.drift.y * dt, q.z + p.drift.z * dt);
+      }
+      const scale = p.size * (1 - k) * (1 - k);
+      p.e.setLocalScale(scale, scale, scale);
+    }
+
+    if (this.muzzleFlash > 0 && this.muzzleLight?.light) {
+      this.muzzleFlash = Math.max(0, this.muzzleFlash - dt);
+      const k = this.muzzleFlash / (MUZZLE_FLASH_MS / 1000);
+      this.muzzleLight.light.intensity = 6 * k * k;
+    }
   }
 
   private findTarget(
@@ -3215,6 +3576,214 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.gateUntil = performance.now() + 2800;
     }
     this.lastHealth = this.health;
+  }
+
+  /**
+   * Puts on an outfit.
+   *
+   * Refuses anything the player does not own, which for a free outfit is always
+   * satisfied and for a paid one means it must be in the inventory. The check is
+   * repeated server-side; this one exists so the wardrobe cannot show a change
+   * that will not stick.
+   *
+   * The new look is pushed to the room as well as saved, or everyone else keeps
+   * seeing the clothes you arrived in until you reconnect.
+   */
+  /**
+   * What the gate says when it turns you away.
+   *
+   * Leads with the number, because that is the only part a player can act on:
+   * "gated to Tier 3+" says nothing about how far off they are, while a figure
+   * against their own balance says exactly what is missing. Owning property in
+   * the district opens it too, and that is worth saying to anyone close enough
+   * for it to matter.
+   *
+   * `required` and `held` come from the server when it was the one refusing;
+   * otherwise they fall back to the cached thresholds and the local balance.
+   */
+  private gateText(city: CityId, required?: number, held?: number): string {
+    const name = CITIES[city].name;
+    const need = required ?? this.gateCosts.find((t) => t.city === city)?.min ?? 0;
+    const have = held ?? this.tribute;
+    if (need <= 0) return `${name} is gated.`;
+    const short = Math.max(0, need - have);
+    const n = (v: number) => Math.round(v).toLocaleString();
+    if (short === 0) {
+      // Holdings are re-read on a timer, so a balance that has just cleared the
+      // bar is not wrong - it simply has not been picked up yet.
+      return `${name} needs ${n(need)} ${CURRENCY}. Your balance is being rechecked — try again in a moment.`;
+    }
+    return `${name} needs ${n(need)} ${CURRENCY}. You hold ${n(have)} — ${n(short)} short.`;
+  }
+
+  /**
+   * Turns the camera by whatever the mouse banked since the last frame.
+   *
+   * Once per frame rather than once per event, so the speed of the turn follows
+   * the distance the hand moved rather than how many events the mouse happened
+   * to emit. The remainder is carried instead of dropped: easing toward the
+   * banked delta smooths the motion without losing any of it, so a slow drag
+   * still ends up exactly where it was aimed.
+   */
+  private applyLook(dt: number) {
+    if (this.lookDx === 0 && this.lookDy === 0) return;
+    const t = Math.min(1, 1 - Math.pow(LOOK_SMOOTH, dt));
+    const dx = this.lookDx * t;
+    const dy = this.lookDy * t;
+    this.lookDx -= dx;
+    this.lookDy -= dy;
+    // Below a fraction of a pixel the carry is invisible; drop it so the camera
+    // settles instead of creeping.
+    if (Math.abs(this.lookDx) < 0.01) this.lookDx = 0;
+    if (Math.abs(this.lookDy) < 0.01) this.lookDy = 0;
+
+    this.yaw -= dx * LOOK_SENS;
+    // Aiming needs the full range: the orbit limits exist to stop the camera
+    // ducking through the floor or the ceiling, neither of which applies to a
+    // view taken from the player's own head.
+    const ads = this.adsActive();
+    const lo = ads ? -ADS_PITCH : this.inBuilding ? -0.28 : -0.32;
+    const hi = ads ? ADS_PITCH : this.inBuilding ? 0.48 : 1.2;
+    this.pitch = Math.max(lo, Math.min(hi, this.pitch - dy * LOOK_SENS * 0.83));
+  }
+
+  /**
+   * Turns the mirror on or off. Eased rather than snapped, so the camera swings
+   * round to your front instead of cutting - which reads as a camera move
+   * rather than as a teleport.
+   */
+  setMirrorView(on: boolean) {
+    this.mirrorView = on && this.inBuilding?.interiorKind === "fashion";
+  }
+
+  /**
+   * Draws the weapon in a numbered slot, or puts it away if it is already out.
+   *
+   * Slots come from armSlots(), which is the weapons still sold - a retired one
+   * would otherwise hold a number key that does nothing for almost everybody.
+   * Pressing the slot you are already holding disarms, so one key both arms and
+   * disarms and there is nothing to remember about which state you are in.
+   */
+  quickArm(slot: number) {
+    const spec = armSlots()[slot - 1];
+    if (!spec) return;
+    if (this.gun === spec.id) {
+      this.disarm();
+      return;
+    }
+    if (!hasItem(this.inventory, spec.id as ItemId)) {
+      this.setNotice(`You do not own a ${spec.label}.`);
+      return;
+    }
+    this.gun = spec.id;
+    // A weapon you just drew is drawn, not lowered.
+    this.holstered = false;
+    if (this.look) this.look.gun = this.gun;
+    this.refreshLook();
+    if (this.rangedOut()) this.captureAim();
+    else this.releaseAim();
+    this.persistBag();
+    this.setNotice(`${spec.label} drawn.`);
+  }
+
+  /** Puts the weapon away entirely - unequipped, not merely lowered. */
+  disarm() {
+    if (!this.gun) return;
+    const label = gunSpec(this.gun)?.label ?? "Weapon";
+    this.gun = null;
+    this.holstered = false;
+    if (this.look) this.look.gun = null;
+    this.refreshLook();
+    this.releaseAim();
+    this.persistBag();
+    this.setNotice(`${label} put away.`);
+  }
+
+  /**
+   * Takes a screenshot of the world.
+   *
+   * The copy is taken on "postrender", which still runs inside the frame that
+   * drew it. Anywhere later and WebGL has already discarded the drawing buffer
+   * and the image comes back empty - the alternative being preserveDrawingBuffer,
+   * a device-creation flag that would tax every frame for every player forever
+   * to serve a button most will never press.
+   *
+   * The HUD is DOM sitting on top of the canvas, so none of it is included.
+   * That is wanted here: a clean shot of the city is the thing worth sharing,
+   * and a health bar across the middle of it is not.
+   */
+  captureShot(): Promise<Blob | null> {
+    const app = this.app;
+    const canvas = this.canvas;
+    if (!app || !canvas) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (blob: Blob | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(blob);
+      };
+      app.once("postrender", () => {
+        const copy = snapshot(canvas);
+        if (!copy) return finish(null);
+        // Watermarking and encoding happen off the critical path, on the copy.
+        void composeShot(copy, this.shotCaption()).then(finish);
+      });
+      // A paused or hidden tab may never render again; do not hang the UI on it.
+      window.setTimeout(() => finish(null), 2000);
+    });
+  }
+
+  /** "Trench City · BLK 07 · -57, 198" - where the shot was taken. */
+  private shotCaption(): string {
+    const p = this.player?.getPosition();
+    const city = CITIES[this.city]?.name ?? "";
+    if (!p) return city;
+    return `${city} · ${Math.round(p.x)}, ${Math.round(p.z)}`;
+  }
+
+  /**
+   * Moves the local player to the spawn the server chose, and unblocks start().
+   *
+   * Called once, from the first state sync. The camera is snapped rather than
+   * eased: there is no previous position worth travelling from, and easing over
+   * a whole city would be the very glide this exists to remove.
+   */
+  private adoptSpawn(state: { x?: number; y?: number; z?: number; city?: string }) {
+    if (this.spawned) return;
+    this.spawned = true;
+    const x = Number(state.x);
+    const z = Number(state.z);
+    if (this.player && Number.isFinite(x) && Number.isFinite(z)) {
+      const y = Number.isFinite(Number(state.y)) ? Number(state.y) : WALK_Y;
+      this.player.setPosition(x, y, z);
+      if (state.city && CITIES[state.city as CityId]) this.city = state.city as CityId;
+      this.snapCamera = true;
+      // The sky belongs to the district we actually landed in.
+      this.lastCycleKey = "";
+      this.applyCityMood();
+    }
+    this.onSpawned?.();
+    this.onSpawned = null;
+  }
+
+  /** Whether the player is stood in the fashion house, for the I-key binding. */
+  inFashionHouse(): boolean {
+    return this.inBuilding?.interiorKind === "fashion";
+  }
+
+  wearOutfit(id: OutfitId) {
+    if (!ownsOutfit(this.inventory, id)) {
+      this.setNotice("You do not own that outfit.");
+      return;
+    }
+    if (!this.look) return;
+    this.look.outfit = id;
+    this.refreshLook();
+    this.room?.send("loadout", { outfit: id });
+    const c = loadCharacter();
+    if (c) saveCharacter({ ...c, outfit: id }, loadWallet()?.chain);
+    this.setNotice(`Wearing ${catalogItem(id)?.name ?? outfitLabel(id)}.`);
   }
 
   private persistBag() {

@@ -2,7 +2,7 @@ import * as pc from "playcanvas";
 import type { CityTheme } from "@tribe/shared";
 import { box, hexColor } from "./pcApp";
 
-export type InteriorKind = "home" | "hospital" | "police" | "townhall" | "store";
+export type InteriorKind = "home" | "hospital" | "police" | "townhall" | "store" | "fashion";
 
 export type InteriorLayout = {
   kind: InteriorKind;
@@ -18,6 +18,7 @@ const LAYOUTS: Record<InteriorKind, InteriorLayout> = {
   police: { kind: "police", halfW: 9, halfD: 7, height: 4.2, spawnZ: 5.2 },
   townhall: { kind: "townhall", halfW: 16, halfD: 11, height: 8.2, spawnZ: 8.6 },
   store: { kind: "store", halfW: 8, halfD: 6.5, height: 4.2, spawnZ: 4.8 },
+  fashion: { kind: "fashion", halfW: 9, halfD: 7, height: 4.6, spawnZ: 5.2 },
 };
 
 /**
@@ -161,6 +162,7 @@ export function fillInterior(
   else if (kind === "hospital") buildHospital(root, layout);
   else if (kind === "police") buildPolice(root, layout);
   else if (kind === "store") buildStore(root, layout, theme);
+  else if (kind === "fashion") buildFashion(root, layout, theme);
   else buildTownhall(root, layout, theme);
   return layout;
 }
@@ -551,3 +553,70 @@ function addStoreWatch(root: pc.Entity, x: number, z: number, accent: string) {
   });
 }
 
+
+/**
+ * The fashion house floor: rails of clothes down both walls, mirrors at the
+ * back, and a fitting platform in the middle for the player to stand on while
+ * they change.
+ *
+ * Lighter and brighter than the store, which is deliberately dim - you are
+ * meant to be able to see what a colour actually looks like in here.
+ */
+function buildFashion(root: pc.Entity, layout: InteriorLayout, theme: CityTheme) {
+  const w = layout.halfW;
+  const d = layout.halfD;
+  shell(root, layout, "#2B2118", "#F4EFE6", "#FBF8F2", "#C9A227");
+  omni(root, "lamp", [0, layout.height - 0.7, 0], "#FFF3DC", 1.7, 20);
+  omni(root, "lamp-back", [0, layout.height - 1.1, -d + 2], "#FFF3DC", 1.1, 12);
+
+  // Fitting platform, centred. Raised just enough to read as a step up.
+  //
+  // No glowing trim on top: it was wider than the platform it sat on, so its
+  // edges overhung into thin air, and being emissive they lit up there - a pink
+  // slab apparently floating in the middle of the room.
+  box(root, "podium", [0, 0.12, 0.6], [3.2, 0.24, 3.2], "#8C6A3F");
+
+  // Three mirrors on the back wall, angled by position rather than rotation:
+  // the outer two sit slightly forward so the bank reads as a curve.
+  for (const [i, x] of [-2.6, 0, 2.6].entries()) {
+    const forward = x === 0 ? 0 : 0.35;
+    box(root, `mirror-${i}`, [x, 1.75, -d + 0.3 + forward], [1.9, 3.1, 0.14], "#D9E6EE", {
+      emissive: "#BFD4E2",
+      intensity: 0.9,
+    });
+    box(root, `mirror-frame-${i}`, [x, 1.75, -d + 0.22 + forward], [2.1, 3.3, 0.1], "#3A2C1C");
+  }
+
+  // Clothes rails down both side walls, with garments hanging off them.
+  const palette = ["#B91C1C", "#1D4ED8", "#D4AF37", "#14532D", "#6D28D9", "#0F766E"];
+  for (const side of [-1, 1]) {
+    const x = side * (w - 1.1);
+    box(root, `rail-${side}`, [x, 1.9, 0], [0.12, 0.12, d * 1.5], "#9CA3AF", {
+      emissive: "#9CA3AF",
+      intensity: 0.4,
+    });
+    box(root, `rail-post-a-${side}`, [x, 1.0, -d * 0.7], [0.1, 1.9, 0.1], "#6B7280");
+    box(root, `rail-post-b-${side}`, [x, 1.0, d * 0.7], [0.1, 1.9, 0.1], "#6B7280");
+    for (let i = 0; i < 6; i++) {
+      const z = -d * 0.66 + i * ((d * 1.32) / 5);
+      const colour = palette[(i + (side > 0 ? 3 : 0)) % palette.length];
+      box(root, `garment-${side}-${i}`, [x - side * 0.22, 1.25, z], [0.16, 1.15, 0.8], colour);
+    }
+  }
+
+  // Mannequins flanking the podium, so the room reads as clothing from the door.
+  for (const side of [-1, 1]) {
+    const x = side * 4.2;
+    box(root, `dummy-leg-${side}`, [x, 0.42, -1.6], [0.42, 0.84, 0.3], "#3F3F46");
+    box(root, `dummy-body-${side}`, [x, 1.25, -1.6], [0.72, 0.9, 0.42], side < 0 ? "#D4AF37" : "#6D28D9");
+    box(root, `dummy-head-${side}`, [x, 1.85, -1.6], [0.32, 0.34, 0.32], "#D8C7AE");
+  }
+
+  box(root, "counter", [w - 2.6, 0.62, d - 1.6], [2.6, 1.05, 1.1], "#3A2C1C");
+  box(root, "counter-top", [w - 2.6, 1.18, d - 1.6], [2.8, 0.1, 1.25], theme.accent);
+
+  box(root, "sign", [0, layout.height - 1.0, -d + 0.2], [5.2, 0.7, 0.08], theme.accent, {
+    emissive: theme.accent,
+    intensity: 2.4,
+  });
+}

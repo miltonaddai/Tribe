@@ -1088,7 +1088,7 @@ export function GamePage() {
       )}
 
       {shot && (
-        <ShotPreview blob={shot} caption={hud.block} onClose={() => setShot(null)} />
+        <ShotPreview blob={shot} onClose={() => setShot(null)} />
       )}
 
       {crimeOpen && hud.inStation && (

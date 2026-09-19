@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Header } from "../components/Header";
 import { CHAIN_NAME } from "../lib/chain";
@@ -22,13 +22,17 @@ const UPDATED = "18 September 2026";
 export function LegalPage() {
   const { pathname } = useLocation();
   const terms = pathname.startsWith("/terms");
+  const scroller = useRef<HTMLDivElement>(null);
 
+  // The window does not scroll - this page is its own scroller - so moving
+  // between the two documents has to rewind the container, or the second one
+  // opens halfway down wherever the first was left.
   useEffect(() => {
-    window.scrollTo(0, 0);
+    scroller.current?.scrollTo(0, 0);
   }, [pathname]);
 
   return (
-    <div className="legal-page">
+    <div className="legal-page" ref={scroller}>
       <Header />
       <main className="legal-main">
         <p className="docs-crumb">TRIBE — {terms ? "TERMS OF USE" : "PRIVACY POLICY"}</p>

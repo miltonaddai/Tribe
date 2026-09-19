@@ -117,14 +117,17 @@ function Addresses() {
     {
       name: "Official $TRIBE contract",
       what: "The token itself. Every balance, gate check and purchase reads from this contract.",
+      address: null,
     },
     {
       name: "Dev wallet",
-      what: "The team wallet. Store purchases are paid to this address.",
+      what: "The team wallet.",
+      address: "0xCac7a5D3DDbB7c66d618280F4BcDE18df4e76fd2",
     },
     {
       name: "Game store wallet",
       what: "Where in-game store payments settle. Published so a purchase can be checked on the explorer.",
+      address: "0xD88E045b3DeFD1FFb16036E8F87E0F3486A4C054",
     },
   ];
 
@@ -132,9 +135,8 @@ function Addresses() {
     <>
       <h1>Token</h1>
       <p>
-        Nothing here is live yet. When each address is published it will appear on this page first —
-        check anything you are about to send funds to against this list, and treat an address from
-        anywhere else as wrong until it matches.
+        Check anything you are about to send funds to against this list, and treat an address from
+        anywhere else as wrong until it matches. Addresses appear here first.
       </p>
 
       <div className="addr-list">
@@ -142,7 +144,11 @@ function Addresses() {
           <div className="addr-row" key={r.name}>
             <div className="addr-head">
               <span className="addr-name">{r.name}</span>
-              <span className="addr-soon">Coming soon</span>
+              {r.address ? (
+                <code className="addr-value">{r.address}</code>
+              ) : (
+                <span className="addr-soon">Coming soon</span>
+              )}
             </div>
             <p className="addr-what">{r.what}</p>
           </div>

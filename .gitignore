@@ -12,5 +12,4 @@ coverage
 !.vscode/extensions.json
 frontend/dist
 backend/dist
-supabase
 promo

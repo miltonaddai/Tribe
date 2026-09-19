@@ -1175,6 +1175,8 @@ export class GameEngine {
       if (list && at >= 0) list.splice(at, 1);
     });
 
+    room.onMessage("hospital-outside", () => this.dischargeOutside());
+
     room.onMessage("home-result", (msg: { ok?: boolean; reason?: string; price?: number; listed?: boolean }) => {
       // Rejections are transient feedback; the successes arrive as inbox messages.
       if (!msg.ok) this.setNotice(msg.reason ?? "Rejected");
@@ -3805,6 +3807,39 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
    * the case that must not fail: refusing them a place to heal would leave them
    * downed outside with no way back.
    */
+  /**
+   * The ward was full, so they were patched up and shown the door. Health is
+   * already back at 100 on the server; this is only the walk outside, which
+   * the server cannot place because it has no map of where the doors are.
+   */
+  private dischargeOutside() {
+    if (!this.player || !this.world) return;
+    const door = this.world.interactables.find(
+      (item) => item.kind === "door" && item.interiorKind === "hospital" && item.city === this.city,
+    );
+    if (!door?.exterior) return;
+
+    // They may have gone down inside a building; that interior stays lit
+    // otherwise, with nobody in it.
+    if (this.inBuilding) {
+      const previous = this.world.interiors.get(this.inBuilding.id);
+      if (previous) previous.enabled = false;
+      this.inBuilding = null;
+    }
+    this.inVehicle = null;
+    this.clearSit();
+    this.knockdown = null;
+    this.player.setPosition(door.exterior.x, WALK_Y, door.exterior.z);
+    this.vy = 0;
+    this.grounded = true;
+    this.pitch = 0.38;
+    this.snapCamera = true;
+    this.releaseAim();
+    this.syncRemotes();
+    this.syncMove();
+    this.setNotice("Patched up and sent on your way.");
+  }
+
   private admitToWard(slot: number) {
     if (!this.player || !this.world) return;
     const door = this.world.interactables.find(

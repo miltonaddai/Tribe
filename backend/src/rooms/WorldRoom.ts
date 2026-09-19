@@ -712,14 +712,17 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       // afterwards would stand them straight back up again.
       to.sitting = false;
       to.lying = false;
-      this.markHealth(toSession, to.health <= 0);
-      if (to.health <= 0) this.hospitalise(toSession, to);
+      // What the shot left them on, read before the hospital tops an overflow
+      // patient back up - otherwise the knockdown broadcasts as a full bar.
+      const left = to.health;
+      this.markHealth(toSession, left <= 0);
+      if (left <= 0) this.hospitalise(toSession, to);
 
       this.broadcast("gunshot", {
         fromSession: client.sessionId,
         toSession,
         gun: spec.id,
-        health: to.health,
+        health: left,
         x: to.x,
         z: to.z,
       });
@@ -745,9 +748,12 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       to.health = Math.max(0, to.health - (melee && !melee.ranged ? melee.damage : 18));
       to.sitting = false;
       to.lying = false;
-      this.markHealth(toSession, to.health <= 0);
-      if (to.health <= 0) this.hospitalise(toSession, to);
-      if (!to.recovering && dist > 0.05) {
+      const left = to.health;
+      this.markHealth(toSession, left <= 0);
+      if (left <= 0) this.hospitalise(toSession, to);
+      // Neither a patient on a gurney nor one already stood back up outside
+      // the hospital gets knocked across the street by the punch that did it.
+      if (left > 0 && dist > 0.05) {
         const nx = (to.x - from.x) / dist;
         const nz = (to.z - from.z) / dist;
         to.x += nx * 1.05;
@@ -757,7 +763,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.broadcast("melee", {
         fromSession: client.sessionId,
         toSession,
-        health: to.health,
+        health: left,
         x: to.x,
         z: to.z,
       });
@@ -1396,9 +1402,10 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
    * empty one they can see. It hands back an index, not a position - it has no
    * idea where the furniture is - and the client lays the body on it.
    *
-   * With every bed taken the patient recovers standing, which is the one case
-   * that has to keep working: a ward that turns people away would leave them
-   * downed on the street with no way back.
+   * With every bed taken they are patched up and put straight out on the
+   * pavement at full health instead of queueing - the one case that has to
+   * keep working, since a ward that turns people away would leave them
+   * downed in the street with no way back.
    */
   private hospitalise(sessionId: string, player: PlayerState) {
     if (player.recovering || player.health > 0) return;
@@ -1411,20 +1418,37 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
         break;
       }
     }
-    player.recovering = true;
-    player.bedSlot = slot;
-    player.inBuilding = true;
-    player.buildingId = `${player.city}-hospital`;
-    // Lying is the pose; standing patients keep their feet.
-    player.sitting = slot !== NO_BED;
-    player.lying = slot !== NO_BED;
     // Out of any car they were driving: you do not get stretchered in at the
     // wheel, and releasing it hands the vehicle back to the world.
     if (player.inVehicle) this.releaseVehicle(sessionId);
     player.inVehicle = false;
+    player.sitting = false;
+    player.lying = false;
+    player.bedSlot = slot;
     this.wardAnchor.delete(sessionId);
-    this.recoverFrom.set(sessionId, Date.now());
     this.endTradeFor(sessionId, "They were taken to hospital.");
+
+    if (slot === NO_BED) {
+      // No bed free: treated and discharged on the spot, so a busy ward costs
+      // you the thirty seconds rather than the way back into the game.
+      player.health = 100;
+      player.inBuilding = false;
+      player.buildingId = "";
+      this.knockedUntil.delete(sessionId);
+      // The walk from where they went down to the hospital steps is a
+      // teleport as far as the speed budget is concerned.
+      this.moveGraceUntil.set(sessionId, Date.now() + MOVE_GRACE_MS);
+      this.markHealth(sessionId, true);
+      this.clients.find((c) => c.sessionId === sessionId)?.send("hospital-outside", {});
+      return;
+    }
+
+    player.recovering = true;
+    player.inBuilding = true;
+    player.buildingId = `${player.city}-hospital`;
+    player.sitting = true;
+    player.lying = true;
+    this.recoverFrom.set(sessionId, Date.now());
   }
 
   /**
@@ -2340,10 +2364,12 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       target.health = Math.max(0, target.health - damage);
       target.sitting = false;
       target.lying = false;
-      this.markHealth(targetSession, target.health <= 0);
-      if (target.health <= 0) this.hospitalise(targetSession, target);
-      // A patient on a gurney is not still being flung down the street.
-      if (!target.recovering) {
+      const left = target.health;
+      this.markHealth(targetSession, left <= 0);
+      if (left <= 0) this.hospitalise(targetSession, target);
+      // Anyone the hospital took is not still being flung down the street,
+      // whether that is onto a gurney or back out through the front door.
+      if (left > 0) {
         this.knockedUntil.set(targetSession, now + knockedMs);
         target.x += dirX * knockDistance;
         target.z += dirZ * knockDistance;
@@ -2352,7 +2378,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
         vehicleId,
         driverSession,
         targetSession,
-        health: target.health,
+        health: left,
         damage,
         speed,
         x: target.x,

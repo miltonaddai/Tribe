@@ -18,9 +18,6 @@ import { CURRENCY,
   CITY_BOUNDS,
   CITIES,
   cityEntered,
-  HOSPITAL_BED_COUNT,
-  NO_BED,
-  RECOVERY_MS,
   type CharacterRecord,
   type InventoryStack,
   ownsOutfit,
@@ -107,8 +104,6 @@ const SEED_VEHICLES: { city: CityId; x: number; z: number; rotY: number; color: 
 ];
 
 const PUNCH_RANGE = 2.8;
-/** How far a patient's reported position may sit from the bed they woke on. */
-const WARD_DRIFT = 1.2;
 const PUNCH_DAMAGE = 18;
 const PUNCH_COOLDOWN_MS = 520;
 const VOICE_SIGNAL_RANGE = 24;
@@ -213,12 +208,6 @@ export class WorldRoom extends Room<{ state: WorldState }> {
   private vehicleMotion = new Map<string, { x: number; z: number; at: number }>();
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
-  /** Beds taken, per city. The ward is a shared resource, so the server owns it. */
-  private wards = new Map<string, Set<number>>();
-  /** Where each patient was laid down, so they cannot creep off the bed. */
-  private wardAnchor = new Map<string, { x: number; z: number }>();
-  /** When each recovering patient was admitted. */
-  private recoverFrom = new Map<string, number>();
   /** Sessions whose health has moved since the last write, and what was written. */
   private healthDirty = new Set<string>();
   private healthSaved = new Map<string, number>();
@@ -264,22 +253,6 @@ export class WorldRoom extends Room<{ state: WorldState }> {
     this.onMessage("move", (client, data: { x: number; y: number; z: number; rotY: number; sitting?: boolean; lying?: boolean }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.inVehicle) return;
-      // Flat on your back until the bar is full. The one thing still accepted
-      // is where the bed is: the server does not know where the interiors sit
-      // in the world, so without the client's first report everyone else in
-      // the ward would see the patient stranded out on the street where they
-      // went down. That first report becomes the anchor and nothing after it
-      // may drift, so this is a position, not a movement.
-      if (player.recovering) {
-        const anchor = this.wardAnchor.get(client.sessionId);
-        if (anchor && Math.hypot(data.x - anchor.x, data.z - anchor.z) > WARD_DRIFT) return;
-        if (!anchor) this.wardAnchor.set(client.sessionId, { x: data.x, z: data.z });
-        player.x = data.x;
-        player.y = data.y;
-        player.z = data.z;
-        player.rotY = data.rotY;
-        return;
-      }
       if ((this.knockedUntil.get(client.sessionId) ?? 0) > Date.now()) return;
 
       const zone = cityAtPosition(data.x, data.z);
@@ -436,7 +409,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.allowTeleport(client.sessionId);
       player.inBuilding = true;
       player.buildingId = id;
-      if (isHospital(id) && !player.recovering) {
+      if (isHospital(id)) {
         player.health = 100;
         this.markHealth(client.sessionId);
       }
@@ -708,12 +681,10 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       if (from.inBuilding && from.buildingId !== to.buildingId) return;
 
       to.health = Math.max(0, to.health - spec.damage);
-      // Break the pose first: hospitalise lays them on a bed, and clearing
-      // afterwards would stand them straight back up again.
       to.sitting = false;
       to.lying = false;
-      // What the shot left them on, read before the hospital tops an overflow
-      // patient back up - otherwise the knockdown broadcasts as a full bar.
+      // What the shot left them on, read before the hospital tops them back
+      // up - otherwise the knockdown broadcasts as a full bar.
       const left = to.health;
       this.markHealth(toSession, left <= 0);
       if (left <= 0) this.hospitalise(toSession, to);
@@ -888,10 +859,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     });
 
     this.setSimulationInterval(() => {
-      this.tickRecovery();
       this.state.players.forEach((player, sessionId) => {
-        // Walking in heals you; being carried in does not skip the wait.
-        if (player.recovering) return;
         if (player.inBuilding && isHospital(player.buildingId) && player.health !== 100) {
           player.health = 100;
           this.markHealth(sessionId);
@@ -1161,7 +1129,6 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.punchAt.delete(sessionId);
       this.knockedUntil.delete(sessionId);
       this.chains.delete(sessionId);
-      this.releaseWard(sessionId);
       this.state.players.delete(sessionId);
       client?.leave(SESSION_REPLACED);
       console.log(`[world] wallet ${wallet} signed in again — dropped session ${sessionId}`);
@@ -1395,115 +1362,29 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   }
 
   /**
-   * Puts a downed player in a hospital bed and starts them healing.
-   *
-   * Called wherever health can reach zero. The server decides the bed, because
-   * beds are a shared resource and two clients would otherwise both pick the
-   * empty one they can see. It hands back an index, not a position - it has no
-   * idea where the furniture is - and the client lays the body on it.
-   *
-   * With every bed taken they are patched up and put straight out on the
-   * pavement at full health instead of queueing - the one case that has to
-   * keep working, since a ward that turns people away would leave them
-   * downed in the street with no way back.
+   * Called wherever health can reach zero. You are picked up, patched up and
+   * put down on the pavement outside your city's hospital at full health -
+   * no ward, no wait. The server has no map of the interiors, so it says only
+   * that it happened and the client walks the body to the door.
    */
   private hospitalise(sessionId: string, player: PlayerState) {
-    if (player.recovering || player.health > 0) return;
-    const ward = this.wardFor(player.city);
-    let slot = NO_BED;
-    for (let i = 0; i < HOSPITAL_BED_COUNT; i++) {
-      if (!ward.has(i)) {
-        ward.add(i);
-        slot = i;
-        break;
-      }
-    }
-    // Out of any car they were driving: you do not get stretchered in at the
-    // wheel, and releasing it hands the vehicle back to the world.
+    if (player.health > 0) return;
+    // Out of any car they were driving: you do not come round at the wheel,
+    // and releasing it hands the vehicle back to the world.
     if (player.inVehicle) this.releaseVehicle(sessionId);
     player.inVehicle = false;
     player.sitting = false;
     player.lying = false;
-    player.bedSlot = slot;
-    this.wardAnchor.delete(sessionId);
+    player.inBuilding = false;
+    player.buildingId = "";
+    player.health = 100;
+    this.knockedUntil.delete(sessionId);
+    // The trip from where they went down to the hospital steps is a teleport
+    // as far as the speed budget is concerned.
+    this.moveGraceUntil.set(sessionId, Date.now() + MOVE_GRACE_MS);
+    this.markHealth(sessionId, true);
     this.endTradeFor(sessionId, "They were taken to hospital.");
-
-    if (slot === NO_BED) {
-      // No bed free: treated and discharged on the spot, so a busy ward costs
-      // you the thirty seconds rather than the way back into the game.
-      player.health = 100;
-      player.inBuilding = false;
-      player.buildingId = "";
-      this.knockedUntil.delete(sessionId);
-      // The walk from where they went down to the hospital steps is a
-      // teleport as far as the speed budget is concerned.
-      this.moveGraceUntil.set(sessionId, Date.now() + MOVE_GRACE_MS);
-      this.markHealth(sessionId, true);
-      this.clients.find((c) => c.sessionId === sessionId)?.send("hospital-outside", {});
-      return;
-    }
-
-    player.recovering = true;
-    player.inBuilding = true;
-    player.buildingId = `${player.city}-hospital`;
-    player.sitting = true;
-    player.lying = true;
-    this.recoverFrom.set(sessionId, Date.now());
-  }
-
-  /**
-   * Hands a bed back when its patient goes rather than recovers. Without this
-   * six disconnects mid-recovery would fill a city's ward permanently, and
-   * everyone downed afterwards would be left standing.
-   */
-  private releaseWard(sessionId: string) {
-    const player = this.state.players.get(sessionId);
-    if (player?.recovering) this.discharge(sessionId, player);
-    this.wardAnchor.delete(sessionId);
-    this.recoverFrom.delete(sessionId);
-  }
-
-  private wardFor(city: string): Set<number> {
-    let ward = this.wards.get(city);
-    if (!ward) {
-      ward = new Set<number>();
-      this.wards.set(city, ward);
-    }
-    return ward;
-  }
-
-  /** Releases the bed and hands movement back. */
-  private discharge(sessionId: string, player: PlayerState) {
-    if (player.bedSlot !== NO_BED) this.wardFor(player.city).delete(player.bedSlot);
-    this.wardAnchor.delete(sessionId);
-    player.bedSlot = NO_BED;
-    player.recovering = false;
-    player.sitting = false;
-    player.lying = false;
-    this.recoverFrom.delete(sessionId);
-  }
-
-  /**
-   * Advances everyone on the ward. Health climbs the whole way rather than
-   * arriving at the end, so the bar filling is the thing that tells a player
-   * how long is left.
-   */
-  private tickRecovery() {
-    const now = Date.now();
-    for (const [sessionId, since] of [...this.recoverFrom]) {
-      const player = this.state.players.get(sessionId);
-      if (!player) {
-        this.recoverFrom.delete(sessionId);
-        continue;
-      }
-      const done = Math.min(1, (now - since) / RECOVERY_MS);
-      player.health = Math.max(player.health, Math.round(done * 100));
-      if (done >= 1) {
-        player.health = 100;
-        this.discharge(sessionId, player);
-        this.markHealth(sessionId, true);
-      }
-    }
+    this.clients.find((c) => c.sessionId === sessionId)?.send("hospital-outside", {});
   }
 
   /** Persists a player's goods. Called wherever the server changes them. */
@@ -2283,7 +2164,6 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     this.moveBudget.delete(client.sessionId);
     this.healthSaved.delete(client.sessionId);
     this.moveGraceUntil.delete(client.sessionId);
-    this.releaseWard(client.sessionId);
     const leaving = this.state.players.get(client.sessionId);
     const leavingWallet = leaving?.wallet ?? "";
     // Drop them from every view that still holds them, so no client is left

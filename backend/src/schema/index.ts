@@ -26,10 +26,6 @@ export class PlayerState extends Schema {
   sitting = false;
   /** Lying down rather than sitting, so onlookers see a sleeper not a stander. */
   lying = false;
-  /** Laid up in hospital after being downed: healing, and unable to move. */
-  recovering = false;
-  /** Which ward bed, or -1 when they were all taken and the patient stands. */
-  bedSlot = -1;
   /** The wallet's $TRIBE balance, pushed by the server. Never seeded here. */
   tribute = 0;
   inventory = "[]";
@@ -61,8 +57,6 @@ defineTypes(PlayerState, {
   buildingId: "string",
   sitting: "boolean",
   lying: "boolean",
-  recovering: "boolean",
-  bedSlot: "number",
   tribute: "number",
   inventory: "string",
   gun: "string",

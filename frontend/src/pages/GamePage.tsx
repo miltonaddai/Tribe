@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, RECOVERY_MS, armSlots, gunSpec } from "@tribe/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@tribe/shared";
 import type { GameSettings } from "@tribe/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
@@ -40,7 +40,6 @@ const EMPTY: HudState = {
   inventory: [],
   inStore: false,
   inStation: false,
-  recovering: false,
   inFashion: false,
   aiming: false,
   outfit: "hi-vis",
@@ -211,7 +210,7 @@ export function GamePage() {
   // for aiming, and a trapped cursor cannot click Buy.
   const anyPanelOpen =
     invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused ||
-    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || hud.recovering || Boolean(shot) ||
+    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || Boolean(shot) ||
     Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt);
   useEffect(() => {
     // Tell the engine either way: it must not grab the cursor back while a
@@ -585,21 +584,6 @@ export function GamePage() {
 
       {hud.gateMessage && <div className="gate-toast">{hud.gateMessage}</div>}
       {hud.notice && <div className="gate-toast home-toast">{hud.notice}</div>}
-      {/* The ward. Both readouts come off the health value, so the clock can
-          never disagree with the bar or with the rule that lets you up. */}
-      {hud.recovering && (
-        <div className="ward" role="status" aria-live="polite">
-          <p className="ward-kicker">YOU WERE DOWNED</p>
-          <p className="ward-clock">
-            {Math.max(0, Math.ceil((100 - hud.health) * (RECOVERY_MS / 100_000)))}
-            <span>s</span>
-          </p>
-          <div className="ward-bar">
-            <span style={{ width: `${Math.max(0, Math.min(100, hud.health))}%` }} />
-          </div>
-          <p className="ward-body">Patched up at the hospital. You can move once the bar is full.</p>
-        </div>
-      )}
 
       {hud.prompt && <div className="prompt">{hud.prompt}</div>}
 

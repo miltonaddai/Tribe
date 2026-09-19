@@ -1,14 +1,8 @@
 /**
- * The hospital ward: where a player wakes up after being downed.
- *
- * Bed positions live here rather than in the renderer because both sides need
- * them and neither owns them. The server allocates a bed by index - it has no
- * idea where the furniture is - and the client turns that index into a place to
- * lie down. One list, so a bed can never be assigned where there is no bed.
+ * The hospital ward. Nobody is put in these beds - being downed spits you out
+ * on the pavement at full health - but a player can lie on one with C, and the
+ * list is what keeps the lying spot on a mattress rather than beside it.
  */
-
-/** How long it takes to get back to full health, flat on your back. */
-export const RECOVERY_MS = 30_000;
 
 /**
  * Beds along the east wall of the ward, in interior-local coordinates.
@@ -32,8 +26,3 @@ export function bedFrameX(): number {
   // frame sits further along that axis than the spot a patient is placed at.
   return 11.2;
 }
-
-export const HOSPITAL_BED_COUNT = HOSPITAL_BEDS.length;
-
-/** -1 means every bed is taken and the patient recovers on their feet. */
-export const NO_BED = -1;

@@ -584,6 +584,7 @@ export function GamePage() {
 
       {hud.gateMessage && <div className="gate-toast">{hud.gateMessage}</div>}
       {hud.notice && <div className="gate-toast home-toast">{hud.notice}</div>}
+
       {hud.prompt && <div className="prompt">{hud.prompt}</div>}
 
       {/* Bottom-right action row, sat left of the minimap. One container so the

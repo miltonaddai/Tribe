@@ -1,5 +1,6 @@
 import { Room, type Client } from "@colyseus/core";
 import { fileReport, recentReports } from "../services/crimes";
+import { fetchCharacter, purchasedItemIds, saveCharacterState } from "../services/db";
 import { tributeThresholds } from "../services/cityThresholds";
 import {
   otherSide,
@@ -17,6 +18,8 @@ import { CURRENCY,
   CITY_BOUNDS,
   CITIES,
   cityEntered,
+  type CharacterRecord,
+  type InventoryStack,
   ownsOutfit,
   isOutfitId,
   isTierGated,
@@ -113,6 +116,13 @@ const PLAYER_MAX_SPEED = 14;
  * PLAYER_MAX_SPEED. A budget rather than a per-message allowance because a
  * per-message one is farmable: send moves twice as often, travel twice as far.
  */
+/**
+ * How often dirty health is written. Long enough that a firefight costs one
+ * write rather than dozens, short enough that a crashed server loses only a few
+ * seconds of damage.
+ */
+const HEALTH_FLUSH_MS = 20_000;
+
 const MOVE_BURST = 6;
 /** Teleports the server performs itself — spawn, doors, leaving a car. */
 const MOVE_GRACE_MS = 1200;
@@ -198,6 +208,9 @@ export class WorldRoom extends Room<{ state: WorldState }> {
   private vehicleMotion = new Map<string, { x: number; z: number; at: number }>();
   private vehicleImpactAt = new Map<string, number>();
   private knockedUntil = new Map<string, number>();
+  /** Sessions whose health has moved since the last write, and what was written. */
+  private healthDirty = new Set<string>();
+  private healthSaved = new Map<string, number>();
   /** Live trade sessions, and an index from each participant to their session. */
   private trades = new Map<string, TradeSession>();
   private tradeOf = new Map<string, string>();
@@ -396,7 +409,10 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.allowTeleport(client.sessionId);
       player.inBuilding = true;
       player.buildingId = id;
-      if (isHospital(id)) player.health = 100;
+      if (isHospital(id)) {
+        player.health = 100;
+        this.markHealth(client.sessionId);
+      }
     });
 
     this.onMessage("exit-building", (client) => {
@@ -606,7 +622,10 @@ export class WorldRoom extends Room<{ state: WorldState }> {
     this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string; outfit?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
-      if (typeof data.inventory === "string") player.inventory = data.inventory.slice(0, 4000);
+      // data.inventory is deliberately ignored. What a wallet owns is decided
+      // by purchases and trades the server itself performed, not by what the
+      // browser reports holding - accepting it was how paid items ended up
+      // living in localStorage, and how a crafted client could mint them.
       // The balance is never taken from the client. Tribute is a real token held
       // as a deposited float, so a client-supplied figure is a mint instruction
       // from an untrusted source. Every change runs through the server: purchases
@@ -622,6 +641,9 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       if (typeof data.outfit === "string" && isOutfitId(data.outfit)) {
         if (ownsOutfit(decodeInventory(player.inventory), data.outfit)) player.outfit = data.outfit;
       }
+      // Equipment is a preference rather than ownership, but it still belongs
+      // on the server so it survives a different browser.
+      this.persistGoods(client.sessionId, player);
     });
 
     this.onMessage("shoot", (client, data: { toSession?: string }) => {
@@ -661,12 +683,17 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       to.health = Math.max(0, to.health - spec.damage);
       to.sitting = false;
       to.lying = false;
+      // What the shot left them on, read before the hospital tops them back
+      // up - otherwise the knockdown broadcasts as a full bar.
+      const left = to.health;
+      this.markHealth(toSession, left <= 0);
+      if (left <= 0) this.hospitalise(toSession, to);
 
       this.broadcast("gunshot", {
         fromSession: client.sessionId,
         toSession,
         gun: spec.id,
-        health: to.health,
+        health: left,
         x: to.x,
         z: to.z,
       });
@@ -692,7 +719,12 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       to.health = Math.max(0, to.health - (melee && !melee.ranged ? melee.damage : 18));
       to.sitting = false;
       to.lying = false;
-      if (dist > 0.05) {
+      const left = to.health;
+      this.markHealth(toSession, left <= 0);
+      if (left <= 0) this.hospitalise(toSession, to);
+      // Neither a patient on a gurney nor one already stood back up outside
+      // the hospital gets knocked across the street by the punch that did it.
+      if (left > 0 && dist > 0.05) {
         const nx = (to.x - from.x) / dist;
         const nz = (to.z - from.z) / dist;
         to.x += nx * 1.05;
@@ -702,7 +734,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.broadcast("melee", {
         fromSession: client.sessionId,
         toSession,
-        health: to.health,
+        health: left,
         x: to.x,
         z: to.z,
       });
@@ -827,8 +859,11 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     });
 
     this.setSimulationInterval(() => {
-      this.state.players.forEach((player) => {
-        if (player.inBuilding && isHospital(player.buildingId)) player.health = 100;
+      this.state.players.forEach((player, sessionId) => {
+        if (player.inBuilding && isHospital(player.buildingId) && player.health !== 100) {
+          player.health = 100;
+          this.markHealth(sessionId);
+        }
       });
     }, 200);
 
@@ -839,6 +874,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // refresh never re-reads something still fresh.
     this.clock.setInterval(() => void this.refreshHoldings(), HOLDINGS_CACHE_MS);
     this.clock.setInterval(() => this.sweepTrades(), 2000);
+    this.clock.setInterval(() => this.flushHealth(), HEALTH_FLUSH_MS);
 
   }
 
@@ -1082,6 +1118,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       // Say why before the socket closes; onLeave alone gives the client no reason.
       client?.send("session-replaced", {});
       this.endTradeFor(sessionId, "The other citizen signed in elsewhere.");
+      this.flushHealth(sessionId);
       // Before the state entry goes, not after: onLeave fires once the socket
       // closes, and by then this lookup would find nothing and save nothing.
       // A page refresh always lands here rather than in a clean leave - the
@@ -1227,6 +1264,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       }
     }
 
+    this.persistGoods(session.a.sessionId, a);
+    this.persistGoods(session.b.sessionId, b);
     this.sendBag(session.a.sessionId, a);
     this.sendBag(session.b.sessionId, b);
     const names = { [session.a.sessionId]: b.name, [session.b.sessionId]: a.name };
@@ -1255,6 +1294,109 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   private endTradeFor(sessionId: string, reason: string) {
     const session = this.tradeFor(sessionId);
     if (session) this.closeTrade(session, reason);
+  }
+
+  /**
+   * What this wallet owns, from the server's own records.
+   *
+   * The stored inventory, merged with every item the payment receipts say was
+   * paid for. The merge exists because inventory was previously kept in the
+   * browser: a wallet can have receipts for a pistol and a cat while its
+   * character row still shows only the accessories picked on the day it was
+   * created. Receipts are the stronger evidence - nothing is written there
+   * until a transfer has been verified on chain.
+   *
+   * Writes the reconciled result straight back, so this is self-healing: after
+   * one join the character row is correct and the merge is a no-op.
+   */
+  private async ownedInventory(
+    wallet: string,
+    chain: WalletChainId,
+    stored: CharacterRecord | null,
+  ): Promise<InventoryStack[]> {
+    if (!wallet) return [];
+    const inventory = stored?.inventory ? [...stored.inventory] : [];
+    let added = false;
+    for (const id of await purchasedItemIds(wallet, chain)) {
+      if (!isItemId(id)) continue;
+      if (hasItem(inventory, id)) continue;
+      inventory.push({ id, qty: 1 });
+      added = true;
+    }
+    if (added || (stored && stored.inventory.length !== inventory.length)) {
+      void saveCharacterState(wallet, chain, { inventory });
+    }
+    return inventory;
+  }
+
+  /**
+   * Health is written on a timer, not on every hit.
+   *
+   * A firefight moves a health bar several times a second, and each of those is
+   * a database round trip if you write them as they happen - for a value nobody
+   * reads until the player comes back. So changes only mark the player dirty,
+   * and a single sweep every HEALTH_FLUSH_MS writes whatever actually moved.
+   *
+   * Two exceptions get written at once, because both are points where the next
+   * read matters and the player may not be around for the sweep: dropping to
+   * zero, and leaving.
+   */
+  private markHealth(sessionId: string, immediate = false) {
+    this.healthDirty.add(sessionId);
+    if (immediate) this.flushHealth(sessionId);
+  }
+
+  /** Writes dirty health. With no sessionId, sweeps everyone. */
+  private flushHealth(sessionId?: string) {
+    const ids = sessionId ? [sessionId] : [...this.healthDirty];
+    for (const id of ids) {
+      this.healthDirty.delete(id);
+      const player = this.state.players.get(id);
+      if (!player?.wallet) continue;
+      // Skip anything that ended up back where the database already has it -
+      // a player shot down to 60 and healed to 100 needs no write at all.
+      if (this.healthSaved.get(id) === player.health) continue;
+      this.healthSaved.set(id, player.health);
+      void saveCharacterState(player.wallet, this.chainFor(id), { health: player.health });
+    }
+  }
+
+  /**
+   * Called wherever health can reach zero. You are picked up, patched up and
+   * put down on the pavement outside your city's hospital at full health -
+   * no ward, no wait. The server has no map of the interiors, so it says only
+   * that it happened and the client walks the body to the door.
+   */
+  private hospitalise(sessionId: string, player: PlayerState) {
+    if (player.health > 0) return;
+    // Out of any car they were driving: you do not come round at the wheel,
+    // and releasing it hands the vehicle back to the world.
+    if (player.inVehicle) this.releaseVehicle(sessionId);
+    player.inVehicle = false;
+    player.sitting = false;
+    player.lying = false;
+    player.inBuilding = false;
+    player.buildingId = "";
+    player.health = 100;
+    this.knockedUntil.delete(sessionId);
+    // The trip from where they went down to the hospital steps is a teleport
+    // as far as the speed budget is concerned.
+    this.moveGraceUntil.set(sessionId, Date.now() + MOVE_GRACE_MS);
+    this.markHealth(sessionId, true);
+    this.endTradeFor(sessionId, "They were taken to hospital.");
+    this.clients.find((c) => c.sessionId === sessionId)?.send("hospital-outside", {});
+  }
+
+  /** Persists a player's goods. Called wherever the server changes them. */
+  private persistGoods(sessionId: string, player: PlayerState) {
+    if (!player.wallet) return;
+    void saveCharacterState(player.wallet, this.chainFor(sessionId), {
+      inventory: decodeInventory(player.inventory),
+      equippedGun: player.gun || null,
+      equippedPet: player.pet || null,
+      outfit: player.outfit || undefined,
+      accessories: player.accessories ? player.accessories.split(",").filter(Boolean) : [],
+    });
   }
 
   /** Exactly one session per wallet is live, so this is unambiguous. */
@@ -1494,6 +1636,9 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     }
 
     player.inventory = encodeInventory(addItem(inventory, item.id));
+    // Written before the player is told, so a crash between the two costs a
+    // notification rather than the thing they just paid for.
+    this.persistGoods(client.sessionId, player);
     this.sendBag(client.sessionId, player);
     client.send("buy-item-result", { ok: true, name: item.name });
     // Every purchase leaves a receipt, so the inbox is a full record of what a
@@ -1880,6 +2025,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // position is both exact and available now; the save it is about to make
     // lands after this read, so going to the database first would return the
     // spot from the session before last.
+    const stored = wallet ? await fetchCharacter(wallet, chain) : null;
     const live = options.wallet ? this.playerByWallet(options.wallet) : null;
     const saved: LastSpot | null =
       live && !live.player.inBuilding
@@ -1904,23 +2050,45 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     player.x = spawn[0];
     player.y = spawn[1];
     player.z = spawn[2];
+    // Owned goods come from the server, never from the joining client.
+    //
+    // This used to be `options.inventory` - whatever the browser sent. Items
+    // bought with real $TRIBE therefore lived in localStorage: invisible on
+    // another machine, gone when site data was cleared, and forgeable by a
+    // crafted client. The database is the record now, reconciled once against
+    // the payment receipts so nothing bought before this change is lost.
+    const owned = await this.ownedInventory(wallet, chain, stored);
+    player.inventory = encodeInventory(owned);
     player.bodyType = options.bodyType ?? "regular";
     player.skinTone = options.skinTone ?? "#F6D7B0";
-    player.outfit = options.outfit ?? "hi-vis";
+    // Free outfits need no receipt; paid ones do. Character creation lets you
+    // pick any of them, so without this a Valhalla Gold jacket cost nothing.
+    const wanted = options.outfit ?? "hi-vis";
+    player.outfit = isOutfitId(wanted) && ownsOutfit(owned, wanted) ? wanted : "hi-vis";
     player.pantsColor = options.pantsColor ?? "#3A3A3A";
     player.shoe = options.shoe ?? "sneakers";
     player.shoeColor = options.shoeColor ?? "#111111";
     player.headwear = options.headwear ?? "hardhat";
-    player.accessories = options.accessories ?? "";
-    const health = Number(options.health ?? options.brokemeter);
-    player.health = Number.isFinite(health) ? Math.max(0, Math.min(100, health)) : 100;
+    player.accessories = (options.accessories ?? "")
+      .split(",")
+      .filter((id) => id && hasItem(owned, id as never))
+      .join(",");
+    // From the database, not the client - health is a consequence of being shot
+    // and of visiting a hospital, both of which the server decides. Taking the
+    // browser's word let a downed player reconnect at full health.
+    const stored_health = Number(stored?.brokemeter);
+    player.health = Number.isFinite(stored_health) ? Math.max(0, Math.min(100, stored_health)) : 100;
+    this.healthSaved.set(client.sessionId, player.health);
     // Tribute IS the token in the player's wallet, so the balance is read from
     // the chain rather than granted or stored. The dev grant only stands in when
     // no token is configured, so the game is still playable without one.
     player.tribute = tokenConfigured() ? balance : TRIBUTE_DEV_GRANT;
-    player.inventory = options.inventory ?? "[]";
-    player.gun = options.gun ?? "";
-    player.pet = options.pet ?? "";
+    // What you carry is checked against what you own, for the same reason the
+    // inventory is: a gun, a pet, an accessory and half the outfits are all
+    // bought with $TRIBE, and every one of these used to be taken on the
+    // client's word. A rifle claimed here shoots with a rifle's range.
+    player.gun = hasItem(owned, (options.gun ?? "") as never) ? options.gun ?? "" : "";
+    player.pet = hasItem(owned, (options.pet ?? "") as never) ? options.pet ?? "" : "";
     this.chains.set(client.sessionId, chain);
     this.allowTeleport(client.sessionId);
     // One live session per wallet. Two tabs on the same wallet would each hold
@@ -1987,12 +2155,14 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   onLeave(client: Client) {
     this.sendToNearbyVoiceClients(client, "voice-left", { sessionId: client.sessionId });
     this.endTradeFor(client.sessionId, "The other citizen left.");
+    this.flushHealth(client.sessionId);
     void this.rememberSpot(client.sessionId);
     this.releaseVehicle(client.sessionId);
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
     this.chains.delete(client.sessionId);
     this.moveBudget.delete(client.sessionId);
+    this.healthSaved.delete(client.sessionId);
     this.moveGraceUntil.delete(client.sessionId);
     const leaving = this.state.players.get(client.sessionId);
     const leavingWallet = leaving?.wallet ?? "";
@@ -2071,17 +2241,24 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const damage = Math.round(Math.min(55, 8 + (speed - VEHICLE_HIT_MIN_SPEED) * 3.5));
       const knockDistance = Math.min(4.5, 1.4 + speed * 0.14);
       const knockedMs = Math.round(Math.min(2900, 1650 + speed * 55));
-      this.knockedUntil.set(targetSession, now + knockedMs);
       target.health = Math.max(0, target.health - damage);
       target.sitting = false;
       target.lying = false;
-      target.x += dirX * knockDistance;
-      target.z += dirZ * knockDistance;
+      const left = target.health;
+      this.markHealth(targetSession, left <= 0);
+      if (left <= 0) this.hospitalise(targetSession, target);
+      // Anyone the hospital took is not still being flung down the street,
+      // whether that is onto a gurney or back out through the front door.
+      if (left > 0) {
+        this.knockedUntil.set(targetSession, now + knockedMs);
+        target.x += dirX * knockDistance;
+        target.z += dirZ * knockDistance;
+      }
       this.broadcast("vehicle-hit", {
         vehicleId,
         driverSession,
         targetSession,
-        health: target.health,
+        health: left,
         damage,
         speed,
         x: target.x,

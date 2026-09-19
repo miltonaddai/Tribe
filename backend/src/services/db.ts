@@ -6,6 +6,7 @@ import {
   parseHexColor,
   parseShoe,
   seedInventory,
+  type InventoryStack,
   type CharacterRecord,
   type CityId,
   type GameSettings,
@@ -455,4 +456,68 @@ export async function saveLastSpot(
   );
   logError("save last spot", error);
   return !error;
+}
+
+/**
+ * Item ids this wallet has actually paid for, from the payment receipts.
+ *
+ * Every on-chain purchase writes a row to token_payments before the goods are
+ * handed over, so this is an independent record of what someone owns - and the
+ * only one that existed before inventory was persisted properly. Used to
+ * rebuild an inventory that was previously kept in the browser.
+ */
+export async function purchasedItemIds(address: string, chain: WalletChainId): Promise<string[]> {
+  const supabase = getSupabase();
+  if (!supabase || !address) return [];
+  const { data, error } = await supabase
+    .from("token_payments")
+    .select("item_id")
+    .eq("wallet_address", normalizeAddress(address, chain))
+    .eq("chain", chain)
+    .eq("purpose", "item");
+  logError("purchased items", error);
+  return (data ?? []).map((row) => String(row.item_id ?? "")).filter(Boolean);
+}
+
+/**
+ * Writes the parts of a character that change during play.
+ *
+ * Deliberately narrow: upsertCharacter rewrites the whole row and is owned by
+ * the create page, which knows about names and uniqueness. This touches only
+ * what the game itself changes, so a purchase cannot accidentally rename anyone
+ * or trip the display-name index.
+ *
+ * Silent when there is no row yet - a wallet that never finished character
+ * creation has nothing to update, and the create page will write it in full.
+ */
+export async function saveCharacterState(
+  address: string,
+  chain: WalletChainId,
+  patch: {
+    inventory?: InventoryStack[];
+    outfit?: string;
+    equippedGun?: string | null;
+    equippedPet?: string | null;
+    accessories?: string[];
+    /** Stored in the brokemeter column, which is what health used to be called. */
+    health?: number;
+  },
+) {
+  const supabase = getSupabase();
+  if (!supabase || !address) return;
+  const row: Record<string, unknown> = {};
+  if (patch.inventory) row.inventory = patch.inventory;
+  if (patch.outfit) row.outfit = patch.outfit;
+  if (patch.equippedGun !== undefined) row.equipped_gun = patch.equippedGun || null;
+  if (patch.equippedPet !== undefined) row.equipped_pet = patch.equippedPet || null;
+  if (patch.accessories) row.accessories = patch.accessories;
+  if (patch.health !== undefined) row.brokemeter = Math.max(0, Math.min(100, Math.round(patch.health)));
+  if (Object.keys(row).length === 0) return;
+
+  const { error } = await supabase
+    .from("characters")
+    .update(row)
+    .eq("wallet_address", normalizeAddress(address, chain))
+    .eq("chain", chain);
+  logError("save character state", error);
 }

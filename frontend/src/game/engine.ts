@@ -47,7 +47,7 @@ import { loadWallet } from "../lib/wallet";
 import { VoiceChat, loadOutputDevice, saveOutputDevice } from "../lib/voiceChat";
 import { payForPurchase, paymentsRequired } from "../lib/payments";
 import { playGunshot, setSfxVolume } from "../lib/sfx";
-import { createPcApp, destroyPcApp, entityYaw, hitsAabb, material, setCycleGlow } from "./pcApp";
+import { createPcApp, destroyPcApp, entityYaw, hitsAabb, material, setCycleGlow, type Aabb } from "./pcApp";
 import { createCitizen, setCitizenDetail, type Appearance } from "./character";
 import { createVehicle } from "./vehicles";
 import { applyAimPose, applyCitizenMotion } from "./motion";
@@ -157,6 +157,17 @@ const REMOTE_WALK_HOLD_MS = 160;
 const REMOTE_LERP = 12;
 /** Past this a move is a teleport - spawn, a door, leaving a car - so snap. */
 const REMOTE_SNAP = 4;
+
+/*
+ * TEMPORARY RESCUE HATCH - set back to null when the job is done.
+ *
+ * A car is wedged in the wall of this city's hospital. While this names a
+ * city, that one building's collider is ignored for the local player, on foot
+ * and at the wheel, so the car can be reached and reversed out. Nothing else
+ * changes: every other wall still stops you, other players are unaffected, and
+ * the server never had building collision to begin with.
+ */
+const WALL_PASS_CITY: string | null = "trench";
 
 /** Cars travel further per patch than people, so they need more room before a snap. */
 const VEHICLE_SNAP = 12;
@@ -314,6 +325,7 @@ export type HudState = {
   inStore: boolean;
   /** Standing in a police station: unlocks the blotter panel. */
   inStation: boolean;
+  /** On the ward: healing, movement locked. */
   /** Standing in the fashion house: unlocks the wardrobe. */
   inFashion: boolean;
   /** Down the sights right now, so the quick-action button can say "exit". */
@@ -416,6 +428,8 @@ export class GameEngine {
   private snapCamera = false;
   private inVehicle: string | null = null;
   private inBuilding: Interactable | null = null;
+  /** TEMPORARY - see wallPass(). undefined means "not looked up yet". */
+  private wallPassBoxes: Set<Aabb> | undefined = undefined;
   private sitting = false;
   private sitSeat: Seat | null = null;
   private speed = 9;
@@ -438,6 +452,7 @@ export class GameEngine {
   private lastMoveSync = 0;
   private gateUntil = 0;
   /** Resolver for a save the pause menu is waiting on, if any. */
+  /** Laid up on the ward: healing, and not going anywhere. */
   private spotSaveWaiting: ((result: SpotSaveResult) => void) | null = null;
   private gateMessage: string | null = null;
   private chat: { name: string; text: string }[] = [];
@@ -1161,6 +1176,8 @@ export class GameEngine {
       const at = list?.findIndex((item) => item.kind === "vehicle" && item.id === vehicleId) ?? -1;
       if (list && at >= 0) list.splice(at, 1);
     });
+
+    room.onMessage("hospital-outside", () => this.dischargeOutside());
 
     room.onMessage("home-result", (msg: { ok?: boolean; reason?: string; price?: number; listed?: boolean }) => {
       // Rejections are transient feedback; the successes arrive as inbox messages.
@@ -2201,8 +2218,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       if (Math.abs(nx - cx) <= hw) x = nx;
       if (Math.abs(nz - cz) <= hd) z = nz;
     } else {
-      if (!this.blocked(nx, z) && !this.vehicleBlocksMove(x, z, nx, z) && this.allowed(x, z, nx, z)) x = nx;
-      if (!this.blocked(x, nz) && !this.vehicleBlocksMove(x, z, x, nz) && this.allowed(x, z, x, nz)) z = nz;
+      const pass = this.wallPass();
+      if (!this.blocked(nx, z, 0.55, pass) && !this.vehicleBlocksMove(x, z, nx, z) && this.allowed(x, z, nx, z)) x = nx;
+      if (!this.blocked(x, nz, 0.55, pass) && !this.vehicleBlocksMove(x, z, x, nz) && this.allowed(x, z, x, nz)) z = nz;
     }
 
     const moving = forward !== 0;
@@ -2268,7 +2286,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     const nx = pos.x + Math.sin(this.yaw) * this.vehicleSpeed * dt;
     const nz = pos.z + Math.cos(this.yaw) * this.vehicleSpeed * dt;
     const hitsVehicle = this.vehicleBlocksVehicleMove(handle.id, nx, nz, this.yaw, handle.kind);
-    if (this.allowed(pos.x, pos.z, nx, nz) && !this.blocked(nx, nz, 2.1) && !hitsVehicle) {
+    if (this.allowed(pos.x, pos.z, nx, nz) && !this.blocked(nx, nz, 2.1, this.wallPass()) && !hitsVehicle) {
       handle.entity.setPosition(nx, WALK_Y, nz);
       this.player.setPosition(nx, WALK_Y, nz);
     } else if (hitsVehicle) {
@@ -2597,12 +2615,50 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
   }
 
-  private blocked(x: number, z: number, radius = 0.55) {
+  private blocked(x: number, z: number, radius = 0.55, ignore?: Set<Aabb>) {
     // Indoors the world colliders are the building's outer shell; the props in
     // the room have their own list.
     const inside = this.inBuilding?.obstacles;
     if (inside?.some((a) => hitsAabb(x, z, radius, a))) return true;
-    return this.world?.colliders.some((a) => hitsAabb(x, z, radius, a)) ?? false;
+    return this.world?.colliders.some((a) => !ignore?.has(a) && hitsAabb(x, z, radius, a)) ?? false;
+  }
+
+  /**
+   * TEMPORARY - delete this method, WALL_PASS_CITY, and the two calls to it
+   * once the car wedged in the Trench hospital has been driven out.
+   *
+   * Hands back that one building's collider so it can be passed through. It is
+   * found rather than hard-coded, and it is a single box: every other wall in
+   * the city still stops you.
+   */
+  private wallPass(): Set<Aabb> | undefined {
+    if (!WALL_PASS_CITY) return undefined;
+    if (this.wallPassBoxes) return this.wallPassBoxes;
+    const boxes = new Set<Aabb>();
+    this.wallPassBoxes = boxes;
+    const door = this.world?.interactables.find(
+      (item) => item.kind === "door" && item.interiorKind === "hospital" && item.city === WALL_PASS_CITY,
+    );
+    const colliders = this.world?.colliders;
+    if (!door || !colliders) return boxes;
+    // addEnterable puts the door 0.8 outside the south face, so a point 1.2
+    // back from it is inside that building's main box and no other.
+    const shell = colliders.find(
+      (a) => door.x >= a.minX && door.x <= a.maxX && door.z - 1.2 >= a.minZ && door.z - 1.2 <= a.maxZ,
+    );
+    if (!shell) return boxes;
+    // The hospital is three boxes, not one - the shell, the east wing and the
+    // ambulance bay - and a car can be wedged in any of them. Containment
+    // rather than overlap, so a neighbour on the same block is not swept in:
+    // the wing and the bay each sit within 1.5 units of the shell.
+    const pad = 2;
+    for (const a of colliders) {
+      const within =
+        a.minX >= shell.minX - pad && a.maxX <= shell.maxX + pad &&
+        a.minZ >= shell.minZ - pad && a.maxZ <= shell.maxZ + pad;
+      if (within) boxes.add(a);
+    }
+    return boxes;
   }
 
   private vehicleBlocksMove(fromX: number, fromZ: number, toX: number, toZ: number) {
@@ -2774,13 +2830,33 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
    * which drops you inside whatever happens to be there - a wall, most often,
    * and there is no way to walk out of one.
    */
+  /**
+   * Whether a point is on the floor of the room you are in. Indoors the walls
+   * are a clamp on movement rather than colliders, so `blocked` cannot see
+   * them - anything placing a player by hand has to ask this instead.
+   */
+  private insideRoom(x: number, z: number) {
+    const door = this.inBuilding;
+    if (!door?.interior) return true;
+    return (
+      Math.abs(x - door.interior.x) <= (door.halfW ?? 4.2) &&
+      Math.abs(z - door.interior.z) <= (door.halfD ?? 4.2)
+    );
+  }
+
   private freeSpotAround(x: number, z: number) {
-    const ring = 2.8;
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
-      const sx = x + Math.cos(a) * ring;
-      const sz = z + Math.sin(a) * ring;
-      if (!this.blocked(sx, sz) && this.allowed(x, z, sx, sz)) return { x: sx, z: sz };
+    // Closer rings after the first, so a spot against a wall still has
+    // somewhere to go. A bed on the east wall of the ward has no clear ground
+    // 2.8 units away that is not inside the wall itself, and landing there
+    // left the player wedged: the clamp then refuses every step back in.
+    for (const ring of [2.8, 2.0, 1.4]) {
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        const sx = x + Math.cos(a) * ring;
+        const sz = z + Math.sin(a) * ring;
+        if (!this.insideRoom(sx, sz)) continue;
+        if (!this.blocked(sx, sz) && this.allowed(x, z, sx, sz)) return { x: sx, z: sz };
+      }
     }
     // Every direction is blocked: the car's own position is at least reachable,
     // since it drove in.
@@ -3765,6 +3841,50 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
     this.onSpawned?.();
     this.onSpawned = null;
+  }
+
+  /**
+   * Puts the local player on the ward after the server says they were downed.
+   *
+   * The server decides the admission - it owns health and it owns the beds -
+   * but interiors are client geometry, so it can only say "bed 3". This finds
+   * the hospital for the district and lays the body on that bed.
+   *
+   * With no bed (-1) the patient recovers on their feet by the door, which is
+   * the case that must not fail: refusing them a place to heal would leave them
+   * downed outside with no way back.
+   */
+  /**
+   * Downed, and woken up outside the hospital on your feet. Health is already
+   * back at 100 on the server; this is only the walk to the door, which the
+   * server cannot place because it has no map of where the doors are.
+   */
+  private dischargeOutside() {
+    if (!this.player || !this.world) return;
+    const door = this.world.interactables.find(
+      (item) => item.kind === "door" && item.interiorKind === "hospital" && item.city === this.city,
+    );
+    if (!door?.exterior) return;
+
+    // They may have gone down inside a building; that interior would stay
+    // lit otherwise, with nobody in it.
+    if (this.inBuilding) {
+      const previous = this.world.interiors.get(this.inBuilding.id);
+      if (previous) previous.enabled = false;
+      this.inBuilding = null;
+    }
+    this.inVehicle = null;
+    this.clearSit();
+    this.knockdown = null;
+    this.player.setPosition(door.exterior.x, WALK_Y, door.exterior.z);
+    this.vy = 0;
+    this.grounded = true;
+    this.pitch = 0.38;
+    this.snapCamera = true;
+    this.releaseAim();
+    this.syncRemotes();
+    this.syncMove();
+    this.setNotice("Patched up and sent on your way.");
   }
 
   /** Whether the player is stood in the fashion house, for the I-key binding. */

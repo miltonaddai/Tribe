@@ -1,6 +1,7 @@
 import * as pc from "playcanvas";
 import type { CityTheme } from "@tribe/shared";
 import { box, hexColor } from "./pcApp";
+import { bedFrameX, HOSPITAL_BEDS } from "@tribe/shared";
 
 export type InteriorKind = "home" | "hospital" | "police" | "townhall" | "store" | "fashion";
 
@@ -14,7 +15,9 @@ export type InteriorLayout = {
 
 const LAYOUTS: Record<InteriorKind, InteriorLayout> = {
   home: { kind: "home", halfW: 6, halfD: 5, height: 3.6, spawnZ: 3.4 },
-  hospital: { kind: "hospital", halfW: 11, halfD: 8, height: 4.4, spawnZ: 6.2 },
+  // Wider and deeper than the other interiors: it has to hold a ward of six
+  // beds down one wall and still leave a walkable aisle.
+  hospital: { kind: "hospital", halfW: 13, halfD: 9.5, height: 4.4, spawnZ: 7.6 },
   police: { kind: "police", halfW: 9, halfD: 7, height: 4.2, spawnZ: 5.2 },
   townhall: { kind: "townhall", halfW: 16, halfD: 11, height: 8.2, spawnZ: 8.6 },
   store: { kind: "store", halfW: 8, halfD: 6.5, height: 4.2, spawnZ: 4.8 },
@@ -135,12 +138,18 @@ export function interiorSeats(kind: InteriorKind, layout = interiorLayout(kind))
     ];
   }
   if (kind === "hospital") {
-    return Array.from({ length: 4 }, (_, i) => ({
-      x: -7.2 + i * 1.7,
-      z: 5.72,
-      yaw: Math.PI,
-      top: 0.77,
-    }));
+    return [
+      // Waiting-room chairs.
+      ...Array.from({ length: 4 }, (_, i) => ({
+        x: -8.6 + i * 1.7,
+        z: 5.72,
+        yaw: Math.PI,
+        top: 0.77,
+      })),
+      // The ward. Same list the server allocates from, so pressing C at a bed
+      // puts you exactly where being stretchered in would.
+      ...HOSPITAL_BEDS.map((bed) => ({ x: bed.x, z: bed.z, yaw: bed.yaw, top: bed.top, lie: true })),
+    ];
   }
   if (kind === "store") return [];
   return [
@@ -328,28 +337,38 @@ function buildHospital(root: pc.Entity, layout: InteriorLayout) {
     });
   }
 
-  box(root, "desk", [0, 0.75, -5.4], [5.2, 1.3, 1.6], "#DEE7EC");
-  box(root, "desk-top", [0, 1.42, -5.4], [5.4, 0.12, 1.8], "#C5D4DC");
-  box(root, "monitor", [0.8, 1.85, -5.6], [0.9, 0.7, 0.12], "#111", { emissive: "#7EC8E3", intensity: 1.8 });
+  box(root, "desk", [-3.5, 0.75, -6.8], [5.2, 1.3, 1.6], "#DEE7EC");
+  box(root, "desk-top", [-3.5, 1.42, -6.8], [5.4, 0.12, 1.8], "#C5D4DC");
+  box(root, "monitor", [-2.7, 1.85, -7.0], [0.9, 0.7, 0.12], "#111", { emissive: "#7EC8E3", intensity: 1.8 });
   box(root, "cross-h", [0, 2.8, -layout.halfD + 0.16], [1.8, 0.35, 0.08], "#E11D48", { emissive: "#FF4D6D", intensity: 3 });
   box(root, "cross-v", [0, 2.8, -layout.halfD + 0.16], [0.35, 1.8, 0.08], "#E11D48", { emissive: "#FF4D6D", intensity: 3 });
 
   for (let i = 0; i < 4; i++) {
-    const x = -7.2 + i * 1.7;
+    const x = -8.6 + i * 1.7;
     box(root, `wait-${i}`, [x, 0.42, 5.6], [1.3, 0.7, 1.1], "#6BA8B8");
     box(root, `wait-b-${i}`, [x, 0.85, 6.05], [1.3, 0.45, 0.22], "#5A97A8");
   }
 
-  for (let i = 0; i < 3; i++) {
-    const z = -1.6 + i * 3.2;
-    box(root, `bed-${i}`, [7.2, 0.55, z], [2.6, 0.7, 1.5], "#C5D0D8");
-    box(root, `mat-${i}`, [7.2, 0.95, z], [2.4, 0.18, 1.3], "#F8FBFF");
-    box(root, `screen-${i}`, [5.4, 1.4, z], [0.08, 2.6, 2.2], "#E8F4F6");
-    box(root, `iv-${i}`, [8.5, 1.4, z - 0.7], [0.08, 2.6, 0.08], "#9AA4AE");
-  }
+  // Built from the shared bed list, so a bed the server hands out always has
+  // furniture under it. mat-N's top is HOSPITAL_BEDS[N].top - the surface a
+  // patient is laid on.
+  HOSPITAL_BEDS.forEach((bed, i) => {
+    const x = bedFrameX();
+    box(root, `bed-${i}`, [x, 0.55, bed.z], [2.6, 0.7, 1.5], "#C5D0D8");
+    box(root, `mat-${i}`, [x, 0.95, bed.z], [2.4, 0.18, 1.3], "#F8FBFF");
+    box(root, `pillow-${i}`, [x + 0.95, 1.12, bed.z], [0.5, 0.16, 1.0], "#EAF2F6");
+    box(root, `screen-${i}`, [x - 1.9, 1.4, bed.z], [0.08, 2.6, 2.2], "#E8F4F6");
+    box(root, `iv-${i}`, [x + 1.1, 1.4, bed.z - 0.72], [0.08, 2.6, 0.08], "#9AA4AE");
+    box(root, `iv-bag-${i}`, [x + 1.1, 2.5, bed.z - 0.72], [0.22, 0.34, 0.16], "#D8F0E4");
+    // A monitor per bay, so a ward of empty beds still reads as a ward.
+    box(root, `mon-${i}`, [x + 1.15, 1.9, bed.z + 0.66], [0.1, 0.5, 0.62], "#12333A", {
+      emissive: "#4FD1C5",
+      intensity: 1.6,
+    });
+  });
 
-  box(root, "cart", [-8.4, 0.7, -2], [1.4, 1.2, 0.9], "#F0F4F7");
-  box(root, "cart-top", [-8.4, 1.34, -2], [1.5, 0.08, 1], "#E11D48");
+  box(root, "cart", [-10.4, 0.7, -2], [1.4, 1.2, 0.9], "#F0F4F7");
+  box(root, "cart-top", [-10.4, 1.34, -2], [1.5, 0.08, 1], "#E11D48");
   windowPane(root, "win-e1", [layout.halfW - 0.12, 2.1, -3], [0.08, 1.6, 3.2]);
   windowPane(root, "win-e2", [layout.halfW - 0.12, 2.1, 3], [0.08, 1.6, 3.2]);
   box(root, "runner", [0, 0.09, 1.4], [2.2, 0.04, 10], "#B8D4D8");

@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
 import { canCopyImages, copyShot, downloadShot, openPostComposer } from "../lib/screenshot";
 
-/** What the post says. The link is in the text because X appends `url` after it. */
-const POST_TEXT = "Playing $Tribe https://jointribe.fun";
+/**
+ * What the post says. The link is in the text because X appends `url` after it.
+ *
+ * The parenthetical is a prompt for the composer, not part of the post: the
+ * image is already on the clipboard by the time this opens, and nothing on the
+ * X page says so. It asks to be deleted because otherwise the most likely
+ * outcome is that it gets posted.
+ */
+const POST_TEXT =
+  "Playing $Tribe https://jointribe.fun\n\n(Press Ctrl/Cmd + V to add your screenshot, then delete this line)";
 
 /**
  * What to do with a screenshot once it exists.

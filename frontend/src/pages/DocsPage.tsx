@@ -117,7 +117,7 @@ function Addresses() {
     {
       name: "Official $TRIBE contract",
       what: "The token itself. Every balance, gate check and purchase reads from this contract.",
-      address: null,
+      address: "0xA68bd63519ed181ad169843bd63f04BB6Fd4aB5a",
     },
     {
       name: "Dev wallet",
@@ -136,7 +136,7 @@ function Addresses() {
       <h1>Token</h1>
       <p>
         Check anything you are about to send funds to against this list, and treat an address from
-        anywhere else as wrong until it matches. Addresses appear here first.
+        anywhere else as wrong until it matches.
       </p>
 
       <div className="addr-list">

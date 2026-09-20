@@ -79,7 +79,7 @@ export function SiteFooter({ className = "" }: { className?: string } = {}) {
                 type="button"
                 className="footer-ca-value"
                 onClick={copy}
-                title={`${address} — click to copy`}
+                title={`${address} · click to copy`}
               >
                 {copied ? "Copied" : short(address)}
               </button>

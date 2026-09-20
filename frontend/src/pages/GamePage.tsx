@@ -1167,7 +1167,7 @@ export function GamePage() {
             Docs
           </button>
           <button
-            className="btn btn-outline"
+            className="btn btn-danger"
             type="button"
             onClick={() => {
               // Save before tearing the room down. Leaving saves too, but that

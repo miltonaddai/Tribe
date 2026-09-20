@@ -328,6 +328,23 @@ button {
   background: transparent;
 }
 
+/*
+ * Destructive. Outlined in --danger rather than filled with it: white on that
+ * red is 3.06:1, under the floor for text this size, while the red as text
+ * reads 6.47:1 on the pause panel and still 4.63:1 in the worst case, where
+ * the panel is translucent over a bright frame of the game behind it.
+ */
+.btn-danger {
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid rgba(255, 90, 90, 0.55);
+}
+
+.btn-danger:hover {
+  background: rgba(255, 90, 90, 0.14);
+  border-color: var(--danger);
+}
+
 .landing {
   height: 100%;
   background: #111;

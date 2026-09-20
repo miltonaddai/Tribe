@@ -30,6 +30,25 @@
   # if it ever reaches the output, which is the point of the check.
   SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_API_KEY,VITE_FIREBASE_APP_ID,VITE_FIREBASE_PROJECT_ID,VITE_FIREBASE_AUTH_DOMAIN,VITE_FIREBASE_STORAGE_BUCKET,VITE_FIREBASE_SENDER_ID,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
 
+  # The line above settles the check that compares against our env vars; it
+  # reported zero. What fails the build is the other one - smart detection,
+  # which matches values by shape regardless of where they came from, and an
+  # "AIza..." string looks like a Google key whatever it is.
+  #
+  # Two different values were caught. Ours, in dist, which is a Firebase web
+  # config and belongs in the bundle. And Firebase's own documentation
+  # placeholder, AIzaSyDOCAbC123dEf456GhI789jKl012-MnO, sitting in comments
+  # across eight .d.ts files in node_modules - a string that would fail this
+  # build even if the project used no Firebase key at all.
+  #
+  # So node_modules comes out of the scan, since it is vendor code that is
+  # never published, and our own key is named explicitly. Detection stays on
+  # everywhere else, including over everything we actually deploy.
+  #
+  # Rotate the Firebase key and this line has to change with it.
+  SECRETS_SCAN_OMIT_PATHS = "node_modules/**"
+  SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyBb-Na6s-wa4pUH8EySG3KVpN60LrOBwa0"
+
 # React Router owns the URLs. Without this, every route except "/" is a request
 # for a file that does not exist on disk - a visitor landing on /docs, or simply
 # reloading the page while in the game, gets Netlify's 404 instead of the app.

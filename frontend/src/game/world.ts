@@ -109,6 +109,20 @@ const LOT_SIZE = CITY_SIZE / CITY_GRID - ROAD_W - 0.8;
 
 
 const MARK_Y = WALK_Y + 0.08;
+
+/*
+ * The connector roads run the full width of the world and pass straight under
+ * each district's own road grid at the gates. Drawn at the same height the two
+ * slabs are exactly coplanar, and coplanar surfaces do not pick a winner -
+ * they alternate per pixel as the camera moves, which is the flicker in the
+ * middle of the road between two facing gates. Their lane markings were
+ * coplanar with each other too.
+ *
+ * Dropping the connector by a whole centimetre is enough that the district
+ * always wins the depth test, and far too little to read as a step where the
+ * connector runs alone across the belt.
+ */
+const CONNECTOR_DROP = 0.01;
 const LINE = "#F8F8F8";
 const GRID = CITY_GRID;
 
@@ -576,10 +590,11 @@ function addPlaza(root: pc.Entity, colliders: Aabb[]) {
 
 function addConnectorRoads(root: pc.Entity) {
   const span = WORLD_HALF * 2;
-  addBrickSlab(root, "road-x", 0, 0, span, 14, WALK_Y + 0.05, 0.36, "#4A4A4A");
-  addBrickSlab(root, "road-z", 0, 0, 14, span, WALK_Y + 0.05, 0.36, "#4A4A4A");
-  addLaneLines(root, "conn-x", 0, 0, span, 14, "ew", []);
-  addLaneLines(root, "conn-z", 0, 0, 14, span, "ns", []);
+  const y = WALK_Y + 0.05 - CONNECTOR_DROP;
+  addBrickSlab(root, "road-x", 0, 0, span, 14, y, 0.36, "#4A4A4A");
+  addBrickSlab(root, "road-z", 0, 0, 14, span, y, 0.36, "#4A4A4A");
+  addLaneLines(root, "conn-x", 0, 0, span, 14, "ew", [], MARK_Y - CONNECTOR_DROP);
+  addLaneLines(root, "conn-z", 0, 0, 14, span, "ns", [], MARK_Y - CONNECTOR_DROP);
 }
 
 function addMapWalls(root: pc.Entity, colliders: Aabb[]) {
@@ -670,11 +685,17 @@ function buildCity(
     }
   }
 
+  // Every north-south road crosses every east-west one, and each slab spans the
+  // whole grid - so at each of the crossings the two are exactly coplanar, as
+  // is the grout drawn on top of both. That is the flicker at the corners of an
+  // intersection. The east-west set is dropped by the same centimetre used for
+  // the connectors, which settles the depth test everywhere they meet and is
+  // far too small to see as a step.
   for (let i = 0; i <= GRID; i++) {
     addBrickSlab(root, `${theme.id}-ns-${i}`, xs[i], cz, ROAD_W, size, WALK_Y + 0.05, 0.4, theme.road);
-    addBrickSlab(root, `${theme.id}-ew-${i}`, cx, zs[i], size, ROAD_W, WALK_Y + 0.05, 0.4, theme.road);
+    addBrickSlab(root, `${theme.id}-ew-${i}`, cx, zs[i], size, ROAD_W, WALK_Y + 0.05 - CONNECTOR_DROP, 0.4, theme.road);
     addLaneLines(root, `${theme.id}-ns-m-${i}`, xs[i], cz, ROAD_W, size, "ns", zs);
-    addLaneLines(root, `${theme.id}-ew-m-${i}`, cx, zs[i], size, ROAD_W, "ew", xs);
+    addLaneLines(root, `${theme.id}-ew-m-${i}`, cx, zs[i], size, ROAD_W, "ew", xs, MARK_Y - CONNECTOR_DROP);
   }
 
   addCrosswalks(root, theme, xs, zs);
@@ -768,6 +789,7 @@ function addLaneLines(
   d: number,
   axis: "ns" | "ew",
   cuts: number[],
+  markY = MARK_Y,
 ) {
   const edge = ROAD_W / 2 - 0.55;
   const gap = ROAD_W / 2 + 0.55;
@@ -775,26 +797,26 @@ function addLaneLines(
   if (axis === "ns") {
     const segs = lineSegments(cz - d / 2, cz + d / 2, cuts, gap);
     for (const s of segs) {
-      box(root, `${name}-el-${n}`, [cx - edge, MARK_Y, s.mid], [0.18, 0.04, s.len], LINE);
-      box(root, `${name}-er-${n}`, [cx + edge, MARK_Y, s.mid], [0.18, 0.04, s.len], LINE);
+      box(root, `${name}-el-${n}`, [cx - edge, markY, s.mid], [0.18, 0.04, s.len], LINE);
+      box(root, `${name}-er-${n}`, [cx + edge, markY, s.mid], [0.18, 0.04, s.len], LINE);
       n += 1;
     }
     n = 0;
     for (let z = cz - d / 2 + 2; z < cz + d / 2 - 2; z += 5) {
       if (cuts.some((c) => Math.abs(c - z) < gap)) continue;
-      box(root, `${name}-d-${n++}`, [cx, MARK_Y, z], [0.34, 0.045, 2.5], "#FFFFFF");
+      box(root, `${name}-d-${n++}`, [cx, markY, z], [0.34, 0.045, 2.5], "#FFFFFF");
     }
   } else {
     const segs = lineSegments(cx - w / 2, cx + w / 2, cuts, gap);
     for (const s of segs) {
-      box(root, `${name}-el-${n}`, [s.mid, MARK_Y, cz - edge], [s.len, 0.04, 0.18], LINE);
-      box(root, `${name}-er-${n}`, [s.mid, MARK_Y, cz + edge], [s.len, 0.04, 0.18], LINE);
+      box(root, `${name}-el-${n}`, [s.mid, markY, cz - edge], [s.len, 0.04, 0.18], LINE);
+      box(root, `${name}-er-${n}`, [s.mid, markY, cz + edge], [s.len, 0.04, 0.18], LINE);
       n += 1;
     }
     n = 0;
     for (let x = cx - w / 2 + 2; x < cx + w / 2 - 2; x += 5) {
       if (cuts.some((c) => Math.abs(c - x) < gap)) continue;
-      box(root, `${name}-d-${n++}`, [x, MARK_Y, cz], [2.5, 0.045, 0.34], "#FFFFFF");
+      box(root, `${name}-d-${n++}`, [x, markY, cz], [2.5, 0.045, 0.34], "#FFFFFF");
     }
   }
 }

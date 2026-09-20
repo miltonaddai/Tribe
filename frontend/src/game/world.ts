@@ -573,21 +573,64 @@ function addGrout(
  * the strip beneath each city's ring road have no geometry at all, and you see
  * straight through to the skybox.
  */
+const PLAZA_HALF = 12;
+
 function addWorldGround(root: pc.Entity) {
   const span = WORLD_HALF * 2 + 8;
-  box(root, "world-ground", [0, WALK_Y - 0.02 - 0.5, 0], [span, 1, span], "#3A3833");
-  addBrickSlab(root, "belt-ground", 0, 0, span, span, WALK_Y - 0.01, 0.3, "#6E6A62");
+  // Holed for the plaza as well: its top is WALK_Y - 0.02, two centimetres
+  // under the plaza floor, so it is the next surface up the stack to compete
+  // for the same pixels. The plaza slabs are a third of a metre thick and
+  // cover the gap.
+  const gap = PLAZA_HALF;
+  const outerArm = span / 2 - gap;
+  const outerMid = (span / 2 + gap) / 2;
+  const groundY = WALK_Y - 0.02 - 0.5;
+  box(root, "world-ground-n", [0, groundY, outerMid], [span, 1, outerArm], "#3A3833");
+  box(root, "world-ground-s", [0, groundY, -outerMid], [span, 1, outerArm], "#3A3833");
+  box(root, "world-ground-e", [outerMid, groundY, 0], [outerArm, 1, gap * 2], "#3A3833");
+  box(root, "world-ground-w", [-outerMid, groundY, 0], [outerArm, 1, gap * 2], "#3A3833");
+  // A hole where the plaza goes, rather than a sheet running under it. This
+  // slab's top is a single centimetre below the plaza's, and at the angle a
+  // player looks at the ground that is a fraction of a millimetre of depth -
+  // not enough to keep the two apart. Drawn as a frame, nothing is beneath the
+  // plaza but the dirt, a third of a metre down.
+  const edge = span / 2;
+  const arm = edge - PLAZA_HALF;
+  const mid = (edge + PLAZA_HALF) / 2;
+  addBrickSlab(root, "belt-ground-n", 0, mid, span, arm, WALK_Y - 0.01, 0.3, "#6E6A62");
+  addBrickSlab(root, "belt-ground-s", 0, -mid, span, arm, WALK_Y - 0.01, 0.3, "#6E6A62");
+  addBrickSlab(root, "belt-ground-e", mid, 0, arm, PLAZA_HALF * 2, WALK_Y - 0.01, 0.3, "#6E6A62");
+  addBrickSlab(root, "belt-ground-w", -mid, 0, arm, PLAZA_HALF * 2, WALK_Y - 0.01, 0.3, "#6E6A62");
 }
 
+/**
+ * The plaza floor is a frame around the ring, not a slab underneath it.
+ *
+ * The ring used to be a thin box hovering above the slab. However far apart
+ * they were put, the two surfaces fought for the depth buffer - and the band
+ * they have to share is only five centimetres tall, between the belt beneath
+ * and the connector roads crossing above. Depth precision is not the limit
+ * here; the gradient across a pixel is. At the grazing angle a player actually
+ * looks at the ground, a few centimetres of height is a fraction of a
+ * millimetre of depth, and which of the four corners breaks up depends on the
+ * angle it is seen from rather than its distance. Measured: at eye height,
+ * off-centre, the ring's area jitters as the camera creeps forward.
+ *
+ * So the two no longer overlap. The four frame pieces and the ring tile the
+ * 24x24 exactly, edge to edge, and the ring sits flush at the same height
+ * instead of proud of it. Nothing is drawn twice, so there is nothing to fight.
+ */
 function addPlaza(root: pc.Entity, colliders: Aabb[]) {
   box(root, "plaza-dirt", [0, -0.32, 0], [28, 0.28, 28], "#2A2A2A");
-  addBrickSlab(root, "plaza", 0, 0, 24, 24, WALK_Y, 0.34, "#C9C4BB");
-  // Centred in the band between the plaza slab it lies on (top WALK_Y) and the
-  // connector roads that cross it (top WALK_Y + 0.05), rather than filling it.
-  // At 0.04 thick its top face was a centimetre under the road and its bottom
-  // face exactly on the plaza - the flicker around the monument. Now it clears
-  // both by 0.018.
-  box(root, "plaza-ring", [0, WALK_Y + 0.025, 0], [18, 0.014, 18], "#FFB830");
+  const outer = 12;
+  const inner = 9;
+  const strip = outer - inner;
+  const mid = (outer + inner) / 2;
+  addBrickSlab(root, "plaza-n", 0, mid, outer * 2, strip, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-s", 0, -mid, outer * 2, strip, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-e", mid, 0, strip, inner * 2, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-w", -mid, 0, strip, inner * 2, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-ring", 0, 0, inner * 2, inner * 2, WALK_Y, 0.34, "#FFB830");
   box(root, "cube-logo", [0, 1.4, 0], [2.2, 2.2, 2.2], "#111111");
   box(root, "cube-logo-in", [0, 1.4, 0], [1.4, 1.4, 1.4], "#FFB830");
   const monument: Aabb = { minX: -1.4, maxX: 1.4, minZ: -1.4, maxZ: 1.4 };

@@ -4124,9 +4124,20 @@ button {
   cursor: pointer;
 }
 
-.wallet-dropdown-item:hover {
-  color: #111;
-  background: var(--accent);
+/*
+ * Red on hover - it is the one destructive thing in the bar, and --danger is
+ * the token the rest of the app already reaches for.
+ *
+ * Red text on a wash rather than a filled red bar: white on --danger measures
+ * 3.06:1, under the 4.5:1 floor for text this size, and darkening the red
+ * enough to pass would mean a second red that matches nothing else. This way
+ * it reads at 6.47:1 against the panel and still uses the one red.
+ */
+.wallet-dropdown-item:hover,
+.wallet-dropdown-item:focus-visible {
+  color: var(--danger);
+  background: rgba(255, 90, 90, 0.12);
+  outline: none;
 }
 
 @media (max-width: 720px) {

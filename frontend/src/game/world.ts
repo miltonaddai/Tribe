@@ -111,18 +111,19 @@ const LOT_SIZE = CITY_SIZE / CITY_GRID - ROAD_W - 0.8;
 const MARK_Y = WALK_Y + 0.08;
 
 /*
- * The connector roads run the full width of the world and pass straight under
- * each district's own road grid at the gates. Drawn at the same height the two
- * slabs are exactly coplanar, and coplanar surfaces do not pick a winner -
- * they alternate per pixel as the camera moves, which is the flicker in the
- * middle of the road between two facing gates. Their lane markings were
- * coplanar with each other too.
+ * How far apart two road surfaces have to sit when they cover the same ground.
  *
- * Dropping the connector by a whole centimetre is enough that the district
- * always wins the depth test, and far too little to read as a step where the
- * connector runs alone across the belt.
+ * Coplanar surfaces do not pick a winner - they alternate per pixel as the
+ * camera moves. A centimetre is plenty for the depth test at these distances
+ * and far too little to read as a step underfoot.
+ *
+ * Which of a pair moves matters, because the belt is crowded: the connector
+ * roads cross the plaza, whose ring sits at WALK_Y + 0.04, so dropping them
+ * onto it trades a small overlap for a 18x18 one. The gate approaches lift
+ * instead, and the district's east-west grid drops, neither of which shares
+ * ground with anything else.
  */
-const CONNECTOR_DROP = 0.01;
+const LAYER_STEP = 0.01;
 const LINE = "#F8F8F8";
 const GRID = CITY_GRID;
 
@@ -581,7 +582,12 @@ function addWorldGround(root: pc.Entity) {
 function addPlaza(root: pc.Entity, colliders: Aabb[]) {
   box(root, "plaza-dirt", [0, -0.32, 0], [28, 0.28, 28], "#2A2A2A");
   addBrickSlab(root, "plaza", 0, 0, 24, 24, WALK_Y, 0.34, "#C9C4BB");
-  box(root, "plaza-ring", [0, WALK_Y + 0.02, 0], [18, 0.04, 18], "#FFB830");
+  // Centred in the band between the plaza slab it lies on (top WALK_Y) and the
+  // connector roads that cross it (top WALK_Y + 0.05), rather than filling it.
+  // At 0.04 thick its top face was a centimetre under the road and its bottom
+  // face exactly on the plaza - the flicker around the monument. Now it clears
+  // both by 0.018.
+  box(root, "plaza-ring", [0, WALK_Y + 0.025, 0], [18, 0.014, 18], "#FFB830");
   box(root, "cube-logo", [0, 1.4, 0], [2.2, 2.2, 2.2], "#111111");
   box(root, "cube-logo-in", [0, 1.4, 0], [1.4, 1.4, 1.4], "#FFB830");
   const monument: Aabb = { minX: -1.4, maxX: 1.4, minZ: -1.4, maxZ: 1.4 };
@@ -590,11 +596,10 @@ function addPlaza(root: pc.Entity, colliders: Aabb[]) {
 
 function addConnectorRoads(root: pc.Entity) {
   const span = WORLD_HALF * 2;
-  const y = WALK_Y + 0.05 - CONNECTOR_DROP;
-  addBrickSlab(root, "road-x", 0, 0, span, 14, y, 0.36, "#4A4A4A");
-  addBrickSlab(root, "road-z", 0, 0, 14, span, y, 0.36, "#4A4A4A");
-  addLaneLines(root, "conn-x", 0, 0, span, 14, "ew", [], MARK_Y - CONNECTOR_DROP);
-  addLaneLines(root, "conn-z", 0, 0, 14, span, "ns", [], MARK_Y - CONNECTOR_DROP);
+  addBrickSlab(root, "road-x", 0, 0, span, 14, WALK_Y + 0.05, 0.36, "#4A4A4A");
+  addBrickSlab(root, "road-z", 0, 0, 14, span, WALK_Y + 0.05, 0.36, "#4A4A4A");
+  addLaneLines(root, "conn-x", 0, 0, span, 14, "ew", []);
+  addLaneLines(root, "conn-z", 0, 0, 14, span, "ns", []);
 }
 
 function addMapWalls(root: pc.Entity, colliders: Aabb[]) {
@@ -693,9 +698,9 @@ function buildCity(
   // far too small to see as a step.
   for (let i = 0; i <= GRID; i++) {
     addBrickSlab(root, `${theme.id}-ns-${i}`, xs[i], cz, ROAD_W, size, WALK_Y + 0.05, 0.4, theme.road);
-    addBrickSlab(root, `${theme.id}-ew-${i}`, cx, zs[i], size, ROAD_W, WALK_Y + 0.05 - CONNECTOR_DROP, 0.4, theme.road);
+    addBrickSlab(root, `${theme.id}-ew-${i}`, cx, zs[i], size, ROAD_W, WALK_Y + 0.05 - LAYER_STEP, 0.4, theme.road);
     addLaneLines(root, `${theme.id}-ns-m-${i}`, xs[i], cz, ROAD_W, size, "ns", zs);
-    addLaneLines(root, `${theme.id}-ew-m-${i}`, cx, zs[i], size, ROAD_W, "ew", xs, MARK_Y - CONNECTOR_DROP);
+    addLaneLines(root, `${theme.id}-ew-m-${i}`, cx, zs[i], size, ROAD_W, "ew", xs, MARK_Y - LAYER_STEP);
   }
 
   addCrosswalks(root, theme, xs, zs);
@@ -994,11 +999,11 @@ function addGateApproach(root: pc.Entity, theme: CityTheme, name: string, x: num
   if (axis === "z") {
     const len = Math.abs(z);
     if (len < 1) return;
-    addBrickSlab(root, name, x, z / 2, ROAD_W, len, WALK_Y + 0.05, 0.4, theme.road);
+    addBrickSlab(root, name, x, z / 2, ROAD_W, len, WALK_Y + 0.05 + LAYER_STEP, 0.4, theme.road);
   } else {
     const len = Math.abs(x);
     if (len < 1) return;
-    addBrickSlab(root, name, x / 2, z, len, ROAD_W, WALK_Y + 0.05, 0.4, theme.road);
+    addBrickSlab(root, name, x / 2, z, len, ROAD_W, WALK_Y + 0.05 + LAYER_STEP, 0.4, theme.road);
   }
 }
 

@@ -25,7 +25,7 @@ export function LandingPage() {
         muted
         loop
         playsInline
-        poster="/images/landing-bg.jpg"
+        poster="/images/game-wallpaper.jpg"
       >
         <source src="/tribe-trailer.mp4" type="video/mp4" />
       </video>

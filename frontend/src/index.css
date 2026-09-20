@@ -249,9 +249,23 @@ button {
   transform: scaleX(1);
 }
 
+/*
+ * The accent buttons - wallet, and the docs link on the mobile block - fill
+ * white too. This one needs none of the machinery the hero button does: the
+ * label is already #111 against the yellow, and #111 reads on white just as
+ * well, so it simply stays put while the fill sweeps underneath. The icon is
+ * an inline SVG drawn in currentColor, so it follows without being asked.
+ *
+ * The accent background stays set so the yellow is still there behind the
+ * sweep as it retracts.
+ */
+.btn-accent.btn-fill::before {
+  background: #fff;
+}
+
 .btn-accent.btn-fill:hover {
   background: var(--accent);
-  color: #fff;
+  color: #111;
 }
 
 .btn-fill-inner {
@@ -280,6 +294,32 @@ button {
 .landing-cta img {
   width: 28px;
   height: 28px;
+}
+
+/*
+ * The hero button fills white rather than black, so the label on top of it has
+ * to end up dark - and it cannot do that by changing colour at a moment in
+ * time, because there is no such moment. The sweep crosses the label rather
+ * than arriving at it: the white passes the label's left edge around 60ms and
+ * its right edge at ~157ms, so any snap leaves part of the text the wrong
+ * colour for the ~100ms in between, and a fade parks all of it at mid-grey.
+ * Both were measured; both are worse than either end state.
+ *
+ * Difference blending sidesteps the timing entirely. White against black is
+ * white; white against white is black. The label inverts pixel by pixel as the
+ * fill passes under it, so it is legible at every frame of the sweep with
+ * nothing to tune. It covers the icon too - a white-filled SVG that `color`
+ * could never have reached, since it is an <img>.
+ *
+ * .btn-fill already sets isolation: isolate, which is what keeps this blending
+ * against the button rather than against the trailer playing behind it.
+ */
+.landing-cta.btn-fill::before {
+  background: #fff;
+}
+
+.landing-cta .btn-fill-inner {
+  mix-blend-mode: difference;
 }
 
 .btn-outline {

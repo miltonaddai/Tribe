@@ -2614,6 +2614,70 @@ button {
   gap: 10px;
 }
 
+/* The bug form. Narrower than Settings: it holds one field, and a wide box
+   invites an essay where a paragraph is wanted. */
+.bug-panel {
+  width: min(520px, 92vw);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  padding: 22px 24px;
+  background: #0a0a0a;
+  border: 1px solid #222;
+}
+
+.bug-text {
+  display: block;
+  width: 100%;
+  min-height: 150px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #fff;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.bug-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.bug-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.bug-count {
+  font-size: 12px;
+  color: #6e6e76;
+}
+
+.bug-count.low {
+  color: var(--accent);
+}
+
+.bug-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #b9b9c2;
+}
+
+.bug-note-bad {
+  padding: 9px 12px;
+  color: #f0a9a9;
+  background: rgba(190, 60, 60, 0.12);
+  border: 1px solid #5c2b2b;
+  border-radius: 4px;
+}
+
 /* Why a save did not take. Sits in the grid gap under the button it explains. */
 .pause-note {
   margin: -4px 0 0;

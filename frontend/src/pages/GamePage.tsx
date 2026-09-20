@@ -6,6 +6,7 @@ import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
 import { loadWallet } from "../lib/wallet";
 import { SettingsModal } from "./SettingsModal";
+import { BugReport } from "../components/BugReport";
 import { WorldMap } from "../components/WorldMap";
 import { InventoryPanel, itemName } from "../components/InventoryPanel";
 import { FriendsTab } from "../components/FriendsTab";
@@ -160,6 +161,7 @@ export function GamePage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [saveNote, setSaveNote] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bugOpen, setBugOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatText, setChatText] = useState("");
   const [whisperOpen, setWhisperOpen] = useState(false);
@@ -210,7 +212,7 @@ export function GamePage() {
   // for aiming, and a trapped cursor cannot click Buy.
   const anyPanelOpen =
     invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused ||
-    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || Boolean(shot) ||
+    Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || bugOpen || Boolean(shot) ||
     Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt);
   useEffect(() => {
     // Tell the engine either way: it must not grab the cursor back while a
@@ -1158,6 +1160,9 @@ export function GamePage() {
           <button className="btn btn-ghost" type="button" onClick={() => setSettingsOpen(true)}>
             Settings
           </button>
+          <button className="btn btn-ghost" type="button" onClick={() => setBugOpen(true)}>
+            Report a bug
+          </button>
           <button className="btn btn-ghost" type="button" onClick={() => nav("/docs")}>
             Docs
           </button>
@@ -1175,6 +1180,20 @@ export function GamePage() {
           </button>
         </div>
       )}
+
+      <BugReport
+        open={bugOpen}
+        onClose={() => setBugOpen(false)}
+        context={{
+          wallet: loadWallet()?.address,
+          name: loadCharacter()?.displayName,
+          city: hud.city,
+          x: Math.round(hud.x * 10) / 10,
+          z: Math.round(hud.z * 10) / 10,
+          block: hud.block || undefined,
+          health: hud.health,
+        }}
+      />
 
       <SettingsModal
         open={settingsOpen}

@@ -1,0 +1,45 @@
+rules_version = '2';
+
+/*
+ * Firestore rules for bug reports.
+ *
+ * Publish with: firebase deploy --only firestore:rules
+ * (or paste into Firebase console -> Firestore -> Rules -> Publish)
+ *
+ * Until these are published the database is in locked mode and every report is
+ * refused with "Missing or insufficient permissions".
+ *
+ * The game writes reports without signing in, so this grants create to anyone
+ * who can reach the project - and nothing else. No read, no update, no delete:
+ * reports are written by players and read by you in the console, so a client
+ * has no reason to fetch one back. That also means a report can never be
+ * edited or erased by whoever sent it.
+ *
+ * The shape is checked here rather than trusted from the client, because the
+ * client is the thing being checked. A field cap and a length cap are what
+ * stop the collection being used as free storage.
+ *
+ * What this does NOT stop is volume: anyone with the config can write reports
+ * in a loop. If that ever happens, turn on App Check with reCAPTCHA Enterprise
+ * and add `request.app != null` to the condition below - that is the intended
+ * fix, and it needs no change to the game beyond initialising App Check.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /bug_reports/{id} {
+      allow create: if request.resource.data.report is string
+                    && request.resource.data.report.size() > 0
+                    && request.resource.data.report.size() <= 2000
+                    && request.resource.data.keys().size() <= 14
+                    && request.resource.data.at is string;
+
+      allow read, update, delete: if false;
+    }
+
+    // Everything else stays shut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CHAIN_EXPLORER, CHAIN_NAME } from "../lib/chain";
-import { tokenConfig } from "../lib/payments";
+import { TRIBE_CONTRACT } from "../lib/token";
 
 /**
  * The quiet strip at the bottom of the landing page.
@@ -18,45 +18,16 @@ import { tokenConfig } from "../lib/payments";
  */
 const X_URL = (import.meta.env.VITE_X_URL as string | undefined)?.trim();
 
-/**
- * Whether the contract address is public yet.
- *
- * Off by default, so the footer says "Coming soon" rather than publishing an
- * address before launch - the one currently configured is a test token, and a
- * test address in the CA slot is exactly the sort of thing people buy by
- * mistake. Set VITE_TOKEN_LIVE=true to reveal the real one; it needs no code
- * change, just the env var flipped at deploy.
- */
-const TOKEN_LIVE = (import.meta.env.VITE_TOKEN_LIVE as string | undefined)?.trim() === "true";
-
 /** 0x1234…cDeF — long enough to check against a listing, short enough to read. */
 function short(address: string): string {
   return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
 }
 
 export function SiteFooter({ className = "" }: { className?: string } = {}) {
-  const [address, setAddress] = useState<string | null>(null);
+  const address = TRIBE_CONTRACT;
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    // Read from the server rather than baked into the bundle: the deployed
-    // token is whatever the backend is configured with, and a second copy in
-    // the frontend is a second thing that can be wrong.
-    // No request at all while the address is under wraps: the only thing it
-    // feeds is the CA, and the landing page should not call the API to render
-    // the words "Coming soon".
-    if (!TOKEN_LIVE) return;
-    let live = true;
-    void tokenConfig().then((cfg) => {
-      if (live && cfg?.address) setAddress(cfg.address);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-
   const copy = () => {
-    if (!address) return;
     void navigator.clipboard?.writeText(address).then(
       () => {
         setCopied(true);
@@ -73,32 +44,24 @@ export function SiteFooter({ className = "" }: { className?: string } = {}) {
 
         <span className="footer-ca">
           <span className="footer-ca-label">CA</span>
-          {TOKEN_LIVE && address ? (
-            <>
-              <button
-                type="button"
-                className="footer-ca-value"
-                onClick={copy}
-                title={`${address} · click to copy`}
-              >
-                {copied ? "Copied" : short(address)}
-              </button>
-              {CHAIN_EXPLORER && (
-                <a
-                  className="footer-ca-link"
-                  href={`${CHAIN_EXPLORER.replace(/\/$/, "")}/address/${address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`View on ${CHAIN_NAME} explorer`}
-                >
-                  ↗
-                </a>
-              )}
-            </>
-          ) : (
-            /* Plain text, not a button: there is nothing to copy yet, and a
-               control that looks clickable and does nothing is worse than none. */
-            <span className="footer-ca-soon">Coming soon</span>
+          <button
+            type="button"
+            className="footer-ca-value"
+            onClick={copy}
+            title={`${address} · click to copy`}
+          >
+            {copied ? "Copied" : short(address)}
+          </button>
+          {CHAIN_EXPLORER && (
+            <a
+              className="footer-ca-link"
+              href={`${CHAIN_EXPLORER.replace(/\/$/, "")}/address/${address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`View on ${CHAIN_NAME} explorer`}
+            >
+              ↗
+            </a>
           )}
         </span>
 

@@ -4480,16 +4480,7 @@ button {
 
 /* Stands in for the address before launch. Italic and muted so it reads as a
    state rather than as a value someone might try to copy. */
-.footer-ca-soon {
-  font-style: italic;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.docs-footer .footer-ca-soon {
-  color: #777;
-}
-
-/* ---- Docs: official addresses -------------------------------------------- */
+.docs-footer /* ---- Docs: official addresses -------------------------------------------- */
 .addr-list {
   margin: 20px 0 8px;
   max-width: 760px;

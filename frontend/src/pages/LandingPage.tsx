@@ -25,7 +25,7 @@ export function LandingPage() {
         muted
         loop
         playsInline
-        poster="/images/landing-bg.jpg"
+        poster="/images/game-wallpaper.jpg"
       >
         <source src="/tribe-trailer.mp4" type="video/mp4" />
       </video>
@@ -37,7 +37,7 @@ export function LandingPage() {
         </h1>
         <p>
           Claim a block, team up with your neighbors, and build a city that&apos;s actually owned by the
-          people living in it. No landlords, no gatekeepers — just your tribe.
+          people living in it. No landlords, no gatekeepers, just your tribe.
         </p>
         <button className="btn btn-ghost landing-cta btn-fill" onClick={start} type="button">
           <span className="btn-fill-inner">

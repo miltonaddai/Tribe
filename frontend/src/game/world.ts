@@ -109,6 +109,21 @@ const LOT_SIZE = CITY_SIZE / CITY_GRID - ROAD_W - 0.8;
 
 
 const MARK_Y = WALK_Y + 0.08;
+
+/*
+ * How far apart two road surfaces have to sit when they cover the same ground.
+ *
+ * Coplanar surfaces do not pick a winner - they alternate per pixel as the
+ * camera moves. A centimetre is plenty for the depth test at these distances
+ * and far too little to read as a step underfoot.
+ *
+ * Which of a pair moves matters, because the belt is crowded: the connector
+ * roads cross the plaza, whose ring sits at WALK_Y + 0.04, so dropping them
+ * onto it trades a small overlap for a 18x18 one. The gate approaches lift
+ * instead, and the district's east-west grid drops, neither of which shares
+ * ground with anything else.
+ */
+const LAYER_STEP = 0.01;
 const LINE = "#F8F8F8";
 const GRID = CITY_GRID;
 
@@ -558,16 +573,64 @@ function addGrout(
  * the strip beneath each city's ring road have no geometry at all, and you see
  * straight through to the skybox.
  */
+const PLAZA_HALF = 12;
+
 function addWorldGround(root: pc.Entity) {
   const span = WORLD_HALF * 2 + 8;
-  box(root, "world-ground", [0, WALK_Y - 0.02 - 0.5, 0], [span, 1, span], "#3A3833");
-  addBrickSlab(root, "belt-ground", 0, 0, span, span, WALK_Y - 0.01, 0.3, "#6E6A62");
+  // Holed for the plaza as well: its top is WALK_Y - 0.02, two centimetres
+  // under the plaza floor, so it is the next surface up the stack to compete
+  // for the same pixels. The plaza slabs are a third of a metre thick and
+  // cover the gap.
+  const gap = PLAZA_HALF;
+  const outerArm = span / 2 - gap;
+  const outerMid = (span / 2 + gap) / 2;
+  const groundY = WALK_Y - 0.02 - 0.5;
+  box(root, "world-ground-n", [0, groundY, outerMid], [span, 1, outerArm], "#3A3833");
+  box(root, "world-ground-s", [0, groundY, -outerMid], [span, 1, outerArm], "#3A3833");
+  box(root, "world-ground-e", [outerMid, groundY, 0], [outerArm, 1, gap * 2], "#3A3833");
+  box(root, "world-ground-w", [-outerMid, groundY, 0], [outerArm, 1, gap * 2], "#3A3833");
+  // A hole where the plaza goes, rather than a sheet running under it. This
+  // slab's top is a single centimetre below the plaza's, and at the angle a
+  // player looks at the ground that is a fraction of a millimetre of depth -
+  // not enough to keep the two apart. Drawn as a frame, nothing is beneath the
+  // plaza but the dirt, a third of a metre down.
+  const edge = span / 2;
+  const arm = edge - PLAZA_HALF;
+  const mid = (edge + PLAZA_HALF) / 2;
+  addBrickSlab(root, "belt-ground-n", 0, mid, span, arm, WALK_Y - 0.01, 0.3, "#6E6A62");
+  addBrickSlab(root, "belt-ground-s", 0, -mid, span, arm, WALK_Y - 0.01, 0.3, "#6E6A62");
+  addBrickSlab(root, "belt-ground-e", mid, 0, arm, PLAZA_HALF * 2, WALK_Y - 0.01, 0.3, "#6E6A62");
+  addBrickSlab(root, "belt-ground-w", -mid, 0, arm, PLAZA_HALF * 2, WALK_Y - 0.01, 0.3, "#6E6A62");
 }
 
+/**
+ * The plaza floor is a frame around the ring, not a slab underneath it.
+ *
+ * The ring used to be a thin box hovering above the slab. However far apart
+ * they were put, the two surfaces fought for the depth buffer - and the band
+ * they have to share is only five centimetres tall, between the belt beneath
+ * and the connector roads crossing above. Depth precision is not the limit
+ * here; the gradient across a pixel is. At the grazing angle a player actually
+ * looks at the ground, a few centimetres of height is a fraction of a
+ * millimetre of depth, and which of the four corners breaks up depends on the
+ * angle it is seen from rather than its distance. Measured: at eye height,
+ * off-centre, the ring's area jitters as the camera creeps forward.
+ *
+ * So the two no longer overlap. The four frame pieces and the ring tile the
+ * 24x24 exactly, edge to edge, and the ring sits flush at the same height
+ * instead of proud of it. Nothing is drawn twice, so there is nothing to fight.
+ */
 function addPlaza(root: pc.Entity, colliders: Aabb[]) {
   box(root, "plaza-dirt", [0, -0.32, 0], [28, 0.28, 28], "#2A2A2A");
-  addBrickSlab(root, "plaza", 0, 0, 24, 24, WALK_Y, 0.34, "#C9C4BB");
-  box(root, "plaza-ring", [0, WALK_Y + 0.02, 0], [18, 0.04, 18], "#FFB830");
+  const outer = 12;
+  const inner = 9;
+  const strip = outer - inner;
+  const mid = (outer + inner) / 2;
+  addBrickSlab(root, "plaza-n", 0, mid, outer * 2, strip, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-s", 0, -mid, outer * 2, strip, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-e", mid, 0, strip, inner * 2, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-w", -mid, 0, strip, inner * 2, WALK_Y, 0.34, "#C9C4BB");
+  addBrickSlab(root, "plaza-ring", 0, 0, inner * 2, inner * 2, WALK_Y, 0.34, "#FFB830");
   box(root, "cube-logo", [0, 1.4, 0], [2.2, 2.2, 2.2], "#111111");
   box(root, "cube-logo-in", [0, 1.4, 0], [1.4, 1.4, 1.4], "#FFB830");
   const monument: Aabb = { minX: -1.4, maxX: 1.4, minZ: -1.4, maxZ: 1.4 };
@@ -670,11 +733,17 @@ function buildCity(
     }
   }
 
+  // Every north-south road crosses every east-west one, and each slab spans the
+  // whole grid - so at each of the crossings the two are exactly coplanar, as
+  // is the grout drawn on top of both. That is the flicker at the corners of an
+  // intersection. The east-west set is dropped by the same centimetre used for
+  // the connectors, which settles the depth test everywhere they meet and is
+  // far too small to see as a step.
   for (let i = 0; i <= GRID; i++) {
     addBrickSlab(root, `${theme.id}-ns-${i}`, xs[i], cz, ROAD_W, size, WALK_Y + 0.05, 0.4, theme.road);
-    addBrickSlab(root, `${theme.id}-ew-${i}`, cx, zs[i], size, ROAD_W, WALK_Y + 0.05, 0.4, theme.road);
+    addBrickSlab(root, `${theme.id}-ew-${i}`, cx, zs[i], size, ROAD_W, WALK_Y + 0.05 - LAYER_STEP, 0.4, theme.road);
     addLaneLines(root, `${theme.id}-ns-m-${i}`, xs[i], cz, ROAD_W, size, "ns", zs);
-    addLaneLines(root, `${theme.id}-ew-m-${i}`, cx, zs[i], size, ROAD_W, "ew", xs);
+    addLaneLines(root, `${theme.id}-ew-m-${i}`, cx, zs[i], size, ROAD_W, "ew", xs, MARK_Y - LAYER_STEP);
   }
 
   addCrosswalks(root, theme, xs, zs);
@@ -768,6 +837,7 @@ function addLaneLines(
   d: number,
   axis: "ns" | "ew",
   cuts: number[],
+  markY = MARK_Y,
 ) {
   const edge = ROAD_W / 2 - 0.55;
   const gap = ROAD_W / 2 + 0.55;
@@ -775,26 +845,26 @@ function addLaneLines(
   if (axis === "ns") {
     const segs = lineSegments(cz - d / 2, cz + d / 2, cuts, gap);
     for (const s of segs) {
-      box(root, `${name}-el-${n}`, [cx - edge, MARK_Y, s.mid], [0.18, 0.04, s.len], LINE);
-      box(root, `${name}-er-${n}`, [cx + edge, MARK_Y, s.mid], [0.18, 0.04, s.len], LINE);
+      box(root, `${name}-el-${n}`, [cx - edge, markY, s.mid], [0.18, 0.04, s.len], LINE);
+      box(root, `${name}-er-${n}`, [cx + edge, markY, s.mid], [0.18, 0.04, s.len], LINE);
       n += 1;
     }
     n = 0;
     for (let z = cz - d / 2 + 2; z < cz + d / 2 - 2; z += 5) {
       if (cuts.some((c) => Math.abs(c - z) < gap)) continue;
-      box(root, `${name}-d-${n++}`, [cx, MARK_Y, z], [0.34, 0.045, 2.5], "#FFFFFF");
+      box(root, `${name}-d-${n++}`, [cx, markY, z], [0.34, 0.045, 2.5], "#FFFFFF");
     }
   } else {
     const segs = lineSegments(cx - w / 2, cx + w / 2, cuts, gap);
     for (const s of segs) {
-      box(root, `${name}-el-${n}`, [s.mid, MARK_Y, cz - edge], [s.len, 0.04, 0.18], LINE);
-      box(root, `${name}-er-${n}`, [s.mid, MARK_Y, cz + edge], [s.len, 0.04, 0.18], LINE);
+      box(root, `${name}-el-${n}`, [s.mid, markY, cz - edge], [s.len, 0.04, 0.18], LINE);
+      box(root, `${name}-er-${n}`, [s.mid, markY, cz + edge], [s.len, 0.04, 0.18], LINE);
       n += 1;
     }
     n = 0;
     for (let x = cx - w / 2 + 2; x < cx + w / 2 - 2; x += 5) {
       if (cuts.some((c) => Math.abs(c - x) < gap)) continue;
-      box(root, `${name}-d-${n++}`, [x, MARK_Y, cz], [2.5, 0.045, 0.34], "#FFFFFF");
+      box(root, `${name}-d-${n++}`, [x, markY, cz], [2.5, 0.045, 0.34], "#FFFFFF");
     }
   }
 }
@@ -972,11 +1042,11 @@ function addGateApproach(root: pc.Entity, theme: CityTheme, name: string, x: num
   if (axis === "z") {
     const len = Math.abs(z);
     if (len < 1) return;
-    addBrickSlab(root, name, x, z / 2, ROAD_W, len, WALK_Y + 0.05, 0.4, theme.road);
+    addBrickSlab(root, name, x, z / 2, ROAD_W, len, WALK_Y + 0.05 + LAYER_STEP, 0.4, theme.road);
   } else {
     const len = Math.abs(x);
     if (len < 1) return;
-    addBrickSlab(root, name, x / 2, z, len, ROAD_W, WALK_Y + 0.05, 0.4, theme.road);
+    addBrickSlab(root, name, x / 2, z, len, ROAD_W, WALK_Y + 0.05 + LAYER_STEP, 0.4, theme.road);
   }
 }
 

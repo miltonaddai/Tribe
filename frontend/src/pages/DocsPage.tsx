@@ -76,7 +76,7 @@ export function DocsPage() {
         ))}
       </aside>
       <main className="docs-main">
-        <p className="docs-crumb">TRIBE — DOCS</p>
+        <p className="docs-crumb">TRIBE · DOCS</p>
         {body}
       </main>
       <SiteFooter className="docs-footer" />
@@ -171,8 +171,8 @@ function content(id: string) {
         <h1>Overview</h1>
         <p>
           Tribe is a crypto-native social city. You connect a wallet, build a character, and drop into one of
-          four districts. Everything you own — the clothes in your bag, the car at the kerb, the house with
-          your name over the door — is bought with ${CURRENCY}, the same token you hold in your wallet.
+          four districts. Everything you own is bought with ${CURRENCY}, the same token you hold in your
+          wallet: the clothes in your bag, the car at the kerb, the house with your name over the door.
         </p>
         <h2>One token, one economy</h2>
         <p>
@@ -191,8 +191,8 @@ function content(id: string) {
           <li>Throw a punch. Carry a gun if you would rather not. Hospitals patch you up.</li>
         </ul>
         <div className="docs-note">
-          Your district is decided by how much ${CURRENCY} you hold, and it is checked continuously — not
-          stamped once at sign-in. Buy more and the gates open. Spend it all and they close again.
+          Your district is decided by how much ${CURRENCY} you hold, and it is checked continuously rather
+          than stamped once at sign-in. Buy more and the gates open. Spend it all and they close again.
         </div>
       </>
     );
@@ -204,9 +204,9 @@ function content(id: string) {
         <h1>The Four Cities</h1>
         <p>
           The world is one connected map, ordered by wealth. Each district is a 6×6 grid of lots with brick
-          sidewalks, asphalt roads, and a wall with gates. Every city has the same civic spine — a Town Hall,
-          a Hospital, a Police Station, a Store, a car dealership and a park — dressed in local colours so
-          you always know where to go, even when the sky changes.
+          sidewalks, asphalt roads, and a wall with gates. Every city has the same civic spine, dressed in
+          local colours so you always know where to go even when the sky changes: a Town Hall, a Hospital, a
+          Police Station, a Store, a car dealership and a park.
         </p>
         <p>
           Architecture is the lore. Trench builds low and loud. Gas leaves lots empty on purpose. The Real
@@ -235,22 +235,22 @@ function content(id: string) {
             );
           })}
         </div>
-        <h2 id="trench">Trench City — the degen floor</h2>
+        <h2 id="trench">Trench City: the degen floor</h2>
         <p>
-          Low-rise, dense, and busy. Homes here run {homeRange("trench")} {CURRENCY} — the cheapest doors on
+          Low-rise, dense, and busy. Homes here run {homeRange("trench")} {CURRENCY}, the cheapest doors on
           the map, and where most people start. No holding requirement at all.
         </p>
-        <h2 id="gas">Gas City — quiet, paid, still hungry</h2>
+        <h2 id="gas">Gas City: quiet, paid, still hungry</h2>
         <p>
           Wider lots, fewer buildings, more sky. Homes run {homeRange("gas")} {CURRENCY}. You need{" "}
           {n(gateFor("gas"))} {CURRENCY} in your wallet to walk through the gate.
         </p>
-        <h2 id="realworld">The Real World — neon after dark</h2>
+        <h2 id="realworld">The Real World: neon after dark</h2>
         <p>
           The district that never turns the lights off. Homes run {homeRange("realworld")} {CURRENCY}, and the
           gate wants {n(gateFor("realworld"))} {CURRENCY} held.
         </p>
-        <h2 id="valhalla">Valhalla — the bag that made it</h2>
+        <h2 id="valhalla">Valhalla: the bag that made it</h2>
         <p>
           Gold towers, four to ten storeys, and the most expensive property in the game at{" "}
           {homeRange("valhalla")} {CURRENCY}. The gate opens at {n(gateFor("valhalla"))} {CURRENCY}.
@@ -280,7 +280,7 @@ function content(id: string) {
             {CITY_ORDER.map((cid) => (
               <tr key={cid}>
                 <td>{CITIES[cid].name}</td>
-                <td>{gateFor(cid) === 0 ? "Anyone — no minimum" : n(gateFor(cid))}</td>
+                <td>{gateFor(cid) === 0 ? "Anyone, no minimum" : n(gateFor(cid))}</td>
               </tr>
             ))}
           </tbody>
@@ -296,12 +296,12 @@ function content(id: string) {
         <p>
           The four cities sit around a shared plaza, each behind a wall with one or two gates. Walk toward a
           richer skyline without the holdings and the game stops you and says so. Walk the other way and the
-          road is always open — a Valhalla wallet is welcome in the Trench, but a Trench wallet is not
+          road is always open. A Valhalla wallet is welcome in the Trench, but a Trench wallet is not
           wandering Valhalla on vibes.
         </p>
         <div className="docs-note">
           Higher can always go lower. Lower cannot pass. What you spend in the Store or on a house leaves your
-          wallet — which means a big enough shopping trip can cost you a district.
+          wallet, which means a big enough shopping trip can cost you a district.
         </div>
       </>
     );
@@ -322,7 +322,7 @@ function content(id: string) {
         </p>
         <div className="docs-note">
           Nothing is ever taken from your wallet without you signing for it, and the game holds no balance on
-          your behalf. Every purchase also leaves a receipt in your inbox — press N.
+          your behalf. Every purchase also leaves a receipt in your inbox. Press N to read it.
         </div>
 
         <h2>The Store</h2>
@@ -395,7 +395,7 @@ function content(id: string) {
         </table>
         <p>
           Equip anything you own from the inventory panel. A pet follows you around. A gun changes what your
-          hands do — see Health for what that means on the receiving end.
+          hands do. See Health for what that means on the receiving end.
         </p>
 
         <h2>Cars</h2>
@@ -422,20 +422,20 @@ function content(id: string) {
         </table>
         <p>
           <strong>One car per player</strong>, and there are only ever 150 privately owned cars in the world.
-          When they are gone, they are gone — the dealership will tell you so. The handful of unowned cars
+          When they are gone, they are gone, and the dealership will tell you so. The handful of unowned cars
           parked on the street belong to nobody and anyone can drive them.
         </p>
 
         <h2>Houses</h2>
         <p>
           Any house without an owner is for sale at a fixed price. Walk up to the door and press B to buy it
-          outright — there is no bidding, no auction clock, and no waiting. The price depends on the district
+          outright. There is no bidding, no auction clock, and no waiting. The price depends on the district
           and on how big the building is, from {n(HOME_PRICE.trench)} {CURRENCY} for a small Trench house to{" "}
           {n(HOME_PRICE.valhalla * 2)} {CURRENCY} for a Valhalla tower.
         </p>
         <h2>Selling your house</h2>
         <p>
-          Stand at your own door and press B to list it. You name the asking price — there is no ceiling, and
+          Stand at your own door and press B to list it. You name the asking price. There is no ceiling, and
           the only floor is 1,000 {CURRENCY}. The listing stands until somebody pays it or you withdraw it,
           which you can do at any time by pressing B again.
         </p>
@@ -455,7 +455,7 @@ function content(id: string) {
         <h2>Your house</h2>
         <p>
           Buying a house gives you the door. Walk in with E, and press{" "}
-          <strong>H</strong> to give the place a name — it appears on the sign over your door, in your
+          <strong>H</strong> to give the place a name. It appears on the sign over your door, in your
           inventory, and on the map.
         </p>
         <p>
@@ -468,7 +468,7 @@ function content(id: string) {
         <h2>Locks</h2>
         <p>
           Press <strong>L</strong> at your own door, or in your own car, to lock or unlock it. Locked means
-          nobody else gets in. Unlocked means anyone can walk into your house or drive your car — and it stays
+          nobody else gets in. Unlocked means anyone can walk into your house or drive your car, and it stays
           yours either way. Lending is not losing.
         </p>
 
@@ -482,7 +482,7 @@ function content(id: string) {
         <h2>Keeping track</h2>
         <p>
           Press I and look at the Property column for everything you own and whether it is locked. Press M for
-          the map — your house and car are drawn on it, so you never have to remember which street you left
+          the map. Your house and car are drawn on it, so you never have to remember which street you left
           the thing on.
         </p>
       </>
@@ -494,7 +494,7 @@ function content(id: string) {
       <>
         <h1>City Governance</h1>
         <p>
-          Each city runs itself. The Town Hall is not scenery — it is the biggest interior on the map, with a
+          Each city runs itself. The Town Hall is not scenery. It is the biggest interior on the map, with a
           public aisle, a raised dais and a seal on the back wall. That is where the city pretends to be a
           republic and occasionally succeeds.
         </p>
@@ -502,13 +502,13 @@ function content(id: string) {
         <p>
           Walk up onto the dais and you are standing above the room, behind the speaker's desk, facing the
           benches. Turn on proximity voice and the people in front of you can hear you. There is no permission
-          system and no queue — whoever is standing on the dais is the one talking.
+          system and no queue. Whoever is standing on the dais is the one talking.
         </p>
         <h2>The council of 12</h2>
         <p>
           Every district seats a council of twelve. They vote on the boring things that keep a city standing:
           which lots get lighting, whether the hospital wing gets another bay, how aggressive the police desk
-          should be about loitering near the gate. Council terms are social rather than on-chain for now —
+          should be about loitering near the gate. Council terms are social rather than on-chain for now, so
           show up, be known, and the room notices.
         </p>
         <div className="docs-note">
@@ -531,7 +531,7 @@ function content(id: string) {
         <p>
           A punch takes a little. A weapon takes more, and a Street Rifle takes considerably more than a Lead
           Pipe. Getting hit knocks you back and interrupts what you were doing. Nothing you own is lost when
-          you go down — no dropped items, no stolen car, no repossessed house.
+          you go down: no dropped items, no stolen car, no repossessed house.
         </p>
         <h2>Fixing it</h2>
         <p>
@@ -556,10 +556,10 @@ function content(id: string) {
 
       <h2>Get in</h2>
       <ol className="docs-ol">
-        <li>Hit Start Playing and connect an EVM wallet — MetaMask, Phantom, Coinbase Wallet or Zerion.</li>
+        <li>Hit Start Playing and connect an EVM wallet: MetaMask, Phantom, Coinbase Wallet or Zerion.</li>
         <li>Approve the signature. You will be switched to Robinhood Chain automatically.</li>
         <li>
-          Build a look — name, body, clothes, shoes, headwear. Your display name has to be unique, and the
+          Build a look: name, body, clothes, shoes, headwear. Your display name has to be unique, and the
           page tells you while you type.
         </li>
         <li>
@@ -583,8 +583,8 @@ function content(id: string) {
           <tr>
             <td>Mouse</td>
             <td>
-              Look around. With a gun equipped the mouse aims it as soon as you move — you do not need to hold
-              a button. Otherwise, hold right mouse to look.
+              Look around. With a gun equipped the mouse aims it as soon as you move, so you do not need to
+              hold a button. Otherwise, hold right mouse to look.
             </td>
           </tr>
           <tr>
@@ -625,7 +625,7 @@ function content(id: string) {
           </tr>
           <tr>
             <td>N</td>
-            <td>Inbox — purchase receipts, sales, and friend requests.</td>
+            <td>Inbox: purchase receipts, sales, and friend requests.</td>
           </tr>
           <tr>
             <td>G</td>
@@ -653,37 +653,37 @@ function content(id: string) {
       </p>
       <ul>
         <li>
-          <strong>Town Hall</strong> — the biggest interior. Columns, benches and a dais you can stand on.
+          <strong>Town Hall.</strong> The biggest interior. Columns, benches and a dais you can stand on.
         </li>
         <li>
-          <strong>Hospital</strong> — walk in and your health refills on its own.
+          <strong>Hospital.</strong> Walk in and your health refills on its own.
         </li>
         <li>
-          <strong>Police Station</strong> — glass desk, lockers, a cell with bars. Do not live there.
+          <strong>Police Station.</strong> Glass desk, lockers, a cell with bars. Do not live there.
         </li>
         <li>
-          <strong>Store</strong> — clothes, pets and weapons. Press I inside.
+          <strong>Store.</strong> Clothes, pets and weapons. Press I inside.
         </li>
         <li>
-          <strong>Dealership</strong> — the forecourt where cars are sold. Press E at the one you want.
+          <strong>Dealership.</strong> The forecourt where cars are sold. Press E at the one you want.
         </li>
         <li>
-          <strong>Park</strong> — trees, benches, and no reason to be there other than being there.
+          <strong>Park.</strong> Trees, benches, and no reason to be there other than being there.
         </li>
       </ul>
       <p>
-        Streetlamps come on at dusk and light the roads. The clock follows your own — day outside is day
+        Streetlamps come on at dusk and light the roads. The clock follows your own, so day outside is day
         in-game. Override it in Settings if you would rather it were always night.
       </p>
 
       <h2>Other people</h2>
       <p>
-        Real players have nametags. NPCs walk the sidewalks, wave and sit on benches — they will not whisper
+        Real players have nametags. NPCs walk the sidewalks, wave and sit on benches. They will not whisper
         back, but they will take a punch. Stand near someone and press Enter to whisper, or click their
         nametag. City chat is the loud channel when nobody is close.
       </p>
       <p>
-        Turn on proximity voice from the HUD and you can talk to anyone nearby — it fades with distance and
+        Turn on proximity voice from the HUD and you can talk to anyone nearby. It fades with distance and
         cuts out entirely once you walk away. The speaker button beside it picks which device you hear it on,
         and lights up when somebody near you is talking.
       </p>

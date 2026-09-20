@@ -249,9 +249,23 @@ button {
   transform: scaleX(1);
 }
 
+/*
+ * The accent buttons - wallet, and the docs link on the mobile block - fill
+ * white too. This one needs none of the machinery the hero button does: the
+ * label is already #111 against the yellow, and #111 reads on white just as
+ * well, so it simply stays put while the fill sweeps underneath. The icon is
+ * an inline SVG drawn in currentColor, so it follows without being asked.
+ *
+ * The accent background stays set so the yellow is still there behind the
+ * sweep as it retracts.
+ */
+.btn-accent.btn-fill::before {
+  background: #fff;
+}
+
 .btn-accent.btn-fill:hover {
   background: var(--accent);
-  color: #fff;
+  color: #111;
 }
 
 .btn-fill-inner {
@@ -282,10 +296,53 @@ button {
   height: 28px;
 }
 
+/*
+ * The hero button fills white rather than black, so the label on top of it has
+ * to end up dark - and it cannot do that by changing colour at a moment in
+ * time, because there is no such moment. The sweep crosses the label rather
+ * than arriving at it: the white passes the label's left edge around 60ms and
+ * its right edge at ~157ms, so any snap leaves part of the text the wrong
+ * colour for the ~100ms in between, and a fade parks all of it at mid-grey.
+ * Both were measured; both are worse than either end state.
+ *
+ * Difference blending sidesteps the timing entirely. White against black is
+ * white; white against white is black. The label inverts pixel by pixel as the
+ * fill passes under it, so it is legible at every frame of the sweep with
+ * nothing to tune. It covers the icon too - a white-filled SVG that `color`
+ * could never have reached, since it is an <img>.
+ *
+ * .btn-fill already sets isolation: isolate, which is what keeps this blending
+ * against the button rather than against the trailer playing behind it.
+ */
+.landing-cta.btn-fill::before {
+  background: #fff;
+}
+
+.landing-cta .btn-fill-inner {
+  mix-blend-mode: difference;
+}
+
 .btn-outline {
   border: 1px solid #fff;
   color: #fff;
   background: transparent;
+}
+
+/*
+ * Destructive. Outlined in --danger rather than filled with it: white on that
+ * red is 3.06:1, under the floor for text this size, while the red as text
+ * reads 6.47:1 on the pause panel and still 4.63:1 in the worst case, where
+ * the panel is translucent over a bright frame of the game behind it.
+ */
+.btn-danger {
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid rgba(255, 90, 90, 0.55);
+}
+
+.btn-danger:hover {
+  background: rgba(255, 90, 90, 0.14);
+  border-color: var(--danger);
 }
 
 .landing {
@@ -2574,6 +2631,70 @@ button {
   gap: 10px;
 }
 
+/* The bug form. Narrower than Settings: it holds one field, and a wide box
+   invites an essay where a paragraph is wanted. */
+.bug-panel {
+  width: min(520px, 92vw);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  padding: 22px 24px;
+  background: #0a0a0a;
+  border: 1px solid #222;
+}
+
+.bug-text {
+  display: block;
+  width: 100%;
+  min-height: 150px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #fff;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.bug-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.bug-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.bug-count {
+  font-size: 12px;
+  color: #6e6e76;
+}
+
+.bug-count.low {
+  color: var(--accent);
+}
+
+.bug-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #b9b9c2;
+}
+
+.bug-note-bad {
+  padding: 9px 12px;
+  color: #f0a9a9;
+  background: rgba(190, 60, 60, 0.12);
+  border: 1px solid #5c2b2b;
+  border-radius: 4px;
+}
+
 /* Why a save did not take. Sits in the grid gap under the button it explains. */
 .pause-note {
   margin: -4px 0 0;
@@ -4039,6 +4160,67 @@ button {
   display: none;
 }
 
+.wallet-menu {
+  position: relative;
+}
+
+/*
+ * The gap above the panel is padding on the positioned wrapper rather than a
+ * margin on the panel itself. A margin would be dead space between the button
+ * and the menu, and crossing dead space is a mouseleave - the menu would shut
+ * on the way to the thing it is offering.
+ */
+.wallet-dropdown {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  right: 0;
+  padding-top: 6px;
+  min-width: 100%;
+}
+
+.wallet-dropdown-panel {
+  padding: 6px;
+  background: rgba(10, 10, 10, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.wallet-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  font: inherit;
+  font-weight: 650;
+  font-stretch: 130%;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-align: left;
+  color: #fff;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/*
+ * Red on hover - it is the one destructive thing in the bar, and --danger is
+ * the token the rest of the app already reaches for.
+ *
+ * Red text on a wash rather than a filled red bar: white on --danger measures
+ * 3.06:1, under the 4.5:1 floor for text this size, and darkening the red
+ * enough to pass would mean a second red that matches nothing else. This way
+ * it reads at 6.47:1 against the panel and still uses the one red.
+ */
+.wallet-dropdown-item:hover,
+.wallet-dropdown-item:focus-visible {
+  color: var(--danger);
+  background: rgba(255, 90, 90, 0.12);
+  outline: none;
+}
+
 @media (max-width: 720px) {
   .site-header {
     height: 52px;
@@ -4074,6 +4256,13 @@ button {
 
   .header-actions.open {
     display: flex;
+  }
+
+  /* The bar is a stacked panel here, so the menu takes its place in the column
+     rather than floating over the items under it. */
+  .wallet-dropdown {
+    position: static;
+    padding-top: 8px;
   }
 
   .header-actions .docs-link {

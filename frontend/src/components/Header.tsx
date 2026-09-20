@@ -51,23 +51,36 @@ function BurgerIcon({ open }: { open: boolean }) {
 export function Header({ solid = false }: { solid?: boolean }) {
   const { wallet, disconnect, openPicker } = useWallet();
   const [open, setOpen] = useState(false);
+  // Disconnecting used to be the button's own click, which meant a wallet was
+  // one stray press from being dropped. It lives behind this now.
+  const [walletMenu, setWalletMenu] = useState(false);
   const { pathname } = useLocation();
   const root = useRef<HTMLElement>(null);
 
-  // Navigating is a decision; the menu has served its purpose by then.
-  useEffect(() => setOpen(false), [pathname]);
+  // Navigating is a decision; the menus have served their purpose by then.
+  useEffect(() => {
+    setOpen(false);
+    setWalletMenu(false);
+  }, [pathname]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !walletMenu) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      setWalletMenu(false);
     };
     const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      if (root.current?.contains(e.target as Node)) return;
+      setOpen(false);
+      setWalletMenu(false);
     };
     // Reaching for a wider window is as much a dismissal as tapping away: the
     // panel is a mobile affordance and has no meaning once the bar fits.
-    const onResize = () => setOpen(false);
+    const onResize = () => {
+      setOpen(false);
+      setWalletMenu(false);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
     window.addEventListener("resize", onResize);
@@ -76,7 +89,7 @@ export function Header({ solid = false }: { solid?: boolean }) {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("resize", onResize);
     };
-  }, [open]);
+  }, [open, walletMenu]);
 
   return (
     <header className={`site-header ${solid ? "solid" : ""}`} ref={root}>
@@ -105,22 +118,49 @@ export function Header({ solid = false }: { solid?: boolean }) {
           Docs
         </Link>
         {wallet ? (
-          <button
-            className="btn btn-accent btn-fill"
-            onClick={() => {
-              setOpen(false);
-              disconnect();
-            }}
-            type="button"
+          /* Hover opens it on a pointer; the click is for touch and keyboard,
+             where there is no hover to work with. The click opens rather than
+             toggles, because a pointer has already hovered by the time it
+             clicks - toggling shut the menu the hover had just opened. */
+          <div
+            className="wallet-menu"
+            onMouseEnter={() => setWalletMenu(true)}
+            onMouseLeave={() => setWalletMenu(false)}
           >
-            <span className="btn-fill-inner">
-              <WalletIcon />
-              {/* The full label needs room the phone bar does not have, so the
-                  narrow layout keeps the address and drops the prose. */}
-              <span className="wallet-label-full">Connected · {wallet.symbol} · {shorten(wallet.address)}</span>
-              <span className="wallet-label-short">{shorten(wallet.address)}</span>
-            </span>
-          </button>
+            <button
+              className="btn btn-accent btn-fill"
+              onClick={() => setWalletMenu(true)}
+              aria-haspopup="menu"
+              aria-expanded={walletMenu}
+              type="button"
+            >
+              <span className="btn-fill-inner">
+                <WalletIcon />
+                {/* The full label needs room the phone bar does not have, so the
+                    narrow layout keeps the address and drops the prose. */}
+                <span className="wallet-label-full">Connected · {wallet.symbol} · {shorten(wallet.address)}</span>
+                <span className="wallet-label-short">{shorten(wallet.address)}</span>
+              </span>
+            </button>
+            {walletMenu && (
+              <div className="wallet-dropdown" role="menu">
+                <div className="wallet-dropdown-panel">
+                  <button
+                    className="wallet-dropdown-item"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setWalletMenu(false);
+                      setOpen(false);
+                      disconnect();
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <button
             className="btn btn-accent btn-fill"

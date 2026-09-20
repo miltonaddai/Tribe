@@ -11,6 +11,7 @@ import {
 } from "@tribe/shared";
 import { Header } from "../components/Header";
 import { SiteFooter } from "../components/SiteFooter";
+import { TRIBE_CONTRACT } from "../lib/token";
 
 const SECTIONS = [
   { id: "how-to-play", label: "How to Play" },
@@ -117,7 +118,7 @@ function Addresses() {
     {
       name: "Official $TRIBE contract",
       what: "The token itself. Every balance, gate check and purchase reads from this contract.",
-      address: "0xA68bd63519ed181ad169843bd63f04BB6Fd4aB5a",
+      address: TRIBE_CONTRACT,
     },
     {
       name: "Dev wallet",

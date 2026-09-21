@@ -178,6 +178,30 @@ const WHEEL_ROLL = 36;
 const DETAIL_ON_RANGE = 26;
 const DETAIL_OFF_RANGE = 34;
 const HOME_SALE_LABEL_RANGE = 26;
+/**
+ * Signs used to hang above the roof, which put them off the top of the screen
+ * exactly when you walked up to read them. The view is 42 degrees vertically,
+ * which is narrower than it feels: a civic building's sign at 11.6 units left
+ * the screen within 24 units of it, and a ten-floor Valhalla tower anchors its
+ * sign 33.4 units up, off screen until you are 81 units away. Tags stop being
+ * drawn at 72, so that one was never visible from anywhere.
+ *
+ * Two things fix it between them. The anchor is capped, so a sign rides the
+ * facade instead of floating over the roof - on a tall tower that is about a
+ * third of the way up, still plainly that building's sign and now readable
+ * from the street. And within the range where you might act on it, a sign that
+ * is still too high slides down to the top of the window rather than being
+ * dropped.
+ *
+ * The cap makes the pin rare: capped at 10 units, nothing leaves the view
+ * further out than 20, so beyond the pin range every sign is on screen by
+ * itself and they cannot stack along the top edge.
+ *
+ * The pin sits below the health bar, which owns the top centre.
+ */
+const LABEL_MAX_Y = 10;
+const LABEL_PIN_RANGE = 26;
+const LABEL_PIN_TOP = 74;
 const PUNCH_RANGE = 2.45;
 const PUNCH_MS = 320;
 /** How long the recoil kick lasts after a shot. */
@@ -3131,6 +3155,18 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
         kind: "player",
       });
     }
+    /** Screen position for a sign, slid down into view when you are close. */
+    const place = (screen: { x: number; y: number }, dist: number) => {
+      const x = (screen.x / app.graphicsDevice.width) * canvas.clientWidth;
+      const raw = (screen.y / app.graphicsDevice.height) * canvas.clientHeight;
+      const y = dist <= LABEL_PIN_RANGE ? Math.max(LABEL_PIN_TOP, raw) : raw;
+      return {
+        x,
+        y,
+        visible: x > -40 && y > -20 && x < canvas.clientWidth + 40 && y < canvas.clientHeight + 20,
+      };
+    };
+
     const BUILDING_LABEL_RANGE = 72;
     // Price tags on the forecourt cars are only useful once you are on the lot.
     // A building name is a landmark you navigate by; these are not.
@@ -3139,17 +3175,18 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       if (!item.label) continue;
       const bx = item.interior?.x ?? item.x;
       const bz = item.interior?.z ?? item.z;
-      const by = item.labelY ?? 8;
+      const by = Math.min(item.labelY ?? 8, LABEL_MAX_Y);
       const dist = Math.hypot(bx - ox, bz - oz);
       if (dist > (item.kind === "buy-car" ? CAR_LABEL_RANGE : BUILDING_LABEL_RANGE)) continue;
       const screen = this.projectToScreen(bx, by, bz);
       if (!screen) continue;
+      const at = place(screen, dist);
       tags.push({
         sessionId: `building:${item.id}`,
         name: item.label,
-        x: (screen.x / app.graphicsDevice.width) * canvas.clientWidth,
-        y: (screen.y / app.graphicsDevice.height) * canvas.clientHeight,
-        visible: screen.x > -40 && screen.y > -20 && screen.x < app.graphicsDevice.width + 40 && screen.y < app.graphicsDevice.height + 20,
+        x: at.x,
+        y: at.y,
+        visible: at.visible,
         inRange: false,
         bubble: null,
         kind: "building",
@@ -3171,7 +3208,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       // A running auction is worth seeing from across the block; a plain
       // for-sale sign only shows once you walk up to the place.
       if (dist > (live || owned ? BUILDING_LABEL_RANGE : HOME_SALE_LABEL_RANGE)) continue;
-      const screen = this.projectToScreen(hx, item.labelY ?? 9, hz);
+      const screen = this.projectToScreen(hx, Math.min(item.labelY ?? 9, LABEL_MAX_Y), hz);
       if (!screen) continue;
 
       let name: string;
@@ -3206,13 +3243,13 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
         continue;
       }
 
+      const at = place(screen, dist);
       tags.push({
         sessionId: `home:${item.id}`,
         name,
-        x: (screen.x / app.graphicsDevice.width) * canvas.clientWidth,
-        y: (screen.y / app.graphicsDevice.height) * canvas.clientHeight,
-        visible:
-          screen.x > -40 && screen.y > -20 && screen.x < app.graphicsDevice.width + 40 && screen.y < app.graphicsDevice.height + 20,
+        x: at.x,
+        y: at.y,
+        visible: at.visible,
         inRange: dist < HOME_BID_RANGE,
         bubble: null,
         kind: "home",

@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@tribe/shared";
+import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@moonville/shared";
 import { isDevToolsEnabled } from "../lib/devTools";
-import { connectDemo } from "../lib/wallet";
+import { connectDemo } from "../lib/session";
 import { loadCharacter, saveCharacter } from "../lib/storage";
-import { useWallet } from "../state/WalletStore";
+import { useSession } from "../state/SessionStore";
 
 const LOOKS: Record<CityId, { outfit: OutfitId; headwear: HeadwearId; name: string; balance: number }> = {
-  trench: { outfit: "hi-vis", headwear: "hardhat", name: "trenchrat", balance: 0 },
-  gas: { outfit: "hoodie", headwear: "beanie", name: "gasser", balance: 150_000 },
-  realworld: { outfit: "neon", headwear: "cap", name: "realone", balance: 500_000 },
-  valhalla: { outfit: "gold", headwear: "crown", name: "valhallan", balance: 2_000_000 },
+  trenches: { outfit: "hi-vis", headwear: "hardhat", name: "trenchrat", balance: 0 },
+  bagtown: { outfit: "hoodie", headwear: "beanie", name: "gasser", balance: 150_000 },
+  midtown: { outfit: "neon", headwear: "cap", name: "realone", balance: 500_000 },
+  uptown: { outfit: "gold", headwear: "crown", name: "valhallan", balance: 2_000_000 },
 };
 
 const PAGES = [
@@ -26,20 +26,23 @@ export function DevLauncher() {
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const location = useLocation();
-  const { setWallet } = useWallet();
+  const { setSession } = useSession();
   const inGame = location.pathname === "/play";
 
   if (!enabled) return null;
 
   async function seedCity(city: CityId) {
     const look = LOOKS[city];
-    const wallet = await connectDemo(look.balance);
-    setWallet(wallet);
+    // Demo players join as demo:<n> with no account; the backend only admits
+    // them with ALLOW_DEMO_PLAYERS=true.
+    const existingName = loadCharacter()?.displayName;
+    const session = connectDemo(look.balance, existingName || look.name);
+    setSession(session);
     const existing = loadCharacter();
     const record: CharacterRecord = {
       id: existing?.id ?? crypto.randomUUID(),
-      wallet: wallet.address,
-      displayName: existing?.displayName || look.name,
+      wallet: session.playerId,
+      displayName: session.username,
       bodyType: existing?.bodyType ?? "regular",
       skinTone: existing?.skinTone ?? "#D4A017",
       outfit: look.outfit,
@@ -51,21 +54,21 @@ export function DevLauncher() {
       homeCity: city,
       accessTier: CITIES[city].tier,
       brokemeter: 100,
-      tribute: existing?.tribute ?? 0,
+      moon: existing?.moon ?? 0,
       inventory: existing?.inventory ?? seedInventory(existing?.accessories ?? []),
       equippedGun: existing?.equippedGun ?? null,
       equippedPet: existing?.equippedPet ?? null,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
-    saveCharacter(record, wallet.chain);
+    saveCharacter(record, session.chain);
     setOpen(false);
     nav(`/play?city=${city}`);
   }
 
   async function go(to: string) {
     if (to.startsWith("/play") && !loadCharacter()) {
-      await seedCity("trench");
-      if (to.includes("settings")) nav("/play?city=trench&settings=1");
+      await seedCity("trenches");
+      if (to.includes("settings")) nav("/play?city=trenches&settings=1");
       return;
     }
     setOpen(false);

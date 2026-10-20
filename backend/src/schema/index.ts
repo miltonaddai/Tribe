@@ -4,7 +4,7 @@ export class PlayerState extends Schema {
   sessionId = "";
   name = "citizen";
   wallet = "";
-  city = "trench";
+  city = "trenches";
   accessTier = 1;
   x = 0;
   y = 0;
@@ -26,8 +26,8 @@ export class PlayerState extends Schema {
   sitting = false;
   /** Lying down rather than sitting, so onlookers see a sleeper not a stander. */
   lying = false;
-  /** The wallet's $TRIBE balance, pushed by the server. Never seeded here. */
-  tribute = 0;
+  /** The wallet's $MOON balance, pushed by the server. Never seeded here. */
+  moon = 0;
   inventory = "[]";
   gun = "";
   pet = "";
@@ -57,7 +57,7 @@ defineTypes(PlayerState, {
   buildingId: "string",
   sitting: "boolean",
   lying: "boolean",
-  tribute: "number",
+  moon: "number",
   inventory: "string",
   gun: "string",
   pet: "string",
@@ -65,7 +65,7 @@ defineTypes(PlayerState, {
 
 export class VehicleState extends Schema {
   id = "";
-  city = "trench";
+  city = "trenches";
   x = 0;
   y = 0.6;
   z = 0;
@@ -117,7 +117,7 @@ defineTypes(ChatLine, {
 
 export class HomeState extends Schema {
   id = "";
-  city = "trench";
+  city = "trenches";
   /** Wallet of the winner once settled; empty while the home is still for sale. */
   owner = "";
   ownerChain = "";

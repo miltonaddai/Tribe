@@ -121,17 +121,17 @@ export function homeFloors(city: CityId, gx: number, gz: number): number {
 }
 
 /**
- * What an unowned home costs, in Tribute: the district's base price scaled by
+ * What an unowned home costs, in Moon: the district's base price scaled by
  * how big the building is.
  *
  * Normalised across the district's own floor range, so the largest home in a
  * district always costs twice the smallest whatever that range happens to be.
- * Valhalla spans 4-10 floors and Gas only 1-2, and a flat premium per floor
- * would make a Valhalla penthouse absurd while barely touching Gas.
+ * Uptown spans 4-10 floors and Bagtown only 1-2, and a flat premium per floor
+ * would make a Uptown penthouse absurd while barely touching Bagtown.
  */
 export function homePrice(city: CityId, gx: number, gz: number): number {
   const theme = CITIES[city];
-  const base = HOME_PRICE[city] ?? HOME_PRICE.trench;
+  const base = HOME_PRICE[city] ?? HOME_PRICE.trenches;
   const span = theme.maxFloors - theme.minFloors;
   const size = span > 0 ? (homeFloors(city, gx, gz) - theme.minFloors) / span : 0;
   // Rounded to the nearest 500 so prices read as prices, not as hashes.
@@ -148,7 +148,7 @@ export function homePriceById(id: string): number | null {
  * How grand a home is, 0 to 3, from what it costs.
  *
  * Price already folds in both district and building size, so this is one number
- * the interior can be built from - a cheap Trench flat and a Valhalla penthouse
+ * the interior can be built from - a cheap Trenches flat and a Uptown penthouse
  * should not be the same room with a different view.
  */
 export function homeGrade(city: CityId, gx: number, gz: number): number {
@@ -160,13 +160,13 @@ export function homeGrade(city: CityId, gx: number, gz: number): number {
  *
  * Logarithmic, because prices span twenty-fold and each district is roughly a
  * doubling of the one below. On a linear scale everything under six figures
- * collapses into the bottom band, and a 100,000 Gas home comes out the same as
- * a 25,000 Trench flat.
+ * collapses into the bottom band, and a 100,000 Bagtown home comes out the same as
+ * a 25,000 Trenches flat.
  */
 export function homeLuxury(city: CityId, gx: number, gz: number): number {
   const price = homePrice(city, gx, gz);
-  const lo = HOME_PRICE.trench;
-  const hi = HOME_PRICE.valhalla * 2;
+  const lo = HOME_PRICE.trenches;
+  const hi = HOME_PRICE.uptown * 2;
   const t = Math.log(price / lo) / Math.log(hi / lo);
   return Math.max(0, Math.min(1, t));
 }
@@ -178,7 +178,7 @@ export function homeGradeById(id: string): { grade: number; luxury: number } {
 }
 
 /**
- * Floor on an owner's asking price, in Tribute. 1,000 is about $1 at a $1M cap:
+ * Floor on an owner's asking price, in Moon. 1,000 is about $1 at a $1M cap:
  * enough that a listing means something, not enough to price anyone out.
  *
  * Shared so the sell panel and the server cannot disagree about what is valid.

@@ -1,12 +1,12 @@
-import type { CharacterRecord, GameSettings, WalletChainId } from "@tribe/shared";
-import { apiUrl } from "./api";
-import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@tribe/shared";
+import type { CharacterRecord, GameSettings, WalletChainId } from "@moonville/shared";
+import { apiUrl, authHeaders } from "./api";
+import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@moonville/shared";
 
-const CHAR = "tribe:character";
-const SETTINGS = "tribe:settings";
+const CHAR = "moonville:character";
+const SETTINGS = "moonville:settings";
 
-function normalizeWallet(address: string, chain?: WalletChainId) {
-  if (chain === "robinhood" || address.startsWith("0x")) return address.toLowerCase();
+/** Player ids are case-sensitive; nothing is folded. Kept as the comparison seam. */
+function normalizeWallet(address: string, _chain?: WalletChainId) {
   return address;
 }
 
@@ -31,7 +31,7 @@ function parseCharacter(raw: unknown): CharacterRecord | null {
       shoe: parseShoe(parsed.shoe),
       shoeColor: parseHexColor(parsed.shoeColor, "#111111"),
       brokemeter: Number.isFinite(Number(parsed.brokemeter)) ? Math.min(100, Math.max(0, Number(parsed.brokemeter))) : 100,
-      tribute: Number.isFinite(parsed.tribute) ? parsed.tribute : 0,
+      moon: Number.isFinite(parsed.moon) ? parsed.moon : 0,
       inventory: seedInventory(accessories, parsed.inventory),
       equippedGun: isGunId(String(parsed.equippedGun ?? "")) ? parsed.equippedGun : null,
       equippedPet: isPetId(String(parsed.equippedPet ?? "")) ? parsed.equippedPet : null,
@@ -112,7 +112,7 @@ export async function persistCharacter(
   try {
     const res = await fetch(apiUrl("/api/characters"), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: JSON.stringify({ ...record, chain }),
     });
     if (res.ok) return null;
@@ -125,29 +125,11 @@ export async function persistCharacter(
   }
 }
 
-/** Live uniqueness check for the create page. */
-export async function checkNameAvailable(
-  name: string,
-  address: string,
-  chain: WalletChainId,
-): Promise<{ available: boolean; reason: string | null }> {
-  try {
-    const params = new URLSearchParams({ name, address, chain });
-    const res = await fetch(apiUrl(`/api/names/check?${params}`));
-    if (!res.ok) return { available: true, reason: null };
-    const body = (await res.json()) as { available: boolean; reason: string | null };
-    return body;
-  } catch {
-    // Do not block character creation because the check could not run.
-    return { available: true, reason: null };
-  }
-}
-
 export async function persistSettings(address: string, chain: WalletChainId, settings: GameSettings) {
   try {
     await fetch(apiUrl("/api/settings"), {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: JSON.stringify({ address, chain, settings }),
     });
   } catch {

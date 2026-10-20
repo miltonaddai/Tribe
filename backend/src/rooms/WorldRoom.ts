@@ -1,7 +1,8 @@
-import { Room, type Client } from "@colyseus/core";
+import { Room, ServerError, type Client } from "@colyseus/core";
+import { linkedWallet, verifySessionToken } from "../services/accounts";
 import { fileReport, recentReports } from "../services/crimes";
 import { fetchCharacter, purchasedItemIds, saveCharacterState } from "../services/db";
-import { tributeThresholds } from "../services/cityThresholds";
+import { moonThresholds } from "../services/cityThresholds";
 import {
   otherSide,
   ownSide,
@@ -24,6 +25,9 @@ import { CURRENCY,
   isOutfitId,
   isTierGated,
   DEFAULT_CHAIN,
+  cityFromBalance,
+  homeAccessTier,
+  unlockingCity,
   cityAtPosition,
   gunSpec,
   addItem,
@@ -39,7 +43,7 @@ import { CURRENCY,
   parseHomeId,
   type CityId,
   type WalletChainId,
-} from "@tribe/shared";
+} from "@moonville/shared";
 import { PlayerState, VehicleState, ChatLine, HomeState, WorldState, INTEREST_MANAGEMENT } from "../schema/index";
 import {
   clampAskingPrice,
@@ -52,14 +56,14 @@ import {
   fetchLastSpot,
   saveLastSpot,
   type LastSpot,
-  fetchTribute,
+  fetchMoon,
   loadHomeAuctions,
   loadPlayerVehicles,
   saveHomeAuction,
   savePlayerVehicle,
-  writeTribute,
+  writeMoon,
 } from "../services/db";
-import { MAX_PLAYER_VEHICLES, TRIBUTE_CAP, TRIBUTE_DEV_GRANT, envNumber } from "../services/liveEnv";
+import { MAX_PLAYER_VEHICLES, MOON_CAP, MOON_DEV_GRANT, envNumber } from "../services/liveEnv";
 import { startingCityForWallet } from "../services/alchemy";
 import { paymentsConfigured, toBaseUnits, tokenConfigured, verifyPayment } from "../services/token";
 import { AOI_IN, SpatialGrid, shouldSee } from "./interest";
@@ -83,7 +87,7 @@ type JoinOptions = {
   accessories?: string;
   health?: number;
   brokemeter?: number;
-  tribute?: number;
+  moon?: number;
   inventory?: string;
   gun?: string;
   pet?: string;
@@ -93,14 +97,14 @@ type JoinOptions = {
 const SESSION_REPLACED = 4100;
 
 const SEED_VEHICLES: { city: CityId; x: number; z: number; rotY: number; color: string; kind: string }[] = [
-  { city: "trench", x: -48, z: 58, rotY: 0, color: "#F4F4F4", kind: "hatch" },
-  { city: "trench", x: -62, z: 42, rotY: Math.PI / 2, color: "#EEEEEE", kind: "hatch" },
-  { city: "gas", x: 46, z: 62, rotY: 0, color: "#5B8FCF", kind: "sedan" },
-  { city: "realworld", x: -42, z: -58, rotY: Math.PI, color: "#D9772C", kind: "sedan" },
-  { city: "realworld", x: -58, z: -44, rotY: -Math.PI / 2, color: "#1A3F34", kind: "sedan" },
-  { city: "valhalla", x: 44, z: -40, rotY: 0, color: "#FF8A1F", kind: "sport" },
-  { city: "valhalla", x: 62, z: -56, rotY: Math.PI / 2, color: "#2B4C9B", kind: "sedan" },
-  { city: "valhalla", x: 38, z: -68, rotY: Math.PI, color: "#1A1A1A", kind: "suv" },
+  { city: "trenches", x: -48, z: 58, rotY: 0, color: "#F4F4F4", kind: "hatch" },
+  { city: "trenches", x: -62, z: 42, rotY: Math.PI / 2, color: "#EEEEEE", kind: "hatch" },
+  { city: "bagtown", x: 46, z: 62, rotY: 0, color: "#5B8FCF", kind: "sedan" },
+  { city: "midtown", x: -42, z: -58, rotY: Math.PI, color: "#D9772C", kind: "sedan" },
+  { city: "midtown", x: -58, z: -44, rotY: -Math.PI / 2, color: "#1A3F34", kind: "sedan" },
+  { city: "uptown", x: 44, z: -40, rotY: 0, color: "#FF8A1F", kind: "sport" },
+  { city: "uptown", x: 62, z: -56, rotY: Math.PI / 2, color: "#2B4C9B", kind: "sedan" },
+  { city: "uptown", x: 38, z: -68, rotY: Math.PI, color: "#1A1A1A", kind: "suv" },
 ];
 
 const PUNCH_RANGE = 2.8;
@@ -186,6 +190,9 @@ const VEHICLE_SAVE_MS = 5_000;
 /** How long a wallet's holdings are reused before re-reading the chain. */
 const HOLDINGS_CACHE_MS = 60_000;
 
+/** Shortest gap between client-requested holdings refreshes, per session. */
+const HOLDINGS_REFRESH_MIN_MS = 5_000;
+
 type Holdings = { tier: number; balance: number };
 
 /**
@@ -218,6 +225,8 @@ export class WorldRoom extends Room<{ state: WorldState }> {
   private moveBudget = new Map<string, { budget: number; at: number }>();
   private moveGraceUntil = new Map<string, number>();
   private holdingsCache = new Map<string, Holdings & { at: number }>();
+  /** When each session last asked for an immediate holdings refresh. */
+  private holdingsAsked = new Map<string, number>();
   /** wallet -> their accepted friends' wallets, so join/leave can refresh the
       right people without hitting the database. */
   private friendsOf = new Map<string, Set<string>>();
@@ -284,8 +293,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
           city: entering,
           requiredTier: CITIES[entering].tier,
           yourTier: player.accessTier,
-          requiredTribute: tributeThresholds().find((t) => t.city === entering)?.min ?? 0,
-          yourTribute: player.tribute,
+          needsHomeIn: unlockingCity(entering),
         });
         return;
       }
@@ -619,17 +627,17 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       this.closeTrade(session, `${name} cancelled the trade.`);
     });
 
-    this.onMessage("loadout", (client, data: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string; outfit?: string }) => {
+    this.onMessage("loadout", (client, data: { inventory?: string; moon?: number; gun?: string; pet?: string; accessories?: string; outfit?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       // data.inventory is deliberately ignored. What a wallet owns is decided
       // by purchases and trades the server itself performed, not by what the
       // browser reports holding - accepting it was how paid items ended up
       // living in localStorage, and how a crafted client could mint them.
-      // The balance is never taken from the client. Tribute is a real token held
+      // The balance is never taken from the client. Moon is a real token held
       // as a deposited float, so a client-supplied figure is a mint instruction
       // from an untrusted source. Every change runs through the server: purchases
-      // below, auction escrow, and deposits. `data.tribute` is read and dropped.
+      // below, auction escrow, and deposits. `data.moon` is read and dropped.
       if (typeof data.gun === "string") player.gun = data.gun.slice(0, 24);
       if (typeof data.pet === "string") player.pet = data.pet.slice(0, 24);
       if (typeof data.accessories === "string") player.accessories = data.accessories.slice(0, 120);
@@ -637,7 +645,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       // the inventory the server holds. Unlike a gun or a pet, which are only
       // worn if the client also equips them locally, an unowned outfit claimed
       // here would be visible on that player to everyone in the city - a free
-      // Valhalla Gold for anyone willing to edit a message.
+      // Uptown Gold for anyone willing to edit a message.
       if (typeof data.outfit === "string" && isOutfitId(data.outfit)) {
         if (ownsOutfit(decodeInventory(player.inventory), data.outfit)) player.outfit = data.outfit;
       }
@@ -830,6 +838,21 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       void this.answerFriendRequest(client, String(data.wallet ?? ""), data.accept !== false);
     });
 
+    // Sent right after a wallet is linked mid-session, so the new balance and
+    // district access apply now rather than on the next minute's sweep. Limited
+    // per session, since each one is a chain read.
+    this.onMessage("holdings-refresh", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const last = this.holdingsAsked.get(client.sessionId) ?? 0;
+      if (Date.now() - last < HOLDINGS_REFRESH_MIN_MS) {
+        this.sendBag(client.sessionId, player);
+        return;
+      }
+      this.holdingsAsked.set(client.sessionId, Date.now());
+      void this.refreshPlayerHoldings(client.sessionId, player, true);
+    });
+
     this.onMessage("friend-remove", (client, data: { wallet?: string }) => {
       void this.dropFriend(client, String(data.wallet ?? ""));
     });
@@ -923,7 +946,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   private sendBag(sessionId: string, player: PlayerState) {
     this.clients.find((c) => c.sessionId === sessionId)?.send("bag-sync", {
       inventory: player.inventory,
-      tribute: player.tribute,
+      moon: player.moon,
       gun: player.gun,
       pet: player.pet,
       accessories: player.accessories,
@@ -957,7 +980,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const to = this.state.players.get(toSession);
     if (!from || !to || toSession === client.sessionId) return;
     if (!from.wallet || !to.wallet) {
-      client.send("friend-result", { ok: false, reason: "Both players need a connected wallet." });
+      client.send("friend-result", { ok: false, reason: "Both players need to be signed in." });
       return;
     }
 
@@ -1066,10 +1089,14 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   ): Promise<string | null> {
     // No token configured: the game runs on the dev balance and nothing is paid.
     if (!tokenConfigured() || !paymentsConfigured()) return null;
-    if (!player.wallet) return "Connect a wallet to buy anything.";
+    if (!player.wallet) return "Sign in to buy anything.";
     if (!opts.txHash) return "That purchase was not paid for.";
+    // Paid from the Solana wallet linked to the account, looked up now rather
+    // than at join so linking mid-session works without reconnecting.
+    const payer = await linkedWallet(player.wallet);
+    if (!payer) return "Link a Solana wallet in Settings to buy anything.";
 
-    const check = await verifyPayment(opts.txHash, player.wallet, toBaseUnits(String(opts.price)));
+    const check = await verifyPayment(opts.txHash, payer, toBaseUnits(String(opts.price)));
     if (!check.ok) return check.reason;
 
     const claimed = await claimPayment({
@@ -1084,11 +1111,11 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     return null;
   }
 
-  private async adoptStoredTribute(client: Client, player: PlayerState) {
+  private async adoptStoredMoon(client: Client, player: PlayerState) {
     if (!player.wallet) return;
-    const stored = await fetchTribute(player.wallet, this.chainFor(client.sessionId));
-    if (stored == null || stored === player.tribute) return;
-    player.tribute = Math.max(0, Math.min(TRIBUTE_CAP, stored));
+    const stored = await fetchMoon(player.wallet, this.chainFor(client.sessionId));
+    if (stored == null || stored === player.moon) return;
+    player.moon = Math.max(0, Math.min(MOON_CAP, stored));
     this.sendBag(client.sessionId, player);
   }
 
@@ -1129,9 +1156,10 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.punchAt.delete(sessionId);
       this.knockedUntil.delete(sessionId);
       this.chains.delete(sessionId);
+      this.holdingsAsked.delete(sessionId);
       this.state.players.delete(sessionId);
       client?.leave(SESSION_REPLACED);
-      console.log(`[world] wallet ${wallet} signed in again — dropped session ${sessionId}`);
+      console.log(`[world] account ${wallet} signed in again — dropped session ${sessionId}`);
     }
   }
 
@@ -1139,7 +1167,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
    * Whether this player may cross into a district.
    *
    * Holdings are the usual key, but owning property there is a second one that
-   * does not expire with the token price. A player who qualified for Gas City,
+   * does not expire with the token price. A player who qualified for Bagtown,
    * bought a home and then watched their balance fall still owns that home -
    * locking them out would strand an asset they paid for behind a door they
    * cannot open, and they would have no way to reach it even to sell it.
@@ -1149,14 +1177,48 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
    * client gates on, and the two cannot drift.
    */
   private mayEnter(player: PlayerState, city: CityId): boolean {
-    return this.mayEnterAs(player.wallet, player.tribute, city);
+    return this.mayEnterAs(player.wallet, city);
   }
 
   /** The same rule during onJoin, before there is a PlayerState to ask. */
-  private mayEnterAs(wallet: string, tribute: number, city: CityId): boolean {
-    const required = tributeThresholds().find((row) => row.city === city)?.min ?? 0;
-    if (tribute >= required) return true;
-    return this.ownsHomeIn(wallet, city);
+  private mayEnterAs(wallet: string, city: CityId): boolean {
+    return CITIES[city].tier <= this.homeTier(wallet);
+  }
+
+  /**
+   * How far up the ladder a player has climbed, from the homes they own right
+   * now (see homeAccessTier). Read from live room state, which is replicated in
+   * full to every client, so the client predicts the same answer.
+   *
+   * Dev launcher `demo:<n>` players own nothing, so their made-up balance
+   * stands in for the climb - otherwise every district but the Trenches would
+   * be untestable locally. They only exist with ALLOW_DEMO_PLAYERS=true.
+   */
+  private homeTier(wallet: string): number {
+    if (!wallet) return 1;
+    if (wallet.startsWith("demo:")) {
+      const held = Number(wallet.slice(5));
+      return CITIES[cityFromBalance(Number.isFinite(held) ? held : 0, moonThresholds())].tier;
+    }
+    const owned: CityId[] = [];
+    for (const home of this.state.homes.values()) {
+      if (home.owner === wallet) owned.push(home.city as CityId);
+    }
+    return homeAccessTier(owned);
+  }
+
+  /**
+   * Re-derives everyone's tier after a home changes hands. A sale moves two
+   * players at once - the buyer may climb and the seller may fall - and both
+   * need to hear about it, since the client predicts the gate locally.
+   */
+  private syncAccessTiers() {
+    for (const [sessionId, player] of this.state.players) {
+      const tier = this.homeTier(player.wallet);
+      if (player.accessTier === tier) continue;
+      player.accessTier = tier;
+      this.sendBag(sessionId, player);
+    }
   }
 
   private ownsHomeIn(wallet: string, city: CityId): boolean {
@@ -1409,22 +1471,22 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   }
 
   /**
-   * Tribute the server moves itself (escrow in, refund out) are written to the
+   * Moon the server moves itself (escrow in, refund out) are written to the
    * character row as well as the live player, so they survive a refresh. The
    * wallet may not be connected, which is why the write is keyed by wallet.
    */
-  private async moveTribute(wallet: string, chain: WalletChainId, delta: number) {
+  private async moveMoon(wallet: string, chain: WalletChainId, delta: number) {
     if (!wallet) return;
     const online = this.playerByWallet(wallet);
     if (online) {
-      online.player.tribute = Math.max(0, Math.min(TRIBUTE_CAP, online.player.tribute + delta));
+      online.player.moon = Math.max(0, Math.min(MOON_CAP, online.player.moon + delta));
       this.sendBag(online.sessionId, online.player);
-      await writeTribute(wallet, chain, online.player.tribute);
+      await writeMoon(wallet, chain, online.player.moon);
       return;
     }
-    const stored = await fetchTribute(wallet, chain);
+    const stored = await fetchMoon(wallet, chain);
     if (stored == null) return;
-    await writeTribute(wallet, chain, Math.max(0, stored + delta));
+    await writeMoon(wallet, chain, Math.max(0, stored + delta));
   }
 
   private toRow(home: HomeState) {
@@ -1492,7 +1554,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.vehicleChains.set(row.id, row.ownerChain);
       this.state.vehicles.set(row.id, vehicle);
     }
-    if (rows.length) console.log(`[tribe] restored ${rows.length} owned vehicle(s)`);
+    if (rows.length) console.log(`[moonville] restored ${rows.length} owned vehicle(s)`);
   }
 
   private async restoreAuctions() {
@@ -1519,7 +1581,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       home.endsAt = row.endsAt;
       this.state.homes.set(home.id, home);
     }
-    if (rows.length) console.log(`[tribe] restored ${rows.length} home auction(s)`);
+    if (rows.length) console.log(`[moonville] restored ${rows.length} home auction(s)`);
     this.reportDriftedHomes(rows.map((row) => row.homeId));
     // Anything that ran out while the server was down closes on the next tick.
   }
@@ -1579,14 +1641,14 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const live = new Set(allHomeIds());
     const orphans = storedIds.filter((id) => !live.has(id));
     if (orphans.length === 0) {
-      console.log(`[tribe] home auctions verified — all ${storedIds.length} match a generated home`);
+      console.log(`[moonville] home auctions verified — all ${storedIds.length} match a generated home`);
       return;
     }
     console.warn(
-      `[tribe] WARNING: ${orphans.length} of ${storedIds.length} stored home auction(s) no longer match a generated home.`,
+      `[moonville] WARNING: ${orphans.length} of ${storedIds.length} stored home auction(s) no longer match a generated home.`,
     );
-    console.warn(`[tribe] orphaned ids: ${orphans.slice(0, 20).join(", ")}${orphans.length > 20 ? " …" : ""}`);
-    console.warn("[tribe] re-match them by lot_gx/lot_gz in home_auctions before players notice.");
+    console.warn(`[moonville] orphaned ids: ${orphans.slice(0, 20).join(", ")}${orphans.length > 20 ? " …" : ""}`);
+    console.warn("[moonville] re-match them by lot_gx/lot_gz in home_auctions before players notice.");
   }
 
 /**
@@ -1616,8 +1678,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
 
     const inventory = decodeInventory(player.inventory);
     if (item.unique && hasItem(inventory, item.id)) return fail("You already own that.");
-    if (player.tribute < item.price) {
-      return fail(`${item.name} costs ${item.price} ${CURRENCY}. You have ${player.tribute}.`);
+    if (player.moon < item.price) {
+      return fail(`${item.name} costs ${item.price} ${CURRENCY}. You have ${player.moon}.`);
     }
 
     const chain = this.chainFor(client.sessionId);
@@ -1631,8 +1693,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
 
     if (!tokenConfigured()) {
       // Dev path with no token: bill the bookkeeping balance instead.
-      await this.moveTribute(player.wallet, chain, -item.price);
-      if (!player.wallet) player.tribute = Math.max(0, player.tribute - item.price);
+      await this.moveMoon(player.wallet, chain, -item.price);
+      if (!player.wallet) player.moon = Math.max(0, player.moon - item.price);
     }
 
     player.inventory = encodeInventory(addItem(inventory, item.id));
@@ -1671,7 +1733,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     if (!player || !vehicle) return;
     const fail = (reason: string) => client.send("car-result", { id, ok: false, reason });
 
-    if (!player.wallet) return fail("Connect a wallet to buy a car.");
+    if (!player.wallet) return fail("Sign in to buy a car.");
     if (!vehicle.owner || !vehicle.forSale) return fail("That car is not for sale.");
     if (vehicle.owner === player.wallet) return fail("You already own it.");
     if (vehicle.driver) return fail("Somebody is driving it.");
@@ -1683,8 +1745,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     if (owned > 0) return fail("You already own a car. One each.");
 
     const price = vehicle.askingPrice;
-    if (player.tribute < price) {
-      return fail(`That car costs ${price} ${CURRENCY}. You have ${player.tribute}.`);
+    if (player.moon < price) {
+      return fail(`That car costs ${price} ${CURRENCY}. You have ${player.moon}.`);
     }
 
     const chain = this.chainFor(client.sessionId);
@@ -1706,8 +1768,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     await savePlayerVehicle(this.vehicleRow(vehicle));
 
     if (!tokenConfigured()) {
-      await this.moveTribute(player.wallet, chain, -price);
-      if (seller) await this.moveTribute(seller, sellerChain, price);
+      await this.moveMoon(player.wallet, chain, -price);
+      if (seller) await this.moveMoon(seller, sellerChain, price);
     }
 
     client.send("car-result", { id, ok: true, reason: `Bought for ${price} ${CURRENCY}.` });
@@ -1756,10 +1818,10 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       });
       return;
     }
-    if (player.tribute < spec.price) {
+    if (player.moon < spec.price) {
       client.send("buy-result", {
         ok: false,
-        reason: `A ${spec.name} costs ${spec.price} ${CURRENCY}. You have ${player.tribute}.`,
+        reason: `A ${spec.name} costs ${spec.price} ${CURRENCY}. You have ${player.moon}.`,
       });
       return;
     }
@@ -1778,9 +1840,9 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
 
     if (!tokenConfigured()) {
       // Dev path with no token: bill the bookkeeping balance instead.
-      await this.moveTribute(player.wallet, chain, -spec.price);
+      await this.moveMoon(player.wallet, chain, -spec.price);
       if (!player.wallet) {
-        player.tribute = Math.max(0, player.tribute - spec.price);
+        player.moon = Math.max(0, player.moon - spec.price);
         this.sendBag(client.sessionId, player);
       }
     }
@@ -1827,7 +1889,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const fail = (reason: string) => client.send("home-result", { id, ok: false, reason });
 
     const wallet = player.wallet;
-    if (!wallet) return fail("Connect a wallet to buy a home.");
+    if (!wallet) return fail("Sign in to buy a home.");
     const chain = this.chainFor(client.sessionId);
 
     const home = this.state.homes.get(id);
@@ -1840,8 +1902,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // a home of that size in that district. Never a figure from the client.
     const price = home?.owner && home.forSale && home.askingPrice > 0 ? home.askingPrice : homePrice(lot.city, lot.gx, lot.gz);
 
-    if (player.tribute < price) {
-      return fail(`That home costs ${price} ${CURRENCY}. You have ${player.tribute}.`);
+    if (player.moon < price) {
+      return fail(`That home costs ${price} ${CURRENCY}. You have ${player.moon}.`);
     }
 
     const unpaid = await this.requirePayment(player, chain, {
@@ -1865,11 +1927,13 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     record.askingPrice = 0;
     record.locked = true;
     if (!home) this.state.homes.set(id, record);
+    // The buyer may have climbed a rung, and a resale may drop the seller one.
+    this.syncAccessTiers();
 
     if (!tokenConfigured()) {
       // Dev path with no token: move the bookkeeping balance instead.
-      await this.moveTribute(wallet, chain, -price);
-      if (seller) await this.moveTribute(seller, sellerChain, price);
+      await this.moveMoon(wallet, chain, -price);
+      if (seller) await this.moveMoon(seller, sellerChain, price);
     }
 
     await saveHomeAuction(this.toRow(record));
@@ -1915,6 +1979,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     home.owner = buyerWallet;
     home.ownerChain = home.highBidderChain;
     home.ownerName = buyerName;
+    this.syncAccessTiers();
     home.forSale = false;
     home.lastPrice = price;
     home.askingPrice = 0;
@@ -1930,7 +1995,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     home.highBidderName = "";
 
     if (seller && seller !== buyerWallet) {
-      void this.moveTribute(seller, sellerChain, price);
+      void this.moveMoon(seller, sellerChain, price);
       void this.notify(seller, sellerChain, {
         kind: "sold",
         homeId: home.id,
@@ -1956,7 +2021,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
 
 
   /**
-   * Access tier from $TRIBE held, cached briefly so a join rush does not turn
+   * Access tier from $MOON held, cached briefly so a join rush does not turn
    * into one RPC round trip per player.
    *
    * Fails closed: any lookup error is tier 1, never the tier the client asked
@@ -1973,7 +2038,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const lookup = await startingCityForWallet(wallet, chain);
       holdings = { tier: CITIES[lookup.city].tier, balance: lookup.balance };
     } catch (error) {
-      console.warn("[tribe] holdings lookup failed, defaulting to tier 1", error);
+      console.warn("[moonville] holdings lookup failed, defaulting to tier 1", error);
     }
     this.holdingsCache.set(key, { ...holdings, at: Date.now() });
     return holdings;
@@ -1982,8 +2047,8 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   /**
    * Re-reads every connected wallet and pushes any change to that client.
    *
-   * Tribute is the token in the player's own wallet, so the balance moves
-   * without the game doing anything - they can buy or send $TRIBE in another
+   * Moon is the token in the player's own wallet, so the balance moves
+   * without the game doing anything - they can buy or send $MOON in another
    * tab. Polling keeps the HUD honest, and a tier change is applied too, so
    * buying your way into a district takes effect without reconnecting.
    */
@@ -1993,29 +2058,68 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     for (const [sessionId, player] of this.state.players) {
       if (!player.wallet || seen.has(player.wallet)) continue;
       seen.add(player.wallet);
-      const chain = this.chainFor(sessionId);
-      this.holdingsCache.delete(`${chain}:${player.wallet.toLowerCase()}`);
-      const { tier, balance } = await this.resolveHoldings(player.wallet, chain);
-      const tierChanged = player.accessTier !== tier;
-      const balanceChanged = player.tribute !== balance;
-      player.accessTier = tier;
       // Same cadence as the holdings read: a killed process never runs onLeave.
       void this.rememberSpot(sessionId);
-      player.tribute = balance;
-      // A live gate-threshold change can move the player to another tier while
-      // their wallet balance stays exactly the same. The client predicts gate
-      // access locally, so it must receive either kind of holdings change.
-      if (tierChanged || balanceChanged) this.sendBag(sessionId, player);
+      await this.refreshPlayerHoldings(sessionId, player, false);
     }
   }
 
-  async onJoin(client: Client, options: JoinOptions = {}) {
-    const chain = options.chain ?? DEFAULT_CHAIN;
-    // Never options.accessTier. The client asks to spawn somewhere; holdings decide.
-    const { tier: accessTier, balance } = await this.resolveHoldings(options.wallet ?? "", chain);
-    const requested = (options.city && CITY_BOUNDS[options.city] ? options.city : "trench") as CityId;
+  /**
+   * Re-reads one player's holdings now rather than on the next minute's sweep.
+   *
+   * `alwaysSend` is for a client that asked: it is waiting for the answer, so
+   * it gets one even when nothing changed.
+   */
+  private async refreshPlayerHoldings(sessionId: string, player: PlayerState, alwaysSend: boolean) {
+    if (!player.wallet) return;
+    const chain = this.chainFor(sessionId);
+    this.holdingsCache.delete(`${chain}:${player.wallet.toLowerCase()}`);
+    const { balance } = await this.resolveHoldings(player.wallet, chain);
+    const tier = this.homeTier(player.wallet);
+    const tierChanged = player.accessTier !== tier;
+    const balanceChanged = player.moon !== balance;
+    player.accessTier = tier;
+    // With no token configured the balance is the off-chain dev grant, not a
+    // wallet read, so a refresh must not overwrite it.
+    if (tokenConfigured()) player.moon = balance;
+    // A live gate-threshold change can move the player to another tier while
+    // their wallet balance stays exactly the same. The client predicts gate
+    // access locally, so it must receive either kind of holdings change.
+    if (alwaysSend || tierChanged || balanceChanged) this.sendBag(sessionId, player);
+  }
+
+  /**
+   * Who is joining, decided by the server.
+   *
+   * The room used to take options.wallet on the client's word, so a crafted
+   * client could join as anyone and spend their homes and cars. Now the session
+   * token issued at login is the identity, and options.wallet is overwritten.
+   *
+   * `demo:<n>` players exist for the dev launcher and are refused unless
+   * ALLOW_DEMO_PLAYERS=true, which must never be set where players are real.
+   */
+  onAuth(_client: Client, options: JoinOptions & { token?: string } = {}) {
+    const session = verifySessionToken(options.token);
+    if (session) return { playerId: session.playerId, username: session.username };
+    const demo = String(options.wallet ?? "");
+    if (process.env.ALLOW_DEMO_PLAYERS === "true" && /^demo:\d+$/.test(demo)) {
+      return { playerId: demo, username: (options.name || "citizen").slice(0, 16) };
+    }
+    throw new ServerError(401, "SIGN_IN_REQUIRED");
+  }
+
+  async onJoin(client: Client, joinOptions: JoinOptions = {}) {
+    const auth = client.auth as { playerId: string; username: string };
+    // Identity and nametag come from the session, never from the options.
+    const options: JoinOptions = { ...joinOptions, wallet: auth.playerId, name: auth.username, chain: DEFAULT_CHAIN };
+    const chain = DEFAULT_CHAIN;
+    // Never options.accessTier. The client asks to spawn somewhere; the homes
+    // they own decide whether they may. Holdings are still read, for the balance.
+    const { balance } = await this.resolveHoldings(options.wallet ?? "", chain);
+    const accessTier = this.homeTier(options.wallet ?? "");
+    const requested = (options.city && CITY_BOUNDS[options.city] ? options.city : "trenches") as CityId;
     const wallet = options.wallet ?? "";
-    const city = this.mayEnterAs(wallet, balance, requested) ? requested : "trench";
+    const city = this.mayEnterAs(wallet, requested) ? requested : "trenches";
 
     // Back where they left off, if they can still stand there. Holdings may have
     // fallen since, so a saved spot inside a district they no longer reach falls
@@ -2037,7 +2141,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const canStand =
       saved !== null &&
       savedCity !== "void" &&
-      (savedCity === "gate" || this.mayEnterAs(wallet, balance, savedCity as CityId));
+      (savedCity === "gate" || this.mayEnterAs(wallet, savedCity as CityId));
     const spawn = canStand ? ([saved.x, CITY_BOUNDS[city].spawn[1], saved.z] as const) : CITY_BOUNDS[city].spawn;
     const player = new PlayerState();
     player.sessionId = client.sessionId;
@@ -2053,7 +2157,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     // Owned goods come from the server, never from the joining client.
     //
     // This used to be `options.inventory` - whatever the browser sent. Items
-    // bought with real $TRIBE therefore lived in localStorage: invisible on
+    // bought with real $MOON therefore lived in localStorage: invisible on
     // another machine, gone when site data was cleared, and forgeable by a
     // crafted client. The database is the record now, reconciled once against
     // the payment receipts so nothing bought before this change is lost.
@@ -2062,7 +2166,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     player.bodyType = options.bodyType ?? "regular";
     player.skinTone = options.skinTone ?? "#F6D7B0";
     // Free outfits need no receipt; paid ones do. Character creation lets you
-    // pick any of them, so without this a Valhalla Gold jacket cost nothing.
+    // pick any of them, so without this a Uptown Gold jacket cost nothing.
     const wanted = options.outfit ?? "hi-vis";
     player.outfit = isOutfitId(wanted) && ownsOutfit(owned, wanted) ? wanted : "hi-vis";
     player.pantsColor = options.pantsColor ?? "#3A3A3A";
@@ -2079,20 +2183,20 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const stored_health = Number(stored?.brokemeter);
     player.health = Number.isFinite(stored_health) ? Math.max(0, Math.min(100, stored_health)) : 100;
     this.healthSaved.set(client.sessionId, player.health);
-    // Tribute IS the token in the player's wallet, so the balance is read from
+    // Moon IS the token in the player's wallet, so the balance is read from
     // the chain rather than granted or stored. The dev grant only stands in when
     // no token is configured, so the game is still playable without one.
-    player.tribute = tokenConfigured() ? balance : TRIBUTE_DEV_GRANT;
+    player.moon = tokenConfigured() ? balance : MOON_DEV_GRANT;
     // What you carry is checked against what you own, for the same reason the
     // inventory is: a gun, a pet, an accessory and half the outfits are all
-    // bought with $TRIBE, and every one of these used to be taken on the
+    // bought with $MOON, and every one of these used to be taken on the
     // client's word. A rifle claimed here shoots with a rifle's range.
     player.gun = hasItem(owned, (options.gun ?? "") as never) ? options.gun ?? "" : "";
     player.pet = hasItem(owned, (options.pet ?? "") as never) ? options.pet ?? "" : "";
     this.chains.set(client.sessionId, chain);
     this.allowTeleport(client.sessionId);
     // One live session per wallet. Two tabs on the same wallet would each hold
-    // their own copy of the Tribute balance, so escrow taken from one would be
+    // their own copy of the Moon balance, so escrow taken from one would be
     // invisible to the other and the stale tab could spend it twice.
     this.evictOtherSessions(player.wallet, client.sessionId);
     this.state.players.set(client.sessionId, player);
@@ -2105,16 +2209,17 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     console.log(`[world] ${player.name} joined ${city} (tier ${player.accessTier})`);
 
     // The gate thresholds the server actually enforces. The client keeps its own
-    // copy from VITE_CITY_MIN_TRIBE_*, but that is a separate env that can drift
+    // copy from VITE_CITY_MIN_MOON_*, but that is a separate env that can drift
     // from this one - and a gate message quoting a figure nobody is enforcing is
     // worse than no figure at all.
-    client.send("gates", { thresholds: tributeThresholds() });
+    // (The gate used to be a $MOON threshold, sent here for the client to
+    // predict. It is now the homes owned, which the client already has.)
 
     // Always push the balance: the client seeds one from its local character
     // record, and nothing else would correct it.
     this.sendBag(client.sessionId, player);
     this.broadcastFleet();
-    if (!tokenConfigured()) void this.adoptStoredTribute(client, player);
+    if (!tokenConfigured()) void this.adoptStoredMoon(client, player);
     void this.deliverInbox(client, player);
     void this.syncFriends(client.sessionId);
     this.refreshFriendsOf(player.wallet);
@@ -2161,6 +2266,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     this.punchAt.delete(client.sessionId);
     this.knockedUntil.delete(client.sessionId);
     this.chains.delete(client.sessionId);
+    this.holdingsAsked.delete(client.sessionId);
     this.moveBudget.delete(client.sessionId);
     this.healthSaved.delete(client.sessionId);
     this.moveGraceUntil.delete(client.sessionId);

@@ -18,8 +18,9 @@ import { CURRENCY,
   type CityId,
   type CityTheme,
   type LandmarkKind,
-} from "@tribe/shared";
-import { aabbFrom, box, entityYaw, hitsAabb, lightPool, type Aabb } from "./pcApp";
+} from "@moonville/shared";
+import { aabbFrom, box, entityYaw, graphicsDevice, hitsAabb, lightPool, type Aabb } from "./pcApp";
+import { brickBox } from "./bricks";
 import { createCitizen, type Appearance } from "./character";
 import { applyCitizenMotion, type CitizenMotion } from "./motion";
 import {
@@ -765,7 +766,7 @@ function buildCity(
       const lotRand = mulberry(lotSeed(theme.id, gx, gz));
 
       const skip = lotRand() > theme.density;
-      if (skip && theme.id === "gas") {
+      if (skip && theme.id === "bagtown") {
         addTree(root, lotX + 6, lotZ + 6, theme);
         addTree(root, lotX - 6, lotZ - 4, theme);
         continue;
@@ -793,9 +794,9 @@ function buildCity(
         addBench(root, bx, bz, 0, seats);
         benches.push(seats[seats.length - 1]);
       }
-      if (theme.id === "valhalla" || lotRand() > 0.35) addStreetLamp(root, lotX - 8, lotZ - 8, theme.id === "valhalla" ? "#FFD700" : theme.accent, lamps);
-      if (theme.id === "realworld") addNeonSign(root, lotX, lotZ, floors, theme);
-      if (theme.id === "trench" && lotRand() > 0.55) addTree(root, lotX + 8, lotZ - 7, theme);
+      if (theme.id === "uptown" || lotRand() > 0.35) addStreetLamp(root, lotX - 8, lotZ - 8, theme.id === "uptown" ? "#FFD700" : theme.accent, lamps);
+      if (theme.id === "midtown") addNeonSign(root, lotX, lotZ, floors, theme);
+      if (theme.id === "trenches" && lotRand() > 0.55) addTree(root, lotX + 8, lotZ - 7, theme);
       addBollard(root, lotX + 8.2, lotZ - 5.4);
     }
   }
@@ -1128,7 +1129,7 @@ function addGatehouse(
         ];
 
   towers.forEach(([tx, tz], i) => {
-    box(root, `${theme.id}-gate-${name}-t${i}`, [tx, h / 2, tz], [2.4, h, 2.4], shade(theme.sidewalk, -58));
+    brickShell(root, `${theme.id}-gate-${name}-t${i}`, [tx, h / 2, tz], [2.4, h, 2.4], shade(theme.sidewalk, -58));
     box(root, `${theme.id}-gate-${name}-t${i}-cap`, [tx, h + 0.3, tz], [3, 0.6, 3], theme.accent, {
       emissive: theme.accent,
       intensity: 1.6,
@@ -1141,7 +1142,7 @@ function addGatehouse(
   const lintelY = h - 0.9;
   const pos: [number, number, number] = [x, lintelY, z];
   const scale: [number, number, number] = axis === "x" ? [span, 1.1, CITY_WALL_T + 0.6] : [CITY_WALL_T + 0.6, 1.1, span];
-  box(root, `${theme.id}-gate-${name}-lintel`, pos, scale, shade(theme.sidewalk, -30));
+  brickShell(root, `${theme.id}-gate-${name}-lintel`, pos, scale, shade(theme.sidewalk, -30));
 
   // The sign above the opening. Board size is derived from the lettering rather
   // than guessed, so the longest name still sits inside its frame.
@@ -1220,7 +1221,7 @@ function placeLandmark(
     const w = 14;
     const d = 11;
     const h = 8.4;
-    box(root, id, [x, h / 2, z], [w, h, d], "#C4B49A");
+    brickShell(root, id, [x, h / 2, z], [w, h, d], "#C4B49A");
     box(root, `${id}-base`, [x, 0.35, z + d / 2 + 0.6], [w + 1.4, 0.7, 2.2], "#A89880");
     // Columns flank the entrance in pairs. The centre one used to land squarely
     // in the doorway - which is also why real porticos have an even number.
@@ -1245,7 +1246,7 @@ function placeLandmark(
     const d = 10;
     const h = 8.6;
     const face = z + d / 2;
-    box(root, id, [x, h / 2, z], [w, h, d], "#2B2438");
+    brickShell(root, id, [x, h / 2, z], [w, h, d], "#2B2438");
     // Full-height display window either side of the door, lit from inside so
     // the building still reads at night.
     for (const side of [-1, 1]) {
@@ -1280,8 +1281,8 @@ function placeLandmark(
     const w = 16;
     const d = 12;
     const h = 9.2;
-    box(root, id, [x, h / 2, z], [w, h, d], "#F2F4F7");
-    box(root, `${id}-wing`, [x + 7.4, 3.2, z], [4.2, 6.4, 8], "#E4E8EE");
+    brickShell(root, id, [x, h / 2, z], [w, h, d], "#F2F4F7");
+    brickShell(root, `${id}-wing`, [x + 7.4, 3.2, z], [4.2, 6.4, 8], "#E4E8EE");
     // Rooftop cross, standing upright rather than lying flat. Laid out in the XZ
     // plane it only read from directly overhead, which is not where anyone is.
     const red = { emissive: "#FF4D6D", intensity: 4, glow: "sign" } as const;
@@ -1312,7 +1313,7 @@ function placeLandmark(
     const w = 12;
     const d = 10;
     const h = 6.4;
-    box(root, id, [x, h / 2, z], [w, h, d], "#1A1612");
+    brickShell(root, id, [x, h / 2, z], [w, h, d], "#1A1612");
     box(root, `${id}-awning`, [x, 3.4, z + d / 2 + 0.7], [w + 0.4, 0.18, 1.6], theme.accent);
     box(root, `${id}-glass`, [x, 1.7, z + d / 2 + 0.08], [w * 0.72, 2.2, 0.12], "#9EC4D8", { emissive: "#B9D7E6", intensity: 0.6 });
     box(root, `${id}-door`, [x, 1.3, z + d / 2 + 0.12], [1.7, 2.4, 0.16], "#111");
@@ -1342,7 +1343,7 @@ function placeLandmark(
   const w = 15;
   const d = 12;
   const h = 8.2;
-  box(root, id, [x, h / 2, z], [w, h, d], "#1E3A5F");
+  brickShell(root, id, [x, h / 2, z], [w, h, d], "#1E3A5F");
   box(root, `${id}-stripe`, [x, 2.4, z + d / 2 + 0.05], [w * 0.92, 0.35, 0.12], "#F8FAFC");
   box(root, `${id}-lights`, [x, h + 0.28, z], [4.6, 0.28, 0.7], "#111");
   box(root, `${id}-light-r`, [x - 1.1, h + 0.42, z], [1.1, 0.22, 0.5], "#EF4444", { emissive: "#EF4444", intensity: 6 });
@@ -1398,6 +1399,23 @@ function avenueFacing(gx: number, gz: number): Facing {
   return { fx: 0, fz: gz < mid ? 1 : -1 };
 }
 
+/**
+ * A building's main block, in brick: houses, civic buildings, the dealership
+ * office and the gate towers all go through here, so they share one look and
+ * one brick size. Falls back to a plain box only without a graphics device,
+ * which the live game always has.
+ */
+function brickShell(
+  root: pc.Entity,
+  name: string,
+  pos: [number, number, number],
+  size: [number, number, number],
+  hex: string,
+): pc.Entity {
+  const device = graphicsDevice();
+  return device ? brickBox(device, root, name, pos, size, hex) : box(root, name, pos, size, hex);
+}
+
 function placeBuilding(
   root: pc.Entity,
   theme: CityTheme,
@@ -1417,7 +1435,7 @@ function placeBuilding(
   const d = 8 + rand() * 3;
   const h = floors * 3.1;
   const pos: [number, number, number] = [x, h / 2, z];
-  box(root, id, pos, [w, h, d], color);
+  brickShell(root, id, pos, [w, h, d], color);
   colliders.push(aabbFrom(pos, [w, h, d]));
 
   // The facade is built against whichever face the building fronts onto, so
@@ -1449,7 +1467,7 @@ function placeBuilding(
     });
   }
 
-  if (theme.id !== "gas" || rand() > 0.4) {
+  if (theme.id !== "bagtown" || rand() > 0.4) {
     const [awX, awZ] = at(half + 0.5, 0);
     box(root, `${id}-awning`, [awX, 2.3, awZ], faceScale(across * 0.7, 0.18, 1.2), theme.accent);
   }
@@ -1545,7 +1563,7 @@ function addPark(
 ) {
   const size = LOT_SIZE;
   const half = size / 2;
-  const grass = theme.id === "gas" ? "#2F6B4F" : theme.id === "valhalla" ? "#3E7D4E" : "#2E7D46";
+  const grass = theme.id === "bagtown" ? "#2F6B4F" : theme.id === "uptown" ? "#3E7D4E" : "#2E7D46";
   box(root, `${id}-lawn`, [x, WALK_Y + 0.02, z], [size, 0.16, size], grass);
 
   // Crossing gravel paths, so the block still reads as walkable.
@@ -1607,7 +1625,7 @@ function addDealership(
   const d = 7;
   const h = 4.6;
   const officeZ = z - half + d / 2 + 1.2;
-  box(root, id, [x, h / 2, officeZ], [w, h, d], shade(theme.building[0], 18));
+  brickShell(root, id, [x, h / 2, officeZ], [w, h, d], shade(theme.building[0], 18));
   box(root, `${id}-glass`, [x, 1.9, officeZ + d / 2 + 0.08], [w * 0.72, 2.4, 0.12], "#9EC4D8", {
     emissive: "#B9D7E6",
     intensity: 0.7,
@@ -1662,7 +1680,7 @@ function addDealership(
 
 function addTree(root: pc.Entity, x: number, z: number, theme: CityTheme) {
   box(root, `tree-t-${x}-${z}`, [x, 0.6, z], [0.5, 1.2, 0.5], "#3F2A14");
-  const leaf = theme.id === "gas" ? "#3D6EAE" : "#2F9E44";
+  const leaf = theme.id === "bagtown" ? "#3D6EAE" : "#2F9E44";
   box(root, `tree-l-${x}-${z}`, [x, 1.8, z], [1.6, 1.6, 1.6], leaf);
 }
 
@@ -1692,7 +1710,7 @@ function addNeonSign(root: pc.Entity, x: number, z: number, floors: number, them
  * the pools into invisibility.
  */
 function addNightWash(root: pc.Entity, theme: CityTheme, cx: number, cz: number) {
-  const tint = theme.id === "realworld" ? "#16301F" : theme.id === "trench" ? "#241436" : theme.id === "gas" ? "#111F2E" : "#241F12";
+  const tint = theme.id === "midtown" ? "#16301F" : theme.id === "trenches" ? "#241436" : theme.id === "bagtown" ? "#111F2E" : "#241F12";
   const e = box(root, `${theme.id}-night`, [cx, WALK_Y + 0.015, cz], [CITY_SIZE, 0.008, CITY_SIZE], tint);
   e.enabled = theme.night;
   return e;
@@ -1755,7 +1773,7 @@ function addNpcs(
     }
   }
 
-  const count = theme.id === "gas" ? 7 : 11;
+  const count = theme.id === "bagtown" ? 7 : 11;
   for (let i = 0; i < count; i++) {
     const look = looks[i % looks.length];
     const entity = createCitizen(root, look, `${theme.id}-npc-${i}`);
@@ -1808,16 +1826,16 @@ function addNpcs(
 }
 
 const NPC_CARS: Record<CityId, { color: string; kind: string }[]> = {
-  trench: [
+  trenches: [
     { color: "#7C3AED", kind: "hatch" },
     { color: "#E5E7EB", kind: "sedan" },
   ],
-  gas: [{ color: "#3B82F6", kind: "sedan" }],
-  realworld: [
+  bagtown: [{ color: "#3B82F6", kind: "sedan" }],
+  midtown: [
     { color: "#EA580C", kind: "hatch" },
     { color: "#166534", kind: "suv" },
   ],
-  valhalla: [
+  uptown: [
     { color: "#FFB830", kind: "sport" },
     { color: "#111827", kind: "sedan" },
   ],

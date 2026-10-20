@@ -19,7 +19,7 @@ someone else's entity. Three pieces already exist:
 - `request-roster` (WorldRoom) returns every player's `sessionId`, name,
   position and city — that is the "pick someone to watch" list, already built.
 - `onJoin` reads `options.wallet ?? ""`, so a wallet-less join already works.
-  Holdings resolve to tier 1 and the player lands in Trench.
+  Holdings resolve to tier 1 and the player lands in Trenches.
 - The camera work from the fashion-house mirror and the ADS view is the same
   machinery, pointed at a remote instead of the local player.
 
@@ -43,7 +43,7 @@ server-side and linear per connection:
 
 `maxClients = 500` (`WORLD_MAX_PLAYERS`). Spectators would consume player slots,
 so a popular stream could fill the world with people who cannot act in it, and
-the "TRIBE IS FULL" queue would start turning away real players.
+the "MOON IS FULL" queue would start turning away real players.
 
 Mitigations to build in from the start, not bolt on:
 

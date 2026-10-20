@@ -1,8 +1,8 @@
 {
-  "name": "tribe",
+  "name": "moonville",
   "private": true,
   "version": "0.1.0",
-  "description": "Tribe — a crypto-native Roblox-style social game",
+  "description": "Moonville — a crypto-native Roblox-style social game",
   "scripts": {
     "install:all": "yarn --cwd frontend install && yarn --cwd backend install",
     "dev:web": "yarn --cwd frontend dev",

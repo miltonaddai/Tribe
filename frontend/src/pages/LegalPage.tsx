@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Header } from "../components/Header";
+import { SiteFooter } from "../components/SiteFooter";
 import { CHAIN_NAME } from "../lib/chain";
 
 /**
@@ -17,7 +18,7 @@ import { CHAIN_NAME } from "../lib/chain";
  * both well outside what can be inferred from a codebase.
  */
 
-const UPDATED = "18 September 2026";
+const UPDATED = "19 October 2026";
 
 export function LegalPage() {
   const { pathname } = useLocation();
@@ -32,10 +33,10 @@ export function LegalPage() {
   }, [pathname]);
 
   return (
-    <div className="legal-page" ref={scroller}>
-      <Header />
+    <div className="page-scroll legal-page" ref={scroller}>
+      <Header solid />
       <main className="legal-main">
-        <p className="docs-crumb">TRIBE — {terms ? "TERMS OF USE" : "PRIVACY POLICY"}</p>
+        <p className="eyebrow">MOON — {terms ? "TERMS OF USE" : "PRIVACY POLICY"}</p>
         <h1>{terms ? "Terms of Use" : "Privacy Policy"}</h1>
         <p className="legal-updated">Last updated {UPDATED}</p>
 
@@ -53,6 +54,7 @@ export function LegalPage() {
           )}
         </p>
       </main>
+      <SiteFooter />
     </div>
   );
 }
@@ -61,7 +63,7 @@ function Privacy() {
   return (
     <>
       <p>
-        Tribe is a browser game. This policy describes what the game stores, why, and what it never
+        Moonville is a browser game. This policy describes what the game stores, why, and what it never
         touches. It is written to match how the game actually works rather than to cover every
         possibility.
       </p>
@@ -69,11 +71,15 @@ function Privacy() {
       <h2>What we store</h2>
       <ul>
         <li>
-          <strong>Your wallet address and network.</strong> This is your identity in the game. It is
-          how your character, property and balance are recognised when you return.
+          <strong>Your account.</strong> Your username, which is also your in-game nametag, and a
+          salted hash of your password. We never store the password itself and cannot read it.
         </li>
         <li>
-          <strong>Your character.</strong> Display name, appearance, inventory, and which district you
+          <strong>Your linked wallet, if you link one.</strong> The public address of the Solana wallet
+          you connect for purchases. Linking is optional.
+        </li>
+        <li>
+          <strong>Your character.</strong> Appearance, inventory, and which district you
           are in, including your last position so you return where you left off.
         </li>
         <li>
@@ -109,8 +115,8 @@ function Privacy() {
       <h2>Chat and public activity</h2>
       <p>
         Chat, whispers and nametags are visible to other players in the game as you would expect. Do
-        not share anything in them you would not want another player to see. Your wallet address is
-        hidden from other players unless you choose to show it.
+        not share anything in them you would not want another player to see. Your linked wallet
+        address is hidden from other players unless you choose to show it.
       </p>
 
       <h2>On-chain activity is public</h2>
@@ -128,13 +134,13 @@ function Privacy() {
 
       <h2>Your choices</h2>
       <p>
-        You can stop playing at any time; disconnecting your wallet ends the session. To request
-        deletion of the data tied to your wallet, contact us. Note that on-chain records cannot be
-        deleted by anyone.
+        You can stop playing at any time, and unlink your wallet from Settings whenever you like. To
+        request deletion of your account and the data tied to it, contact us. Note that on-chain
+        records cannot be deleted by anyone.
       </p>
 
       <h2>Children</h2>
-      <p>Tribe is not intended for children under 13.</p>
+      <p>Moonville is not intended for children under 13.</p>
 
       <h2>Changes</h2>
       <p>
@@ -149,32 +155,39 @@ function Terms() {
   return (
     <>
       <p>
-        By playing Tribe you agree to these terms. If you do not agree, do not play.
+        By playing Moonville you agree to these terms. If you do not agree, do not play.
       </p>
 
       <h2>The game</h2>
       <p>
-        Tribe is entertainment. It is provided as it is, without any promise that it will be
+        Moonville is entertainment. It is provided as it is, without any promise that it will be
         available, uninterrupted, or free of faults, and we may change or discontinue any part of it.
+      </p>
+
+      <h2>Your account</h2>
+      <p>
+        Keep your password private and do not reuse one from another site. You are responsible for
+        what happens on your account. Usernames must not impersonate other players or the Moonville team,
+        and we may rename or remove ones that do.
       </p>
 
       <h2>Your wallet is yours</h2>
       <p>
-        You are responsible for your wallet, its keys, and every transaction you approve. We never ask
-        for your keys and cannot recover, reverse or refund a transaction. A transaction you sign is
-        final the moment it confirms.
+        Linking a wallet is optional. If you link one, you are responsible for it, its keys, and every
+        transaction you approve. We never ask for your keys and cannot recover, reverse or refund a
+        transaction. A transaction you sign is final the moment it confirms.
       </p>
 
       <h2>In-game purchases</h2>
       <p>
-        Items, homes and vehicles are bought with $TRIBE on {CHAIN_NAME}, paid directly from your
-        wallet. In-game items exist inside the game and carry no value, guarantee or right outside it.
+        Items, homes and vehicles are bought with $MOON on {CHAIN_NAME}, paid directly from the
+        wallet you link. In-game items exist inside the game and carry no value, guarantee or right outside it.
         Prices are set in tokens, so their cost in any currency moves with the token.
       </p>
 
       <h2>Not financial advice</h2>
       <p>
-        Nothing here or in the game is financial, investment, legal or tax advice. $TRIBE is volatile
+        Nothing here or in the game is financial, investment, legal or tax advice. $MOON is volatile
         and you may lose everything you put into it. Never spend more than you can afford to lose.
       </p>
 

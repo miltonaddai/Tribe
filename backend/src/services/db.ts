@@ -11,21 +11,25 @@ import {
   type CityId,
   type GameSettings,
   type WalletChainId,
-} from "@tribe/shared";
+} from "@moonville/shared";
 import { getSupabase } from "./supabase";
-import { nameKey } from "@tribe/shared";
+import { nameKey } from "@moonville/shared";
 
 type WalletRow = {
   address: string;
   chain: WalletChainId;
-  /** Access is tied to $TRIBE alone, so the stored balance is always in it. */
-  symbol: "TRIBE";
+  /** Access is tied to $MOON alone, so the stored balance is always in it. */
+  symbol: "MOON";
   last_balance: number;
   last_city: CityId;
 };
 
-function normalizeAddress(address: string, chain: WalletChainId) {
-  return chain === "robinhood" ? address.toLowerCase() : address;
+/**
+ * Player ids (`acct:<uuid>`) and Solana addresses are both case-sensitive, so
+ * nothing is folded. Kept as a seam: every lookup already goes through it.
+ */
+function normalizeAddress(address: string, _chain: WalletChainId) {
+  return address;
 }
 
 function logError(action: string, error: { message: string } | null) {
@@ -96,7 +100,7 @@ export async function upsertCharacter(record: CharacterRecord, chain: WalletChai
       .insert({
         address,
         chain,
-        symbol: "TRIBE",
+        symbol: "MOON",
         last_city: record.homeCity,
       })
       .select("id")
@@ -132,7 +136,7 @@ export async function upsertCharacter(record: CharacterRecord, chain: WalletChai
       home_city: record.homeCity,
       access_tier: record.accessTier,
       brokemeter: record.brokemeter,
-      tribute: record.tribute ?? 0,
+      moon: record.moon ?? 0,
       inventory: record.inventory ?? [],
       equipped_gun: record.equippedGun ?? null,
       equipped_pet: record.equippedPet ?? null,
@@ -170,7 +174,7 @@ export async function fetchCharacter(address: string, chain: WalletChainId): Pro
     homeCity: data.home_city,
     accessTier: data.access_tier,
     brokemeter: Number.isFinite(Number(data.brokemeter)) ? Number(data.brokemeter) : 100,
-    tribute: Number(data.tribute ?? 0),
+    moon: Number(data.moon ?? 0),
     inventory: seedInventory(parseAccessories(data.accessories), data.inventory),
     equippedGun: isGunId(String(data.equipped_gun ?? "")) ? data.equipped_gun : null,
     equippedPet: isPetId(String(data.equipped_pet ?? "")) ? data.equipped_pet : null,
@@ -219,7 +223,7 @@ function toAuctionRow(data: Record<string, unknown>): HomeAuctionRow {
   const ends = data.ends_at ? Date.parse(String(data.ends_at)) : 0;
   return {
     homeId: String(data.home_id),
-    city: (data.city ?? "trench") as CityId,
+    city: (data.city ?? "trenches") as CityId,
     ownerWallet: String(data.owner_wallet ?? ""),
     ownerChain: (data.owner_chain ?? null) as WalletChainId | null,
     ownerName: String(data.owner_name ?? ""),
@@ -283,34 +287,34 @@ export async function saveHomeAuction(row: HomeAuctionRow) {
   logError("save home auction", error);
 }
 
-export async function fetchTribute(address: string, chain: WalletChainId): Promise<number | null> {
+export async function fetchMoon(address: string, chain: WalletChainId): Promise<number | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("characters")
-    .select("tribute")
+    .select("moon")
     .eq("wallet_address", normalizeAddress(address, chain))
     .eq("chain", chain)
     .maybeSingle();
-  logError("fetch tribute", error);
+  logError("fetch moon", error);
   if (!data) return null;
-  const tribute = Number(data.tribute);
-  return Number.isFinite(tribute) ? tribute : null;
+  const moon = Number(data.moon);
+  return Number.isFinite(moon) ? moon : null;
 }
 
 /**
- * Tribute movements that the server owns (auction escrow and payouts) are
+ * Moon movements that the server owns (auction escrow and payouts) are
  * written straight to the character row so they outlive the session.
  */
-export async function writeTribute(address: string, chain: WalletChainId, tribute: number) {
+export async function writeMoon(address: string, chain: WalletChainId, moon: number) {
   const supabase = getSupabase();
   if (!supabase) return;
   const { error } = await supabase
     .from("characters")
-    .update({ tribute: Math.max(0, Math.round(tribute)), updated_at: new Date().toISOString() })
+    .update({ moon: Math.max(0, Math.round(moon)), updated_at: new Date().toISOString() })
     .eq("wallet_address", normalizeAddress(address, chain))
     .eq("chain", chain);
-  logError("write tribute", error);
+  logError("write moon", error);
 }
 
 export type PlayerVehicleRow = {
@@ -337,7 +341,7 @@ export async function loadPlayerVehicles(): Promise<PlayerVehicleRow[]> {
     id: String(row.id),
     ownerWallet: String(row.owner_wallet ?? ""),
     ownerChain: (row.owner_chain ?? DEFAULT_CHAIN) as WalletChainId,
-    city: (row.city ?? "trench") as CityId,
+    city: (row.city ?? "trenches") as CityId,
     kind: String(row.kind ?? "sedan"),
     color: String(row.color ?? "#FFFFFF"),
     x: Number(row.x ?? 0),
@@ -393,7 +397,8 @@ export async function claimPayment(payment: {
   // No database means no replay protection, so refuse rather than hand out goods.
   if (!supabase) return false;
   const { error } = await supabase.from("token_payments").insert({
-    tx_hash: payment.txHash.toLowerCase(),
+    // Solana signatures are base58 and case-sensitive - never fold them.
+    tx_hash: payment.txHash,
     wallet_address: normalizeAddress(payment.address, payment.chain),
     chain: payment.chain,
     amount: payment.amount.toString(),
@@ -428,7 +433,7 @@ export async function fetchLastSpot(address: string, chain: WalletChainId): Prom
   const x = Number(data.last_x);
   const z = Number(data.last_z);
   if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
-  return { city: (data.last_city ?? "trench") as CityId, x, z };
+  return { city: (data.last_city ?? "trenches") as CityId, x, z };
 }
 
 /** True when the spot actually reached the database, so an explicit save can say so. */
@@ -446,7 +451,7 @@ export async function saveLastSpot(
     {
       address: normalizeAddress(address, chain),
       chain,
-      symbol: "TRIBE",
+      symbol: "MOON",
       last_city: spot.city,
       last_x: Math.round(spot.x * 100) / 100,
       last_z: Math.round(spot.z * 100) / 100,

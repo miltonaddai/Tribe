@@ -1,4 +1,4 @@
-export type CityId = "trench" | "gas" | "realworld" | "valhalla";
+export type CityId = "trenches" | "bagtown" | "midtown" | "uptown";
 
 export type CityTheme = {
   id: CityId;
@@ -25,10 +25,10 @@ export type CityTheme = {
 };
 
 export const CITIES: Record<CityId, CityTheme> = {
-  trench: {
-    id: "trench",
-    name: "Trench City",
-    shortName: "TRENCH CITY",
+  trenches: {
+    id: "trenches",
+    name: "Trenches",
+    shortName: "TRENCHES",
     tier: 1,
     accent: "#9B59D0",
     building: ["#7A3FBF", "#8B4FD4", "#6A32A8", "#9A62E0"],
@@ -47,12 +47,12 @@ export const CITIES: Record<CityId, CityTheme> = {
     maxFloors: 3,
     tagline: "Tier 1 — Poorest",
     description:
-      "Rough architecture and high randomness. Most players start here. The most fun city to be in.",
+      "Rough architecture and high randomness. Everyone starts here, and it is the most fun place to be.",
   },
-  gas: {
-    id: "gas",
-    name: "Gas City",
-    shortName: "GAS CITY",
+  bagtown: {
+    id: "bagtown",
+    name: "Bagtown",
+    shortName: "BAGTOWN",
     tier: 2,
     accent: "#4A90D9",
     building: ["#3D6EAE", "#4A7FBF", "#5B8FCF", "#2F5F9A"],
@@ -71,12 +71,12 @@ export const CITIES: Record<CityId, CityTheme> = {
     maxFloors: 2,
     tagline: "Tier 2",
     description:
-      "Desolate, quiet, and calm. Few buildings, eager hardworking citizens. Wealth second only to Valhalla.",
+      "Desolate, quiet, and calm. Few buildings, eager hardworking citizens. Wealth second only to Uptown.",
   },
-  realworld: {
-    id: "realworld",
-    name: "The Real World",
-    shortName: "THE REAL WORLD",
+  midtown: {
+    id: "midtown",
+    name: "Midtown",
+    shortName: "MIDTOWN",
     tier: 3,
     accent: "#2ECC71",
     building: ["#14352C", "#1C4A3C", "#0E2A24", "#1A3F34"],
@@ -97,10 +97,10 @@ export const CITIES: Record<CityId, CityTheme> = {
     description:
       "Flashy modern buildings and neon design. Orderly citizens, moderate wealth, and a booming economy.",
   },
-  valhalla: {
-    id: "valhalla",
-    name: "Valhalla",
-    shortName: "VALHALLA",
+  uptown: {
+    id: "uptown",
+    name: "Uptown",
+    shortName: "UPTOWN",
     tier: 4,
     accent: "#FFD700",
     building: ["#E8C547", "#D4AF37", "#F0D060", "#C9A227"],
@@ -123,38 +123,36 @@ export const CITIES: Record<CityId, CityTheme> = {
   },
 };
 
-export const CITY_ORDER: CityId[] = ["trench", "gas", "realworld", "valhalla"];
+export const CITY_ORDER: CityId[] = ["trenches", "bagtown", "midtown", "uptown"];
 
 export type CityThreshold = { min: number; city: CityId };
 
-/** Wallet native balance → starting city. In-game work is the only way to climb after spawn. */
 /**
- * District access by $TRIBE held. Under 100,000 tokens is Trench; 500,000+ is
- * Valhalla, with Gas and the Real World at the two steps between them.
- *
- * At a $1M market cap (1B supply, so $0.001/token) that ladder is roughly
- * $100 / $300 / $500. Those dollar figures move with the token price.
- */
-/**
- * What an unowned home costs, in Tribute, by district. Homes are bought outright
+ * What an unowned home costs, in Moon, by district. Homes are bought outright
  * at this price - there is no auction, so nothing discovers the price for us.
  *
- * The ladder mirrors the access ladder: a district that takes more $TRIBE to
- * enter takes more to live in. At 1,000 Tribute = $1 that is roughly
+ * Each rung costs more than the last, and a home is also the key to the next
+ * district up (see homeAccessTier), so the price of a district's homes is the
+ * price of climbing out of it. At 1,000 Moon = $1 that is roughly
  * $25 / $50 / $100 / $250.
  */
 export const HOME_PRICE: Record<CityId, number> = {
-  trench: 25_000,
-  gas: 50_000,
-  realworld: 100_000,
-  valhalla: 250_000,
+  trenches: 25_000,
+  bagtown: 50_000,
+  midtown: 100_000,
+  uptown: 250_000,
 };
 
-export const DEFAULT_TRIBE_CITY_THRESHOLDS: CityThreshold[] = [
-  { min: 500_000, city: "valhalla" },
-  { min: 300_000, city: "realworld" },
-  { min: 100_000, city: "gas" },
-  { min: 0, city: "trench" },
+/**
+ * $MOON-held thresholds by district. They no longer gate real players - homes
+ * do - and survive only for the dev launcher's demo:<n> players, whose made-up
+ * balance stands in for climbing the ladder so every district can be tested.
+ */
+export const DEFAULT_MOON_CITY_THRESHOLDS: CityThreshold[] = [
+  { min: 500_000, city: "uptown" },
+  { min: 300_000, city: "midtown" },
+  { min: 100_000, city: "bagtown" },
+  { min: 0, city: "trenches" },
 ];
 
 export function cityFromBalance(amount: number, thresholds: CityThreshold[]): CityId {
@@ -162,11 +160,37 @@ export function cityFromBalance(amount: number, thresholds: CityThreshold[]): Ci
   for (const row of sorted) {
     if (amount >= row.min) return row.city;
   }
-  return "trench";
+  return "trenches";
 }
 
 export function canEnterCity(playerTier: number, targetCity: CityId): boolean {
   return playerTier >= CITIES[targetCity].tier;
+}
+
+/**
+ * District access is earned with homes, one rung at a time: a home in the
+ * Trenches opens Bagtown, a home in Bagtown opens Midtown, a home in Midtown
+ * opens Uptown. $MOON held does not open anything; it only pays for things.
+ *
+ * Expressed as a tier: no homes is tier 1 (the Trenches), and each home lifts
+ * you to one tier above its district. So owning in a district always lets you
+ * back into it, and every district below stays open - the higher you have
+ * climbed, the more of the map is yours to walk.
+ */
+export function homeAccessTier(ownedCities: Iterable<CityId>): number {
+  let tier = 1;
+  for (const city of ownedCities) {
+    const home = CITIES[city]?.tier;
+    if (home) tier = Math.max(tier, Math.min(4, home + 1));
+  }
+  return tier;
+}
+
+/** The district whose homes open this one, or null for the Trenches, which is open to all. */
+export function unlockingCity(city: CityId): CityId | null {
+  const tier = CITIES[city].tier;
+  if (tier <= 1) return null;
+  return CITY_ORDER.find((id) => CITIES[id].tier === tier - 1) ?? null;
 }
 
 /** World layout: 2×2 districts around origin. Each city is CITY_SIZE² with a GATE_HALF belt. */
@@ -205,10 +229,10 @@ export const CITY_BOUNDS: Record<
   CityId,
   { minX: number; maxX: number; minZ: number; maxZ: number; spawn: [number, number, number] }
 > = {
-  trench: district(-1, 1),
-  gas: district(1, 1),
-  realworld: district(-1, -1),
-  valhalla: district(1, -1),
+  trenches: district(-1, 1),
+  bagtown: district(1, 1),
+  midtown: district(-1, -1),
+  uptown: district(1, -1),
 };
 
 /**
@@ -274,10 +298,10 @@ export function cityEntered(
  */
 export function cityGates(city: CityId) {
   return {
-    south: city === "trench" || city === "gas",
-    north: city === "realworld" || city === "valhalla",
-    east: city === "trench" || city === "realworld",
-    west: city === "gas" || city === "valhalla",
+    south: city === "trenches" || city === "bagtown",
+    north: city === "midtown" || city === "uptown",
+    east: city === "trenches" || city === "midtown",
+    west: city === "bagtown" || city === "uptown",
   };
 }
 

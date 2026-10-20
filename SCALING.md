@@ -1,4 +1,4 @@
-# Scaling Tribe — 80 → 500 players per world
+# Scaling Moonville — 80 → 500 players per world
 
 Capacity plan for the world server and client renderer.
 
@@ -54,7 +54,7 @@ Measured on a headless PlayCanvas app:
 
 | Scene | Before | After | Saved |
 | --- | --- | --- | --- |
-| Valhalla crowd (crowned, kitted) | 2,520 | 854 | 66% |
+| Uptown crowd (crowned, kitted) | 2,520 | 854 | 66% |
 | Mixed crowd | 1,600 | 648 | 60% |
 | Plain crowd | 640 | 436 | 32% |
 

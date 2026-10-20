@@ -27,22 +27,22 @@ export function envNumber(key: string, fallback: number) {
 }
 
 /**
- * Ceiling on a wallet's Tribute balance: the whole $TRIBE supply, 1B tokens.
+ * Ceiling on a wallet's Moon balance: the whole $MOON supply, 1B tokens.
  *
  * This is an overflow guard, not an economic limit, and it MUST stay at or above
  * total supply. It is applied with Math.min, so a cap below what a wallet can
  * legitimately hold would silently destroy the excess on deposit. If the supply
  * ever changes, change this first.
  */
-export const TRIBUTE_CAP = 1_000_000_000;
+export const MOON_CAP = 1_000_000_000;
 
 /**
- * Tribute handed to a brand new wallet. Must be 0 wherever the token is real:
- * Tribute is $TRIBE held as a deposited float, so a starting balance mints
+ * Moon handed to a brand new wallet. Must be 0 wherever the token is real:
+ * Moon is $MOON held as a deposited float, so a starting balance mints
  * tokens the treasury never received. Set it only on a throwaway database to
  * keep the game testable before the deposit flow exists.
  */
-export const TRIBUTE_DEV_GRANT = envNumber("TRIBUTE_DEV_GRANT", 0);
+export const MOON_DEV_GRANT = envNumber("MOON_DEV_GRANT", 0);
 
 /**
  * How many cars players may own across the whole world, ever.

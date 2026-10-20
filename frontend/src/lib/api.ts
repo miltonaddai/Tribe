@@ -65,3 +65,20 @@ export function assertJson(res: Response) {
       : "The game server is not configured. VITE_API_URL is unset, so API requests are hitting the website instead of the backend.",
   );
 }
+
+/**
+ * `Authorization` for API calls that act on the signed-in player.
+ *
+ * Read straight from storage rather than through session.ts, so the modules
+ * that persist characters and settings do not import the session module that
+ * imports them.
+ */
+export function authHeaders(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem("moonville:session");
+    const token = raw ? (JSON.parse(raw) as { token?: string }).token : "";
+    return token ? { authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}

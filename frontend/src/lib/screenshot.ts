@@ -14,7 +14,7 @@
  */
 
 /** Bottom-right mark. Small enough not to spoil the shot, enough to be read. */
-const MARK = "TRIBE";
+const MARK = "MOONVILLE";
 
 /**
  * Copies a live canvas into an offscreen one.
@@ -55,7 +55,7 @@ export async function composeShot(shot: HTMLCanvasElement, caption: string): Pro
   ctx.shadowBlur = unit * 0.7;
   ctx.shadowOffsetY = 1;
 
-  ctx.font = `700 ${unit}px "Science Gothic Variable", system-ui, sans-serif`;
+  ctx.font = `700 ${unit}px "Unbounded Variable", "Inter Variable", system-ui, sans-serif`;
   ctx.fillStyle = "#E8B34A";
   ctx.fillText(MARK, shot.width - pad, shot.height - pad);
 
@@ -72,7 +72,7 @@ export async function composeShot(shot: HTMLCanvasElement, caption: string): Pro
 export function shotFilename(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  return `tribe-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+  return `moonville-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
 }
 
 export function downloadShot(blob: Blob) {

@@ -1,4 +1,4 @@
-import type { WalletChainId } from "@tribe/shared";
+import type { WalletChainId } from "@moonville/shared";
 import { getSupabase } from "./supabase";
 
 export type FriendLink = {

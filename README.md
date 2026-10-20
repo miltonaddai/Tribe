@@ -1,6 +1,8 @@
-# Tribe
+# Moonville
 
-Crypto-native, Roblox-style social game. Connect a wallet, spawn a character, and drop into a living city.
+Crypto-native, Roblox-style social game. Sign up with a username, spawn a character, and drop into a living city. A Solana wallet is optional and only needed to buy things.
+
+Code identifiers still use the old names (`moonville:` storage keys, `MOON_*` env vars, city ids `trenches` / `bagtown` / `midtown` / `uptown`) so saved data and deploy config keep working.
 
 ## Folders
 
@@ -18,7 +20,8 @@ Do not run `yarn install` in the repo root. Each app installs its own dependenci
 - **Backend:** Node.js + Colyseus (player / vehicle positions, rooms, events)
 - **Data:** Supabase (PostgreSQL). Run the files in `supabase/migrations/` in order in the SQL Editor.
 - **Presence:** Redis
-- **Wallets:** Robinhood Chain (EVM, mainnet) — $TRIBE balances and sign-in
+- **Accounts:** username + password (scrypt hashes, HMAC-signed session tokens). Players are keyed by `acct:<uuid>`.
+- **Wallets:** Solana, optional — linked to an account by signing one message; $MOON (SPL) balances gate districts and pay for purchases
 - **Assets:** Cloudflare R2 (avatars, clothing, cars)
 
 ## Cities
@@ -27,12 +30,12 @@ One connected map, gated by tier. Higher-city citizens can always travel down. Y
 
 | Tier | City | Feel |
 | --- | --- | --- |
-| 1 | Trench City | Rough, random, most players start here |
-| 2 | Gas City | Sparse, calm, hardworking |
-| 3 | The Real World | Neon, orderly, booming |
-| 4 | Valhalla | Gold towers, fancy cars |
+| 1 | Trenches | Rough, random, everyone starts here |
+| 2 | Bagtown | Sparse, calm, hardworking |
+| 3 | Midtown | Neon, orderly, booming |
+| 4 | Uptown | Gold towers, fancy cars |
 
-Your Robinhood Chain ETH balance sets the **starting** city. In-game work raises access over time. Health is your lifeline — punch other citizens to wear it down, and walk into a hospital to refill it.
+The $MOON held by your linked Solana wallet sets which districts you can enter; with no wallet linked you play in the Trenches. Health is your lifeline — punch other citizens to wear it down, and walk into a hospital to refill it.
 
 ## Run locally
 
@@ -65,9 +68,9 @@ yarn dev
 - Colyseus: ws://localhost:2567
 - Health: http://localhost:2567/health
 
-Copy `frontend/.env.example` → `frontend/.env` and `backend/.env.example` → `backend/.env`. **Connect Wallet** signs you in on Robinhood Chain with any EVM wallet (MetaMask, Phantom EVM). Set `VITE_DEV_TOOLS=true` in `frontend/.env` to show a floating launcher (bottom right) for jumping between pages and city game modes without a wallet.
+Copy `frontend/.env.example` → `frontend/.env` and `backend/.env.example` → `backend/.env`. **Play free** creates a username account; linking a Solana wallet (Phantom, Solflare, Backpack) is done later from Settings or the account menu. Set `SESSION_SECRET` in `backend/.env` so restarts do not sign everyone out, and run `supabase/migrations/017_solana_accounts.sql` before deploying. Set `VITE_DEV_TOOLS=true` in `frontend/.env` (and `ALLOW_DEMO_PLAYERS=true` in `backend/.env`, never in production) to show a floating launcher for jumping between pages and city game modes without an account.
 
-The game runs without Supabase, Redis, Alchemy, or R2.
+The game runs without Supabase, Redis, a Solana RPC, or R2. Without Supabase, accounts are kept in memory and lost on restart.
 
 ### Controls
 

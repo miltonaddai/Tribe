@@ -1,4 +1,5 @@
 import * as pc from "playcanvas";
+import { disposeBricks } from "./bricks";
 
 type AppExtras = pc.AppBase & {
   _onResize?: () => void;
@@ -79,8 +80,14 @@ export function destroyPcApp(app: pc.AppBase) {
   // Bound to the destroyed device; a second app would upload nothing.
   poolTex?.destroy();
   poolTex = null;
+  disposeBricks();
   currentApp = null;
   app.destroy();
+}
+
+/** The live game's graphics device, for code that builds its own meshes. */
+export function graphicsDevice(): pc.GraphicsDevice | null {
+  return currentApp?.graphicsDevice ?? null;
 }
 
 export function hexColor(hex: string): pc.Color {
@@ -172,8 +179,8 @@ export function lightPool(parent: pc.Entity, name: string, pos: [number, number,
   const e = new pc.Entity(name);
   const m = new pc.StandardMaterial();
   const tint = hexColor(hex);
-  // 70% toward white: enough colour to tell a gold Valhalla lamp from a blue
-  // Gas one, not enough to look like paint.
+  // 70% toward white: enough colour to tell a gold Uptown lamp from a blue
+  // Bagtown one, not enough to look like paint.
   m.emissive = new pc.Color(tint.r * 0.3 + 0.7, tint.g * 0.3 + 0.7, tint.b * 0.3 + 0.7);
   m.emissiveIntensity = 0;
   m.diffuse = new pc.Color(0, 0, 0);

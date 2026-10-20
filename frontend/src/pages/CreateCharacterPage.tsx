@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  checkName,
-  nameProblemText,
   ACCESSORIES,
   CITIES,
   HEADWEAR,
@@ -20,25 +18,20 @@ import {
   type OutfitId,
   type PreviewMotion,
   type ShoeId,
-} from "@tribe/shared";
+} from "@moonville/shared";
 import { Dropdown } from "../components/Dropdown";
 import { Header } from "../components/Header";
 import { CharacterPreview } from "../game/preview";
-import { checkNameAvailable, saveCharacter, persistCharacter, loadCharacterForWallet } from "../lib/storage";
-import { useWallet } from "../state/WalletStore";
+import { saveCharacter, persistCharacter, loadCharacterForWallet } from "../lib/storage";
+import { useSession } from "../state/SessionStore";
 
 export function CreateCharacterPage() {
   const nav = useNavigate();
-  const { wallet } = useWallet();
+  const { session, openLink } = useSession();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const preview = useRef<CharacterPreview | null>(null);
-  const [name, setName] = useState("");
-  const [nameError, setNameError] = useState<string | null>(null);
-  const [nameStatus, setNameStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // Read inside the debounce to check the reply still matches the box.
-  const nameRef = useRef(name);
-  nameRef.current = name;
   const [bodyType, setBodyType] = useState<BodyType>("regular");
   const [skin, setSkin] = useState(SKIN_TONES[2]);
   const [outfit, setOutfit] = useState<OutfitId>("hi-vis");
@@ -50,14 +43,17 @@ export function CreateCharacterPage() {
   const [motion, setMotion] = useState<PreviewMotion>("idle");
 
   const appearance = { bodyType, skinTone: skin, outfit, pantsColor, shoe, shoeColor, headwear, accessories };
-  const city = wallet?.city ?? "trench";
-  const balance = wallet?.balance;
-  const symbol = wallet?.symbol ?? "ETH";
+  const city = session?.city ?? "trenches";
 
+  // No account, no character: send them to sign up first. A character that
+  // already exists goes straight to the game.
   useEffect(() => {
-    if (!wallet) return;
-    if (loadCharacterForWallet(wallet.address, wallet.chain)) nav("/play", { replace: true });
-  }, [wallet, nav]);
+    if (!session) {
+      nav("/login", { replace: true });
+      return;
+    }
+    if (loadCharacterForWallet(session.playerId, session.chain)) nav("/play", { replace: true });
+  }, [session, nav]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -82,45 +78,13 @@ export function CreateCharacterPage() {
     setAccessories((prev) => (prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]));
   }
 
-  // Checked as it is typed so a collision surfaces before the form is submitted.
-  useEffect(() => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setNameError(null);
-      setNameStatus("idle");
-      return;
-    }
-    const problem = checkName(trimmed);
-    if (problem) {
-      setNameError(nameProblemText(problem));
-      setNameStatus("error");
-      return;
-    }
-    setNameError(null);
-    if (!wallet) {
-      setNameStatus("idle");
-      return;
-    }
-    // Shape is fine; the server has the last word on whether it is free.
-    setNameStatus("checking");
-    // Debounced: one request per pause, not one per keystroke.
-    const timer = window.setTimeout(() => {
-      void checkNameAvailable(trimmed, wallet.address, wallet.chain).then((r) => {
-        // Ignore a late reply for a name that is no longer in the box.
-        if (trimmed !== nameRef.current.trim()) return;
-        setNameError(r.reason);
-        setNameStatus(r.available ? "ok" : "error");
-      });
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [name, wallet]);
-
   async function create() {
-    if (!wallet) return;
+    if (!session) return;
     const record: CharacterRecord = {
       id: crypto.randomUUID(),
-      wallet: wallet.address,
-      displayName: name.trim().slice(0, 16) || "trenchrat",
+      wallet: session.playerId,
+      // The username is the nametag; the server enforces this too.
+      displayName: session.username,
       bodyType,
       skinTone: skin,
       outfit,
@@ -133,22 +97,22 @@ export function CreateCharacterPage() {
       accessTier: CITIES[city].tier,
       brokemeter: 100,
       // Balance comes from the wallet, not from character creation.
-      tribute: 0,
+      moon: 0,
       inventory: seedInventory(accessories),
       equippedGun: null,
       equippedPet: null,
       createdAt: new Date().toISOString(),
     };
     setSaving(true);
-    const failure = await persistCharacter(record, wallet.chain);
+    const failure = session.demo ? null : await persistCharacter(record, session.chain);
     setSaving(false);
     if (failure) {
-      // Names are unique, so this can legitimately refuse. Saving locally first
-      // would leave the browser holding a name the server rejected.
-      setNameError(failure);
+      // Saving locally first would leave the browser holding a character the
+      // server never accepted.
+      setError(failure);
       return;
     }
-    saveCharacter(record, wallet.chain);
+    saveCharacter(record, session.chain);
     nav("/play");
   }
 
@@ -168,40 +132,14 @@ export function CreateCharacterPage() {
           }}
         >
           <h1>Create your character</h1>
-          <p className="lede">Your look is yours. Your city isn&apos;t — that&apos;s set by your wallet balance.</p>
+          <p className="lede">Your look is yours to change. Everyone starts in the Trenches - buy a home there to open Bagtown.</p>
 
           <div className="field">
-            <label>DISPLAY NAME</label>
-            <div className="input-wrap">
-              <input
-                className="input"
-                maxLength={16}
-                placeholder="e.g. trenchrat"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <span className="input-status">
-                {nameStatus === "checking" && <span className="name-checking" aria-hidden />}
-                {nameStatus === "ok" && (
-                  // Keyed on the name so the draw-on replays for each new name
-                  // that clears, rather than only the first.
-                  <svg
-                    key={name.trim()}
-                    className="name-ok"
-                    viewBox="0 0 24 24"
-                    width="17"
-                    height="17"
-                    role="img"
-                    aria-label="Name available"
-                  >
-                    <circle className="name-ok-ring" cx="12" cy="12" r="10" />
-                    <path className="name-ok-tick" d="M7 12.4l3.3 3.3L17.2 8.8" />
-                  </svg>
-                )}
-                <span className="counter">{name.length} / 16</span>
-              </span>
+            <label>NAMETAG</label>
+            <div className="nametag-preview">
+              <span>{session?.username ?? "…"}</span>
+              <small>Your username. Everyone in the city sees it.</small>
             </div>
-            {nameError && <p className="field-error">{nameError}</p>}
           </div>
 
           <div className="field">
@@ -319,25 +257,34 @@ export function CreateCharacterPage() {
             </div>
           </div>
 
-          <div className="city-lock" style={{ borderColor: wallet ? CITIES[city].accent : "#555" }}>
-            <strong style={{ color: wallet ? CITIES[city].accent : "#888" }}>
-              {wallet ? CITIES[city].name : "No wallet"}
-            </strong>
+          <div className="city-lock" style={{ borderColor: CITIES[city].accent }}>
+            <strong style={{ color: CITIES[city].accent }}>{CITIES[city].name}</strong>
             <span>
-              {wallet && balance != null ? `LOCKED — ${balance.toFixed(4)} ${symbol}` : "Connect wallet"}
+              {session?.solanaAddress
+                ? `${(session.balance ?? 0).toLocaleString()} $MOON held`
+                : "No wallet linked"}
             </span>
           </div>
           <p className="lock-note">
-            Set by your connected wallet balance. Work your way up in-game — you cannot buy your way into a
-            wealthier city.
+            Everyone starts in the Trenches. Each home you buy opens the next district up; link a Solana wallet to buy one
+            {session && !session.demo && !session.solanaAddress && (
+              <>
+                {" "}-{" "}
+                <button type="button" className="link-btn" onClick={() => void openLink()}>
+                  link one now
+                </button>
+              </>
+            )}
+            . It is optional and you can do it any time.
           </p>
+          {error && <p className="field-error">{error}</p>}
           <button
             className="btn btn-accent"
             type="submit"
-            disabled={!wallet || saving || Boolean(nameError)}
+            disabled={!session || saving}
             style={{ width: "100%", padding: "14px" }}
           >
-            Create Character
+            {saving ? "Saving…" : "Enter the city"}
           </button>
         </form>
       </div>

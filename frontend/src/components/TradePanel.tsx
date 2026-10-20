@@ -1,4 +1,4 @@
-import type { InventoryStack } from "@tribe/shared";
+import type { InventoryStack } from "@moonville/shared";
 import type { TradeView } from "../game/engine";
 import { itemName } from "./InventoryPanel";
 

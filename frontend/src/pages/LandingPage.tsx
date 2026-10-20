@@ -7,7 +7,6 @@ import { BuyTokenFab } from "../components/BuyTokenFab";
 import { useSession } from "../state/SessionStore";
 import { CHAIN_NAME } from "../lib/chain";
 import { CA_IS_PLACEHOLDER, DISPLAY_CA } from "../lib/token";
-import { apiUrl } from "../lib/api";
 
 const CITY_SHOTS: Record<string, string> = {
   trenches: "trenches.png",
@@ -218,12 +217,6 @@ export function LandingPage() {
               <dt>Districts</dt>
               <dd>4</dd>
             </div>
-            <div>
-              <dt>Players live</dt>
-              <dd>
-                <LiveCount />
-              </dd>
-            </div>
             <div className="hero-stat-ca">
               <dt>CA</dt>
               <dd>
@@ -426,57 +419,6 @@ function CopyCA() {
           </svg>
         )}
       </button>
-    </span>
-  );
-}
-
-/** How often the landing page re-reads the live count. */
-const LIVE_POLL_MS = 30_000;
-const MIN_DISPLAYED_LIVE_PLAYERS = 20;
-const LIVE_PLAYER_FLOOR = 30;
-
-const randomDisplayedLivePlayers = () =>
-  Math.floor(Math.random() * (LIVE_PLAYER_FLOOR - MIN_DISPLAYED_LIVE_PLAYERS + 1)) + MIN_DISPLAYED_LIVE_PLAYERS;
-
-/**
- * Players in the world right now, from the game server, with a pulsing dot.
- *
- * Counts below 30 are presented as a random number from 20–30. When the count
- * cannot be read, the stat says so with a dash and a still, grey dot.
- */
-function LiveCount() {
-  const [players, setPlayers] = useState<number | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    const read = async () => {
-      try {
-        const res = await fetch(apiUrl("/api/live"));
-        if (!res.ok) throw new Error(String(res.status));
-        const body = (await res.json()) as { players?: unknown };
-        if (typeof body.players !== "number") throw new Error("bad body");
-        if (!alive) return;
-        setPlayers(body.players < LIVE_PLAYER_FLOOR ? randomDisplayedLivePlayers() : body.players);
-        setFailed(false);
-      } catch {
-        if (alive) setFailed(true);
-      }
-    };
-    void read();
-    const timer = window.setInterval(() => void read(), LIVE_POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const known = players !== null && !failed;
-  return (
-    <span className="live-count" aria-live="polite">
-      <span className={known ? "live-dot" : "live-dot off"} aria-hidden />
-      {known ? players.toLocaleString() : "–"}
-      {!known && <span className="sr-only">Live player count unavailable</span>}
     </span>
   );
 }

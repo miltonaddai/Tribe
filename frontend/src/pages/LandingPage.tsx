@@ -101,7 +101,7 @@ const FAQ = [
   },
   {
     q: "Can the game move my tokens?",
-    a: "No. Every purchase is a transfer you approve in your own wallet. The game server holds no keys and only reads the chain to confirm a payment landed.",
+    a: "No. Every purchase is a burn you approve in your own wallet - the $MOON is destroyed, not sent to anyone. The game server holds no keys and only reads the chain to confirm the burn landed.",
   },
 ];
 
@@ -322,7 +322,7 @@ export function LandingPage() {
               district up.
             </p>
             <ul className="checks">
-              <li>Every purchase is a transfer you approve in your own wallet</li>
+              <li>Every purchase burns $MOON - nothing goes to a team wallet</li>
               <li>The game holds no keys and no balance on your behalf</li>
               <li>Works with Phantom, Solflare and Backpack</li>
             </ul>

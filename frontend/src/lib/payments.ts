@@ -1,11 +1,12 @@
 /**
  * Paying for things on Solana.
  *
- * The player signs every purchase in their own linked wallet: an SPL transfer
- * of $MOON to the game's payment wallet. The server only reads the chain to
- * confirm it landed. Nothing here asks for a delegate and the server holds no
- * key, so nothing can move a player's tokens without them approving that exact
- * transfer.
+ * The player signs every purchase in their own linked wallet: an SPL burn of
+ * $MOON from their own token account. The tokens are destroyed rather than
+ * sent anywhere, so there is no store wallet. The server only reads the chain
+ * to confirm the burn landed. Nothing here asks for a delegate and the server
+ * holds no key, so nothing can touch a player's tokens without them approving
+ * that exact burn.
  */
 
 import { apiUrl } from "./api";
@@ -15,7 +16,6 @@ import { walletFor } from "./solanaWallets";
 
 export type TokenConfig = {
   mint: string | null;
-  payTo: string | null;
   decimals: number;
   symbol: string | null;
   cluster: string;
@@ -23,7 +23,7 @@ export type TokenConfig = {
 
 let cached: TokenConfig | null = null;
 
-/** Fetched from the server so the payment address has one source of truth. */
+/** Fetched from the server so the mint being burned has one source of truth. */
 export async function tokenConfig(): Promise<TokenConfig | null> {
   if (cached) return cached;
   try {
@@ -39,7 +39,7 @@ export async function tokenConfig(): Promise<TokenConfig | null> {
 /** True when purchases must be paid on-chain. Without it the game runs on the dev balance. */
 export async function paymentsRequired() {
   const cfg = await tokenConfig();
-  return Boolean(cfg?.mint && cfg.payTo);
+  return Boolean(cfg?.mint);
 }
 
 export type PayResult = { ok: true; txHash: string } | { ok: false; reason: string };
@@ -53,16 +53,16 @@ function baseUnits(whole: number, decimals: number): bigint {
 }
 
 /**
- * Sends `price` whole $MOON from the linked wallet to the game's payment wallet
- * and returns the transaction signature.
+ * Burns `price` whole $MOON from the linked wallet and returns the transaction
+ * signature.
  *
- * Creates the payment wallet's token account if it does not exist yet (the
- * idempotent instruction is a no-op when it does), and reads the mint's owning
- * program so Token-2022 mints work the same as classic ones.
+ * Reads the mint's owning program so Token-2022 mints work the same as classic
+ * ones. BurnChecked rather than Burn, so the wallet shows the amount with the
+ * mint's decimals and the chain rejects it if they ever disagree.
  */
 export async function payForPurchase(price: number): Promise<PayResult> {
   const cfg = await tokenConfig();
-  if (!cfg?.mint || !cfg.payTo) return { ok: false, reason: "Payments are not configured." };
+  if (!cfg?.mint) return { ok: false, reason: "Payments are not configured." };
   const from = loadSession()?.solanaAddress;
   if (!from) return { ok: false, reason: "Link a Solana wallet in Settings to buy anything." };
   const provider = await walletFor(from);
@@ -80,21 +80,17 @@ export async function payForPurchase(price: number): Promise<PayResult> {
     const connection = new web3.Connection(SOLANA_RPC, "confirmed");
     const mint = new web3.PublicKey(cfg.mint);
     const owner = new web3.PublicKey(from);
-    const payTo = new web3.PublicKey(cfg.payTo);
 
     const mintInfo = await connection.getAccountInfo(mint);
     if (!mintInfo) return { ok: false, reason: "The token mint could not be read." };
     const programId = mintInfo.owner;
 
     const source = spl.getAssociatedTokenAddressSync(mint, owner, false, programId);
-    const destination = spl.getAssociatedTokenAddressSync(mint, payTo, true, programId);
 
     const tx = new web3.Transaction().add(
-      spl.createAssociatedTokenAccountIdempotentInstruction(owner, destination, payTo, mint, programId),
-      spl.createTransferCheckedInstruction(
+      spl.createBurnCheckedInstruction(
         source,
         mint,
-        destination,
         owner,
         baseUnits(price, cfg.decimals),
         cfg.decimals,

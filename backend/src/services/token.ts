@@ -1,15 +1,17 @@
 import { isSolanaAddress, isSolanaSignature } from "./base58";
-import { solanaRpc } from "./chain";
+import { SOLANA_CLUSTER, solanaRpc } from "./chain";
 
 /**
  * Moon is the $MOON token itself: an SPL token on Solana.
  *
- * Players pay for things by signing a token transfer in their own wallet, and
- * the server only reads the chain to confirm it landed. The server holds no key.
+ * Players pay for things by burning $MOON from their own wallet - the tokens
+ * are destroyed, not sent to anyone - and the server only reads the chain to
+ * confirm the burn landed. The server holds no key and there is no store wallet.
  *
- * The mint is configuration, so any SPL token can stand in until $MOON ships on
- * Solana. Blank means holdings read as zero, everyone starts in Trenches, and
- * purchases fall back to the off-chain dev balance.
+ * On mainnet the mint defaults to the official $MOON address. MOON_TOKEN_MINT
+ * overrides it, so another SPL token can stand in on devnet; with no mint at
+ * all, holdings read as zero, everyone starts in Trenches, and purchases fall
+ * back to the off-chain dev balance.
  */
 
 /**
@@ -41,17 +43,12 @@ function envSolanaAddress(name: string): string | null {
   return raw;
 }
 
-/** The SPL mint. */
-export const TOKEN_MINT = envSolanaAddress("MOON_TOKEN_MINT");
+/** The official $MOON mint on Solana mainnet. Keep in step with the frontend's lib/token.ts. */
+export const OFFICIAL_MOON_MINT = "i6Z98UoNrVmqNSdKDhPdZaMmNZVcr8dAgaRrAMgpump";
 
-/**
- * Where purchases are paid to: the owner wallet, not a token account. The
- * client derives the associated token account from it.
- *
- * An address, never a key. Nothing here can be drained by compromising the
- * game server.
- */
-export const PAYMENT_ADDRESS = envSolanaAddress("MOON_PAYMENT_ADDRESS");
+/** The SPL mint. */
+export const TOKEN_MINT =
+  envSolanaAddress("MOON_TOKEN_MINT") ?? (SOLANA_CLUSTER === "mainnet-beta" ? OFFICIAL_MOON_MINT : null);
 
 const TOKEN_SYMBOL = (process.env.MOON_TOKEN_SYMBOL ?? "").trim() || "MOON";
 
@@ -59,8 +56,9 @@ export function tokenConfigured() {
   return TOKEN_MINT !== null;
 }
 
+/** Purchases are burns of the mint, so a mint is all they need. */
 export function paymentsConfigured() {
-  return PAYMENT_ADDRESS !== null;
+  return TOKEN_MINT !== null;
 }
 
 /**
@@ -149,9 +147,31 @@ export type PaymentCheck = { ok: true; amount: bigint; from: string } | { ok: fa
 
 type TokenBalance = { mint: string; owner?: string; uiTokenAmount: { amount: string } };
 
+/** A jsonParsed instruction. Only SPL Token burns are looked at. */
+type ParsedInstruction = {
+  program?: string;
+  parsed?: {
+    type?: string;
+    info?: {
+      mint?: string;
+      authority?: string;
+      multisigAuthority?: string;
+      amount?: string;
+      tokenAmount?: { amount: string };
+    };
+  };
+};
+
 type ParsedTransaction = {
-  meta: { err: unknown; preTokenBalances?: TokenBalance[]; postTokenBalances?: TokenBalance[] } | null;
-  transaction: { message: { accountKeys: { pubkey: string; signer: boolean }[] } };
+  meta: {
+    err: unknown;
+    preTokenBalances?: TokenBalance[];
+    postTokenBalances?: TokenBalance[];
+    innerInstructions?: { instructions: ParsedInstruction[] }[];
+  } | null;
+  transaction: {
+    message: { accountKeys: { pubkey: string; signer: boolean }[]; instructions: ParsedInstruction[] };
+  };
 };
 
 /** Net change in `owner`'s balance of our mint across a transaction. */
@@ -164,28 +184,47 @@ function deltaFor(tx: ParsedTransaction, owner: string): bigint {
 }
 
 /**
- * Confirms that a transaction really paid for something.
+ * Base units of our mint that `owner` burned in a transaction, from Burn and
+ * BurnChecked instructions under either token program, top level or inner.
+ */
+function burnedBy(tx: ParsedTransaction, owner: string): bigint {
+  const all = [
+    ...tx.transaction.message.instructions,
+    ...(tx.meta?.innerInstructions ?? []).flatMap((group) => group.instructions),
+  ];
+  let total = 0n;
+  for (const ix of all) {
+    if (ix.program !== "spl-token" && ix.program !== "spl-token-2022") continue;
+    const type = ix.parsed?.type;
+    if (type !== "burn" && type !== "burnChecked") continue;
+    const info = ix.parsed?.info;
+    if (!info || info.mint !== TOKEN_MINT) continue;
+    if ((info.authority ?? info.multisigAuthority) !== owner) continue;
+    total += BigInt(info.tokenAmount?.amount ?? info.amount ?? "0");
+  }
+  return total;
+}
+
+/**
+ * Confirms that a transaction really paid for something by burning $MOON.
  *
  * Every fact is read from the chain rather than trusted from the client: a
  * signature is public, so without these a player could replay someone else's
- * transfer, point at a payment to a different address, or pay a penny for a car.
+ * burn, point at a transfer to their own second wallet, or burn a penny for a car.
  *
  *  - the transaction exists, is confirmed and did not fail
  *  - the paying wallet signed it
- *  - our payment wallet's balance of OUR mint rose by at least the price the
- *    SERVER set, and the payer's fell by at least as much
- *
- * Balance deltas rather than instruction parsing, so Token and Token-2022
- * transfers, transferChecked or not, are all read the same way.
+ *  - it burned at least the price the SERVER set of OUR mint, with the payer
+ *    as the burn authority
+ *  - the payer's balance fell by at least as much, so the burn was the payer's
+ *    own tokens and not ones handed to them in the same transaction
  *
  * Replay across purchases is stopped separately, by storing the signature.
  */
 export async function verifyPayment(signature: string, from: string, minAmount: bigint): Promise<PaymentCheck> {
   if (!TOKEN_MINT) return { ok: false, reason: "No token is configured." };
-  if (!PAYMENT_ADDRESS) return { ok: false, reason: "No payment address is configured." };
   if (!isSolanaSignature(signature)) return { ok: false, reason: "That is not a transaction signature." };
   if (!isSolanaAddress(from)) return { ok: false, reason: "Bad wallet address." };
-  if (from === PAYMENT_ADDRESS) return { ok: false, reason: "That wallet cannot pay itself." };
 
   // The client reports the signature the moment the wallet returns, which can
   // be before the cluster has confirmed it. Poll briefly rather than failing.
@@ -209,10 +248,10 @@ export async function verifyPayment(signature: string, from: string, minAmount: 
   const signed = tx.transaction.message.accountKeys.some((k) => k.pubkey === from && k.signer);
   if (!signed) return { ok: false, reason: "That transaction was not signed by your linked wallet." };
 
-  const received = deltaFor(tx, PAYMENT_ADDRESS);
-  const sent = -deltaFor(tx, from);
-  if (received < minAmount || sent < minAmount) {
-    return { ok: false, reason: "That transaction did not pay the right amount to the right address." };
+  const burned = burnedBy(tx, from);
+  const spent = -deltaFor(tx, from);
+  if (burned < minAmount || spent < minAmount) {
+    return { ok: false, reason: "That transaction did not burn the right amount of $MOON." };
   }
-  return { ok: true, amount: received, from };
+  return { ok: true, amount: burned, from };
 }

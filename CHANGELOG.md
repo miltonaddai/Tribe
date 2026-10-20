@@ -6,6 +6,8 @@ All notable changes to Moonville (formerly Tribe) are listed here.
 
 ### Changed
 
+- **$MOON is live at `i6Z98UoNrVmqNSdKDhPdZaMmNZVcr8dAgaRrAMgpump`.** On mainnet the site and the server use it by default; `VITE_MOON_MINT` / `MOON_TOKEN_MINT` now only override it (for a devnet stand-in).
+- **Purchases burn $MOON.** Buying anything signs an SPL burn of the price from your own wallet instead of a transfer to a store wallet, and the server checks the burn on-chain. `MOON_PAYMENT_ADDRESS` and `VITE_MOON_STORE_WALLET` are gone, along with the store wallet on the docs addresses page.
 - **Homes unlock districts, not $MOON held.** Everyone starts in the Trenches; owning a home in a district opens the next one up (Trenches home → Bagtown, Bagtown home → Midtown, Midtown home → Uptown). Lower districts stay open, and a home always lets you back into its own district. The gate tells you which district to buy in. `CITY_MIN_MOON_*` now only affects dev-launcher demo players.
 - Buying something with no wallet linked opens the link-wallet dialog, and the purchase carries on once a wallet is linked.
 - **Tribe is now Moonville**, and the token is **$MOON**. The districts are renamed to match the climb: Trench City → **Trenches**, Gas City → **Bagtown**, The Real World → **Midtown**, Valhalla → **Uptown**. The Valhalla Gold outfit is now Uptown Gold. Internal names follow too (storage keys, `MOON_*` env vars, the `@moonville/shared` package, district ids and the database), and migration 018 wipes all player game data. Accounts are kept.

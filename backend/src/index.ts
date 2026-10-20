@@ -41,7 +41,6 @@ import {
   tokenMeta,
   tokenConfigured,
   paymentsConfigured,
-  PAYMENT_ADDRESS,
 } from "./services/token";
 import { MOON_DEV_GRANT } from "./services/liveEnv";
 import { SOLANA_CLUSTER, SOLANA_EXPLORER } from "./services/chain";
@@ -98,15 +97,13 @@ app.get("/health", (_req, res) => {
 });
 
 /**
- * What the client needs to pay for something: which mint, which wallet to pay,
- * and at what scale. Served rather than duplicated into VITE_ vars so there is
- * one source of truth - drift here means players paying an address nothing is
- * watching.
+ * What the client needs to pay for something: which mint to burn, and at what
+ * scale. Served rather than duplicated into VITE_ vars so there is one source
+ * of truth - drift here means players burning a token nothing is watching.
  */
 app.get("/api/token", (_req, res) => {
   res.json({
     mint: TOKEN_MINT,
-    payTo: PAYMENT_ADDRESS,
     decimals: tokenDecimals(),
     symbol: tokenMeta()?.symbol ?? null,
     cluster: SOLANA_CLUSTER,

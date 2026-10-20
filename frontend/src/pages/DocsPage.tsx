@@ -13,7 +13,7 @@ import {
 import { Header } from "../components/Header";
 import { SiteFooter } from "../components/SiteFooter";
 import { CHAIN_NAME, SOLANA_EXPLORER } from "../lib/chain";
-import { DEV_WALLET, STORE_WALLET, MOON_MINT } from "../lib/token";
+import { DEV_WALLET, MOON_MINT } from "../lib/token";
 
 type Section = { id: string; label: string; blurb: string };
 
@@ -204,12 +204,6 @@ function Addresses() {
       kind: "token",
     },
     { name: "Dev wallet", what: "The team wallet.", address: DEV_WALLET, kind: "account" },
-    {
-      name: "Game store wallet",
-      what: "Where in-game purchases settle. Published so any purchase can be checked on the explorer.",
-      address: STORE_WALLET,
-      kind: "account",
-    },
   ];
 
   return (
@@ -325,7 +319,7 @@ function content(id: string) {
 
         <h2>What a linked wallet does</h2>
         <ul>
-          <li>It pays for anything you buy. Each purchase is a transfer you approve in the wallet.</li>
+          <li>It pays for anything you buy. Each purchase burns ${CURRENCY} with a transaction you approve in the wallet.</li>
           <li>You need a little SOL in it for network fees, as with any {CHAIN_NAME} transaction.</li>
         </ul>
       </>
@@ -349,8 +343,9 @@ function content(id: string) {
         <h2>One token, one economy</h2>
         <p>
           There is no separate game currency to top up. The balance on your HUD is the ${CURRENCY} in your
-          linked wallet, read from the chain. When you buy something, your wallet asks you to approve a transfer,
-          and the item is yours once that transaction confirms. Nothing is held on your behalf.
+          linked wallet, read from the chain. When you buy something, your wallet asks you to approve a burn of
+          the price, and the item is yours once that transaction confirms. Burned ${CURRENCY} is destroyed for
+          good - it goes to no one, the team included. Nothing is held on your behalf.
         </p>
         <h2>What you actually do</h2>
         <ul>
@@ -489,7 +484,7 @@ function content(id: string) {
         <h1>Buying &amp; selling</h1>
         <p className="lede">
           Everything is priced in ${CURRENCY} and paid from your linked {CHAIN_NAME} wallet. Your wallet asks you
-          to approve a transfer for the exact amount; approve it and the item arrives once the transaction
+          to approve burning the exact amount; approve it and the item arrives once the transaction
           confirms, reject it and nothing happens.
         </p>
         <Note>

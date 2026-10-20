@@ -8,16 +8,22 @@
  * than the one the site publishes.
  */
 
+/*
+ * Every setting is read by its literal name (import.meta.env.VITE_X), never as
+ * import.meta.env[key]. Vite can only inline a variable it can see named; a
+ * dynamic lookup makes it ship the whole env object instead - every VITE_ value
+ * in the deploy, used or not - into the public bundle.
+ */
 /** Base58, 32-44 characters. Anything else is treated as unset. */
-function solanaAddress(key: string): string | null {
-  const raw = String(import.meta.env[key] ?? "").trim();
+function solanaAddress(value: string | undefined): string | null {
+  const raw = String(value ?? "").trim();
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw) ? raw : null;
 }
 
-export const MOON_MINT = solanaAddress("VITE_MOON_MINT");
+export const MOON_MINT = solanaAddress(import.meta.env.VITE_MOON_MINT);
 /** Published on the docs Token page so players can check them; "coming soon" until set. */
-export const DEV_WALLET = solanaAddress("VITE_MOON_DEV_WALLET");
-export const STORE_WALLET = solanaAddress("VITE_MOON_STORE_WALLET");
+export const DEV_WALLET = solanaAddress(import.meta.env.VITE_MOON_DEV_WALLET);
+export const STORE_WALLET = solanaAddress(import.meta.env.VITE_MOON_STORE_WALLET);
 
 export const DEXSCREENER_URL = MOON_MINT ? `https://dexscreener.com/solana/${MOON_MINT}` : null;
 export const JUPITER_URL = MOON_MINT ? `https://jup.ag/swap/SOL-${MOON_MINT}` : null;

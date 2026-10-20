@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_SOLANA_RPC: string;
   readonly VITE_SOLANA_EXPLORER: string;
   readonly VITE_MOON_MINT: string;
+  readonly VITE_MOON_DEV_WALLET: string;
+  readonly VITE_MOON_STORE_WALLET: string;
   readonly VITE_CITY_MIN_MOON_TRENCHES: string;
   readonly VITE_CITY_MIN_MOON_BAGTOWN: string;
   readonly VITE_CITY_MIN_MOON_MIDTOWN: string;

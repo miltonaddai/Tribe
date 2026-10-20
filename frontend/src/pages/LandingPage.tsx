@@ -186,7 +186,7 @@ export function LandingPage() {
 
       <section className="hero">
         <video className="hero-video" autoPlay muted loop playsInline poster="/images/game-wallpaper.jpg" aria-hidden>
-          <source src="/moonville-trailer.mp4" type="video/mp4" />
+          <source src="/trailer.mp4" type="video/mp4" />
         </video>
         <div className="hero-shade" aria-hidden />
         <div className="hero-inner">
@@ -219,9 +219,8 @@ export function LandingPage() {
             </div>
             <div className="hero-stat-ca">
               <dt>CA</dt>
-              <dd>
-                <CopyCA />
-              </dd>
+              {/* Until the token is live there is nothing worth copying. */}
+              <dd>{CA_IS_PLACEHOLDER ? "Coming soon" : <CopyCA />}</dd>
             </div>
           </dl>
         </div>
@@ -400,7 +399,7 @@ function CopyCA() {
 
   return (
     <span className="hero-ca">
-      <code title={CA_IS_PLACEHOLDER ? "Placeholder - the real address is coming soon" : undefined}>{DISPLAY_CA}</code>
+      <code>{DISPLAY_CA}</code>
       <button
         type="button"
         className={copied ? "hero-ca-copy copied" : "hero-ca-copy"}

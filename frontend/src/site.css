@@ -2404,68 +2404,6 @@ kbd {
   background: rgba(20, 241, 149, 0.1);
 }
 
-/* ---- Live player count ---- */
-
-.live-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.live-dot {
-  position: relative;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px rgba(20, 241, 149, 0.8);
-  animation: live-blink 1.6s ease-in-out infinite;
-}
-
-/* A ring that ripples out from the dot, like a broadcast light. */
-.live-dot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: live-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-.live-dot.off {
-  background: var(--muted);
-  box-shadow: none;
-  animation: none;
-}
-
-.live-dot.off::after {
-  display: none;
-}
-
-@keyframes live-blink {
-  50% {
-    opacity: 0.45;
-  }
-}
-
-@keyframes live-ping {
-  from {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  to {
-    transform: scale(2.8);
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .live-dot,
-  .live-dot::after {
-    animation: none;
-  }
-}
-
 .sr-only {
   position: absolute;
   width: 1px;

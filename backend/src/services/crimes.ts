@@ -18,7 +18,7 @@ import {
   type CrimeReport,
   type OffenceId,
   type WalletChainId,
-} from "@tribe/shared";
+} from "@moonville/shared";
 import { getSupabase } from "./supabase";
 
 /** Reports are short-lived and few; a plain array is ample without a database. */

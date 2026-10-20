@@ -5,7 +5,7 @@ import {
   outfitPrice,
   ownsOutfit,
   type InventoryStack,
-} from "@tribe/shared";
+} from "@moonville/shared";
 
 /**
  * The fashion house floor: every outfit in the game, with the free ones wearable
@@ -18,7 +18,7 @@ import {
 export function Wardrobe({
   inventory,
   current,
-  tribute,
+  moon,
   error,
   onWear,
   onBuy,
@@ -26,7 +26,7 @@ export function Wardrobe({
 }: {
   inventory: InventoryStack[];
   current: string;
-  tribute: number;
+  moon: number;
   /** Why the last purchase did not happen, if it did not. */
   error: string | null;
   onWear: (id: string) => void;
@@ -40,7 +40,7 @@ export function Wardrobe({
     const price = outfitPrice(id);
     const owned = ownsOutfit(inventory, id);
     const worn = current === id;
-    const canAfford = tribute >= price;
+    const canAfford = moon >= price;
     return (
       <li key={id} className={worn ? "fit-row worn" : "fit-row"}>
         <span className="fit-name">
@@ -81,7 +81,7 @@ export function Wardrobe({
         <div>
           <h2>Fashion House</h2>
           <p className="wardrobe-sub">
-            {tribute.toLocaleString()} {CURRENCY} on hand
+            {moon.toLocaleString()} {CURRENCY} on hand
           </p>
         </div>
         <button className="btn btn-ghost wardrobe-x" type="button" onClick={onClose}>

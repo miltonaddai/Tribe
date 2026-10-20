@@ -9,8 +9,9 @@ import { canCopyImages, copyShot, downloadShot, openPostComposer } from "../lib/
  * X page says so. It asks to be deleted because otherwise the most likely
  * outcome is that it gets posted.
  */
-const POST_TEXT =
-  "Playing $Tribe https://jointribe.fun\n\n(Press Ctrl/Cmd + V to add your screenshot, then delete this line)";
+// The site's own address rather than a hardcoded domain, so a rename or a
+// move never ships a share link pointing at the old one.
+const POST_TEXT = `Playing Moonville $MOON ${window.location.origin}\n\n(Press Ctrl/Cmd + V to add your screenshot, then delete this line)`;
 
 /**
  * What to do with a screenshot once it exists.

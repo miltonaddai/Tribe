@@ -1,31 +1,33 @@
-@font-face {
-  font-family: "Science Gothic";
-  src: url("https://cdn.jsdelivr.net/fontsource/fonts/science-gothic:vf@5.3.0/latin-wdth-wght-normal.woff2")
-    format("woff2-variations");
-  font-weight: 100 900;
-  font-stretch: 50% 200%;
-  font-display: swap;
-}
+/* Fonts are bundled (main.tsx imports them), so nothing here reaches a CDN.
+   Inter carries every UI and body string; Unbounded is for display headings. */
 
 :root {
   --black: #000000;
-  --bg: #070707;
-  --panel: #141414;
-  --panel-2: #1a1a1a;
-  --border: #2c2c2c;
-  --white: #ffffff;
-  --muted: #9a9a9a;
-  --accent: #ffb830;
-  --accent-hover: #ffc85a;
-  --trench: #9b59d0;
-  --gas: #4a90d9;
-  --realworld: #2ecc71;
-  --valhalla: #ffd700;
-  --danger: #ff5a5a;
-  --radius: 6px;
-  --font: "Science Gothic", "Science Gothic Variable", sans-serif;
-  --scroll-thumb: #2c2c2c;
-  --scroll-thumb-hover: #484848;
+  --bg: #07080c;
+  --bg-raised: #0b0d13;
+  --panel: #10121a;
+  --panel-2: #161925;
+  --border: #232736;
+  --border-strong: #31364a;
+  --white: #f4f5f8;
+  --text: #e6e8ef;
+  --muted: #8b90a5;
+  --accent: #14f195;
+  --accent-hover: #5bf7b6;
+  --accent-ink: #03140c;
+  --accent-2: #9945ff;
+  --accent-glow: rgba(20, 241, 149, 0.28);
+  --trenches: #9b59d0;
+  --bagtown: #4a90d9;
+  --midtown: #2ecc71;
+  --uptown: #ffd700;
+  --danger: #ff5a6e;
+  --radius: 10px;
+  --radius-lg: 18px;
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Unbounded Variable", "Unbounded", var(--font);
+  --scroll-thumb: #262a3a;
+  --scroll-thumb-hover: #3a3f55;
   --scroll-thumb-active: var(--accent);
 }
 
@@ -45,7 +47,7 @@ body,
 body {
   font-family: var(--font);
   font-weight: 450;
-  font-stretch: 110%;
+  -webkit-font-smoothing: antialiased;
   background: var(--bg);
   color: var(--white);
   overflow: hidden;
@@ -110,658 +112,12 @@ button {
   height: 100%;
 }
 
-.site-header {
-  position: absolute;
-  top: 14px;
-  /* Centred and capped rather than edge to edge, lining up with the 1180px
-     content column the create and docs pages already use. */
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(1180px, calc(100% - 28px));
-  z-index: 20;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px 0 18px;
-  background: rgba(10, 10, 10, 0.78);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-  color: #fff;
-}
-
-.site-header.solid {
-  background: rgba(0, 0, 0, 0.94);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 750;
-  font-stretch: 150%;
-  letter-spacing: 0.04em;
-  font-size: 22px;
-  color: #fff;
-}
-
-.brand svg {
-  width: 28px;
-  height: 28px;
-  color: #fff;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.docs-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 650;
-  font-stretch: 130%;
-  letter-spacing: 0.06em;
-  font-size: 14px;
-  color: #fff;
-  position: relative;
-  padding-bottom: 3px;
-}
-
-.docs-link::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.docs-link:hover::after {
-  transform: scaleX(1);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 4px;
-  font-weight: 750;
-  font-stretch: 140%;
-  letter-spacing: 0.04em;
-  padding: 10px 16px;
-  transition: transform 0.12s ease, background 0.12s ease;
-}
-
-.btn:hover {
-  transform: translateY(-1px);
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.btn-accent {
-  background: var(--accent);
-  color: #111;
-}
-
-.btn-accent:hover {
-  background: var(--accent-hover);
-}
-
-.btn-fill {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  transition: transform 0.12s ease, color 0.3s ease;
-}
-
-.btn-fill::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: #000;
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  z-index: 0;
-}
-
-.btn-fill:hover {
-  transform: none;
-  color: #fff;
-}
-
-.btn-fill:hover::before {
-  transform: scaleX(1);
-}
-
-/*
- * The accent buttons - wallet, and the docs link on the mobile block - fill
- * white too. This one needs none of the machinery the hero button does: the
- * label is already #111 against the yellow, and #111 reads on white just as
- * well, so it simply stays put while the fill sweeps underneath. The icon is
- * an inline SVG drawn in currentColor, so it follows without being asked.
- *
- * The accent background stays set so the yellow is still there behind the
- * sweep as it retracts.
- */
-.btn-accent.btn-fill::before {
-  background: #fff;
-}
-
-.btn-accent.btn-fill:hover {
-  background: var(--accent);
-  color: #111;
-}
-
-.btn-fill-inner {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: inherit;
-}
-
-.btn-ghost {
-  background: rgba(10, 10, 10, 0.55);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(8px);
-}
-
-.landing-cta {
-  margin-top: 8px;
-  padding: 16px 36px;
-  font-size: 20px;
-  gap: 12px;
-  border-radius: 6px;
-}
-
-.landing-cta img {
-  width: 28px;
-  height: 28px;
-}
-
-/*
- * The hero button fills white rather than black, so the label on top of it has
- * to end up dark - and it cannot do that by changing colour at a moment in
- * time, because there is no such moment. The sweep crosses the label rather
- * than arriving at it: the white passes the label's left edge around 60ms and
- * its right edge at ~157ms, so any snap leaves part of the text the wrong
- * colour for the ~100ms in between, and a fade parks all of it at mid-grey.
- * Both were measured; both are worse than either end state.
- *
- * Difference blending sidesteps the timing entirely. White against black is
- * white; white against white is black. The label inverts pixel by pixel as the
- * fill passes under it, so it is legible at every frame of the sweep with
- * nothing to tune. It covers the icon too - a white-filled SVG that `color`
- * could never have reached, since it is an <img>.
- *
- * .btn-fill already sets isolation: isolate, which is what keeps this blending
- * against the button rather than against the trailer playing behind it.
- */
-.landing-cta.btn-fill::before {
-  background: #fff;
-}
-
-.landing-cta .btn-fill-inner {
-  mix-blend-mode: difference;
-}
-
-.btn-outline {
-  border: 1px solid #fff;
-  color: #fff;
-  background: transparent;
-}
-
-/*
- * Destructive. Outlined in --danger rather than filled with it: white on that
- * red is 3.06:1, under the floor for text this size, while the red as text
- * reads 6.47:1 on the pause panel and still 4.63:1 in the worst case, where
- * the panel is translucent over a bright frame of the game behind it.
- */
-.btn-danger {
-  color: var(--danger);
-  background: transparent;
-  border: 1px solid rgba(255, 90, 90, 0.55);
-}
-
-.btn-danger:hover {
-  background: rgba(255, 90, 90, 0.14);
-  border-color: var(--danger);
-}
-
-.landing {
-  height: 100%;
-  background: #111;
-  position: relative;
-  overflow: hidden;
-}
-
-.landing-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  z-index: 0;
-}
-
-/*
- * The single scrim over the hero video. One rule on purpose: a second
- * .landing::after does not layer with this one, it fights it - the later
- * background wins while an earlier height can still apply, which lands the
- * overlay somewhere neither rule asked for.
- *
- * Light across the top, where it only needs to hold the header and headline,
- * then ramping hard through the lower third so the call to action and the
- * footer sit on something solid rather than on whatever frame is playing.
- * Stops are eased rather than linear: a straight fade shows as a visible band
- * across the middle of the shot.
- */
-.landing::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    rgba(8, 8, 11, 0.34) 0%,
-    rgba(8, 8, 11, 0.30) 32%,
-    rgba(8, 8, 11, 0.48) 56%,
-    rgba(8, 8, 11, 0.78) 80%,
-    rgba(8, 8, 11, 0.95) 100%
-  );
-}
-
-.landing-hero {
-  position: relative;
-  z-index: 2;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 80px 24px 40px;
-}
-
 .kicker {
   font-size: 13px;
   letter-spacing: 0.28em;
   font-weight: 700;
-  font-stretch: 125%;
   margin-bottom: 14px;
   color: var(--accent);
-}
-
-.landing-hero h1 {
-  font-size: clamp(48px, 8vw, 92px);
-  font-weight: 800;
-  font-stretch: 165%;
-  letter-spacing: 0.02em;
-  line-height: 0.92;
-  color: #fff;
-}
-
-.landing-hero h1 span {
-  color: var(--accent);
-}
-
-.landing-hero p {
-  max-width: 640px;
-  margin: 22px auto 28px;
-  color: #d8d4cc;
-  font-size: 18px;
-  line-height: 1.65;
-  font-weight: 450;
-  font-stretch: 108%;
-  text-shadow: 0 1px 16px rgba(0, 0, 0, 0.7);
-}
-
-/*
- * The hero and footer on a phone.
- *
- * Three things were wrong at 360px and worse at 320. The headline sat on the
- * 48px floor of its clamp, which 8vw never reaches on a phone, so it wrapped
- * to three lines and took the screen. The paragraph ran to six lines at 18px.
- * And the footer is positioned absolutely, so the hero never reserved room for
- * it - at 320px the Start Playing button landed on top of the links.
- *
- * The padding below the hero is what fixes the collision: it is the footer's
- * own height plus room for the button to wrap, so the two cannot meet however
- * short the window is.
- */
-@media (max-width: 720px) {
-  .landing-hero {
-    padding: 72px 20px 96px;
-  }
-
-  /* Balanced, or "AN ONCHAIN CITY, BUILT BLOCK BY" leaves "BLOCK" alone on
-     the second line. */
-  .kicker {
-    margin-bottom: 10px;
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-wrap: balance;
-  }
-
-  /* A floor low enough that the phone viewport, not the clamp, decides. */
-  .landing-hero h1 {
-    font-size: clamp(34px, 11vw, 56px);
-    text-wrap: balance;
-  }
-
-  .landing-hero p {
-    margin: 16px auto 24px;
-    font-size: 15px;
-    line-height: 1.55;
-  }
-
-  .landing-cta {
-    padding: 14px 26px;
-    font-size: 17px;
-    gap: 10px;
-  }
-
-  .landing-cta img {
-    width: 22px;
-    height: 22px;
-  }
-
-  .site-footer {
-    padding: 12px 16px;
-  }
-
-  /* Centred rather than pushed to the edges: at this width the three groups
-     wrap onto their own lines, and space-between leaves each one stranded
-     against a different side. */
-  .site-footer-inner {
-    justify-content: center;
-    gap: 6px 14px;
-    font-size: 10px;
-  }
-}
-
-/*
- * The grid is centred on the same 1180px column the header uses, rather than
- * running edge to edge. Previously the sidebar started at the far left while
- * the header floated centred above it, so the two never lined up at any window
- * width - the wider the screen, the further apart they drifted.
- *
- * It also scrolls as a page now. It used to be fixed-height with each pane
- * scrolling on its own, which is why there was nowhere for a footer to sit.
- */
-/*
- * The scroller. body has overflow:hidden and a fixed height - this app never
- * scrolls the document - so a page that needs to scroll has to own a scrolling
- * element of its own. It is full width rather than the centred column so the
- * scrollbar sits at the edge of the window where it belongs, not down the
- * middle of the text.
- */
-.docs-scroll {
-  height: 100%;
-  overflow-y: auto;
-  background: #fff;
-  color: #111;
-}
-
-.docs-layout {
-  /* Fills the scroller even when the page is short, so the footer has
-     somewhere to be pushed to. box-sizing is border-box globally, so the 88px
-     of top padding comes out of this rather than adding to it. */
-  min-height: 100%;
-  width: min(1180px, calc(100% - 28px));
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-  /*
-   * Two rows: the content row takes whatever is left, the footer takes only
-   * what it needs. Without this the rows were implicit and sized to content,
-   * so on a short page like Governance the footer came to rest directly under
-   * the last paragraph with a field of white beneath it.
-   */
-  grid-template-rows: 1fr auto;
-  align-items: start;
-  /* Column gap only. A shared `gap` also spaced the footer row 36px off the
-     content, which pushed a short page just past the viewport and made it
-     scroll for no reason. The footer sets its own breathing room instead. */
-  column-gap: 36px;
-  row-gap: 0;
-  padding: 88px 0 0;
-}
-
-.docs-side {
-  position: sticky;
-  /* Clears the floating header, which overlaps the top of the page. */
-  top: 88px;
-  max-height: calc(100dvh - 108px);
-  overflow: auto;
-  padding: 22px 24px;
-  background: #000;
-  color: #fff;
-  border-radius: 8px;
-}
-
-/* A measured column rather than the full width of the screen: prose set across
-   1500px is unreadable, and the old max-width on paragraphs alone left every
-   heading and table stranded against the left edge. */
-.docs-main {
-  width: 100%;
-  max-width: 820px;
-  padding: 0 0 64px;
-}
-
-
-.docs-side h2 {
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  color: #8a8a8a;
-  margin-bottom: 18px;
-  font-stretch: 100%;
-  font-weight: 500;
-}
-
-.docs-side a,
-.docs-side button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 7px 0;
-  color: #fff;
-  font-stretch: 102%;
-  font-weight: 400;
-  font-size: 16px;
-  letter-spacing: 0;
-  background: transparent;
-}
-
-/*
- * The selected page, in the same amber as the wallet button. It used to be
- * #fff - identical to every inactive link - so weight alone carried the
- * selection, which is a weak signal in a list that is already bold-ish.
- *
- * Higher specificity than .docs-side .sub, so a selected city keeps the colour
- * instead of falling back to the muted grey of the sub-list.
- */
-.docs-side a.active,
-.docs-side button.active {
-  color: var(--accent);
-  font-weight: 700;
-  background: transparent;
-}
-
-.docs-side a:hover,
-.docs-side button:hover {
-  color: var(--accent-hover);
-}
-
-.docs-side .sub {
-  padding: 5px 0 5px 16px;
-  font-size: 14px;
-  font-weight: 400;
-  color: #9a9a9a;
-}
-
-.docs-crumb {
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  color: #8a8a8a;
-  margin-bottom: 10px;
-  font-stretch: 100%;
-  font-weight: 500;
-}
-
-.docs-main h1 {
-  font-size: 48px;
-  font-stretch: 160%;
-  font-weight: 800;
-  margin-bottom: 16px;
-}
-
-.docs-main h2 {
-  font-size: 26px;
-  font-stretch: 150%;
-  margin: 28px 0 12px;
-}
-
-.docs-main p,
-.docs-main li {
-  color: #333;
-  line-height: 1.6;
-  font-size: 16px;
-  max-width: 760px;
-}
-
-.docs-main ul {
-  padding-left: 20px;
-  margin: 10px 0 18px;
-}
-
-.docs-ol {
-  padding-left: 22px;
-  margin: 10px 0 18px;
-  max-width: 760px;
-}
-
-.docs-ol li {
-  color: #333;
-  line-height: 1.6;
-  font-size: 16px;
-  margin: 6px 0;
-}
-
-.docs-main h2,
-.docs-main h3 {
-  scroll-margin-top: 24px;
-}
-
-.docs-main h3 {
-  font-size: 20px;
-  font-stretch: 140%;
-  margin: 22px 0 8px;
-}
-
-/*
- * A callout, set as an aside rather than as a coloured slab. The accent bar
- * down one edge is a stock template device - it shouts for attention without
- * earning it, and three of them on a page start to look like a warning label
- * factory. A quiet rule above the text does the same work: it separates the
- * note from the prose without pretending to be more important than it is.
- */
-.docs-note {
-  max-width: 760px;
-  margin: 26px 0 10px;
-  padding: 16px 0 0;
-  border-top: 1px solid #111;
-  color: #333;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.docs-table {
-  width: 100%;
-  max-width: 760px;
-  border-collapse: collapse;
-  margin: 8px 0 22px;
-  font-size: 15px;
-}
-
-.docs-table th,
-.docs-table td {
-  text-align: left;
-  vertical-align: top;
-  padding: 10px 12px;
-  border-bottom: 1px solid #e4e4e4;
-}
-
-.docs-table th {
-  color: #6b6b6b;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.docs-table th {
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: #888;
-  font-weight: 600;
-}
-
-.docs-table td:first-child {
-  white-space: nowrap;
-  font-weight: 600;
-  width: 42%;
-}
-
-.city-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 20px;
-  max-width: 820px;
-}
-
-/*
- * The city's colour reads as a mark beside its name rather than as a stripe
- * across the top of a box. Same information, without the banner.
- */
-.city-card {
-  padding: 2px 0 18px;
-}
-
-.city-card h3::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--city, #999);
-}
-
-.city-card h3 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-stretch: 140%;
-  font-size: 18px;
-  margin-bottom: 8px;
 }
 
 .create-page,
@@ -812,7 +168,6 @@ button {
 
 .create-form h1 {
   font-size: 42px;
-  font-stretch: 155%;
   font-weight: 800;
 }
 
@@ -831,7 +186,6 @@ button {
   letter-spacing: 0.16em;
   color: #cfcfcf;
   margin-bottom: 8px;
-  font-stretch: 130%;
 }
 
 .field-row {
@@ -868,7 +222,6 @@ button {
   padding: 12px;
   border-radius: 4px;
   text-align: left;
-  font-stretch: 130%;
   font-weight: 700;
 }
 
@@ -953,7 +306,6 @@ button {
   text-align: left;
   padding: 10px 12px;
   border-radius: 3px;
-  font-stretch: 130%;
   font-weight: 700;
   font-size: 14px;
   color: #eee;
@@ -1071,7 +423,6 @@ button {
   padding: 10px;
   background: #171717;
   border: 1px solid #2a2a2a;
-  font-stretch: 130%;
   font-weight: 700;
 }
 
@@ -1095,7 +446,6 @@ button {
   padding: 8px 12px;
   background: #171717;
   border: 1px solid #2a2a2a;
-  font-stretch: 130%;
   font-weight: 700;
   font-size: 13px;
 }
@@ -1124,7 +474,7 @@ button {
 }
 
 .city-lock {
-  border: 1px solid var(--trench);
+  border: 1px solid var(--trenches);
   padding: 12px 14px;
   display: flex;
   justify-content: space-between;
@@ -1133,8 +483,7 @@ button {
 }
 
 .city-lock strong {
-  color: var(--trench);
-  font-stretch: 140%;
+  color: var(--trenches);
 }
 
 .lock-note {
@@ -1178,7 +527,6 @@ button {
   /* Scales with the viewport, and tops out well short of the old 42px - at
      150% scaling that read like a billboard. */
   font-size: clamp(22px, 4vw, 30px);
-  font-stretch: 155%;
   line-height: 1.05;
 }
 
@@ -1206,7 +554,6 @@ button {
   letter-spacing: 0.16em;
   color: #bdbdbd;
   margin-bottom: 14px;
-  font-stretch: 140%;
 }
 
 .setting-row {
@@ -1360,7 +707,7 @@ button {
 }
 
 .hud-btn.voice.requesting {
-  color: #ffb830;
+  color: var(--accent);
   cursor: wait;
 }
 
@@ -1685,7 +1032,7 @@ button {
   font-family: inherit;
   font-size: 10px;
   letter-spacing: 0.04em;
-  color: #ffb830;
+  color: var(--accent);
   text-align: center;
 }
 
@@ -1739,11 +1086,10 @@ button {
   margin-top: 8px;
   padding: 7px 8px;
   background: #111;
-  color: #ffb830;
-  border: 1px solid rgba(255, 184, 48, 0.45);
+  color: var(--accent);
+  border: 1px solid rgba(20, 241, 149, 0.45);
   font-size: 11px;
   letter-spacing: 0.08em;
-  font-stretch: 140%;
   cursor: pointer;
 }
 
@@ -1781,7 +1127,6 @@ button {
 
 .world-map-head h2 {
   font-size: 28px;
-  font-stretch: 150%;
   margin: 0;
 }
 
@@ -1810,7 +1155,6 @@ button {
 .wm-city {
   font-size: 15px;
   font-weight: 800;
-  font-stretch: 150%;
   letter-spacing: 0.1em;
   opacity: 0.9;
 }
@@ -1928,7 +1272,7 @@ button {
   transition: width 0.16s linear, background 0.16s linear;
 }
 
-.tribute-chip {
+.moon-chip {
   height: 44px;
   display: flex;
   align-items: center;
@@ -1962,7 +1306,6 @@ button {
 }
 
 .inv-head h2 {
-  font-stretch: 140%;
   margin: 0;
 }
 
@@ -2144,18 +1487,17 @@ button {
 
 .nametag-name {
   background: rgba(0, 0, 0, 0.78);
-  color: #ffb830;
+  color: var(--accent);
   padding: 3px 9px;
   font-size: 12px;
-  font-stretch: 140%;
   letter-spacing: 0.05em;
   border-radius: 4px;
   white-space: nowrap;
-  border: 1px solid rgba(255, 184, 48, 0.35);
+  border: 1px solid rgba(20, 241, 149, 0.35);
 }
 
 .nametag.in-range .nametag-name {
-  box-shadow: 0 0 0 1px #ffb830;
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .building-tag {
@@ -2165,7 +1507,6 @@ button {
 .building-tag .nametag-name {
   color: #fff8e8;
   font-size: 13px;
-  font-stretch: 150%;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   border-color: rgba(255, 248, 232, 0.28);
@@ -2182,7 +1523,6 @@ button {
 
 .home-tag .nametag-name {
   font-size: 13px;
-  font-stretch: 150%;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   background: rgba(0, 0, 0, 0.82);
@@ -2200,7 +1540,7 @@ button {
 
 .home-tag-sale .nametag-name {
   color: var(--accent);
-  border-color: rgba(255, 184, 48, 0.55);
+  border-color: rgba(20, 241, 149, 0.55);
 }
 
 /* A live auction reads as urgent; tabular figures stop the countdown jittering. */
@@ -2307,7 +1647,6 @@ button {
 
 .offer-amount {
   font-size: 34px;
-  font-stretch: 150%;
   font-weight: 800;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
@@ -2382,7 +1721,7 @@ button {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 6px;
-  border: 1px solid rgba(255, 184, 48, 0.5);
+  border: 1px solid rgba(20, 241, 149, 0.5);
   color: var(--accent);
   font-size: 10px;
   letter-spacing: 0.12em;
@@ -2589,7 +1928,7 @@ button {
 }
 
 .inbox-item.unread {
-  background: rgba(255, 184, 48, 0.07);
+  background: rgba(20, 241, 149, 0.07);
 }
 
 .inbox-kind {
@@ -2604,13 +1943,13 @@ button {
 
 .inbox-kind-sold,
 .inbox-kind-bought {
-  color: var(--realworld);
+  color: var(--midtown);
   border-color: rgba(46, 204, 113, 0.4);
 }
 
 .inbox-kind-offer {
   color: var(--accent);
-  border-color: rgba(255, 184, 48, 0.5);
+  border-color: rgba(20, 241, 149, 0.5);
 }
 
 .inbox-kind-outbid,
@@ -2658,8 +1997,7 @@ button {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
-  color: #ffb830;
-  font-stretch: 140%;
+  color: var(--accent);
 }
 
 .whisper-close {
@@ -2896,7 +2234,6 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-stretch: 150%;
   font-weight: 800;
   letter-spacing: 0.08em;
   font-size: 12px;
@@ -2908,7 +2245,6 @@ button {
   font-size: 11px;
   letter-spacing: 0.16em;
   color: #888;
-  font-stretch: 130%;
 }
 
 .dev-link {
@@ -2923,7 +2259,6 @@ button {
   border: 1px solid #2a2a2a;
   border-left: 3px solid transparent;
   border-radius: 4px;
-  font-stretch: 120%;
 }
 
 .dev-link:hover {
@@ -2936,161 +2271,13 @@ button {
   font-size: 11px;
 }
 
-.wallet-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  background: rgba(0, 0, 0, 0.62);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.wallet-modal {
-  width: min(420px, 100%);
-  background: #111;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 22px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
-}
-
-.wallet-modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.wallet-kicker {
-  color: var(--accent);
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.wallet-modal h2 {
-  font-size: 26px;
-  font-stretch: 150%;
-  font-weight: 800;
-}
-
-.wallet-lede {
-  color: #bdbdbd;
-  font-size: 14px;
-  line-height: 1.5;
-  margin: 12px 0 18px;
-}
-
-.wallet-options {
-  display: grid;
-  gap: 8px;
-}
-
-.wallet-back {
-  background: none;
-  border: none;
-  color: #9a9a9a;
-  font-size: 13px;
-  padding: 0;
-  margin: 10px 0 0;
-}
-
-.wallet-back:hover:not(:disabled) {
-  color: var(--accent);
-}
-
-.wallet-empty {
-  color: #9a9a9a;
-  font-size: 13px;
-  line-height: 1.5;
-  margin: 0;
-  padding: 12px 2px;
-}
-
-.wallet-option {
-  text-align: left;
-  padding: 14px;
-  background: #171717;
-  border: 1px solid #2a2a2a;
-  border-radius: 4px;
-  display: grid;
-  gap: 4px;
-}
-
-.wallet-option-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.wallet-option-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-/* Rendered as a link rather than a button, so it needs the text reset. */
-.wallet-option-missing {
-  opacity: 0.5;
-  color: inherit;
-  text-decoration: none;
-}
-
-.wallet-option-missing:hover {
-  opacity: 0.85;
-}
-
-.wallet-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  flex-shrink: 0;
-  object-fit: cover;
-  background: #222;
-}
-
-.wallet-icon-fallback {
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  color: var(--accent);
-}
-
-.wallet-option:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.wallet-option strong {
-  font-stretch: 140%;
-  font-weight: 800;
-}
-
-.wallet-option span {
-  color: #9a9a9a;
-  font-size: 13px;
-}
-
-.wallet-error {
-  color: var(--danger);
-  font-size: 13px;
-  margin-top: 12px;
-}
-
 @media (max-width: 900px) {
   .create-grid,
-  .settings-grid,
-  .city-grid,
-  .docs-layout {
+  .settings-grid {
     grid-template-columns: 1fr;
   }
   .preview-wrap {
     height: min(60vh, 420px);
-  }
-  .docs-table td:first-child {
-    white-space: normal;
   }
   .world-map-body {
     grid-template-columns: 1fr;
@@ -3123,10 +2310,6 @@ button {
     width: 100%;
     padding: 12px;
     max-height: calc(100dvh - 20px);
-  }
-
-  .wallet-modal {
-    padding: 16px;
   }
 
   .inv-panel {
@@ -3261,7 +2444,6 @@ button {
 }
 
 .trade-window-head h3 {
-  font-stretch: 140%;
 }
 
 .trade-close {
@@ -3402,7 +2584,6 @@ button {
 }
 
 .crime-head h2 {
-  font-stretch: 140%;
 }
 
 .crime-sub {
@@ -3524,7 +2705,6 @@ button {
 
 .townhall-notice h3 {
   margin-bottom: 6px;
-  font-stretch: 140%;
   font-size: 16px;
   color: #F3ECDD;
 }
@@ -3577,7 +2757,6 @@ button {
 }
 
 .wardrobe-head h2 {
-  font-stretch: 140%;
 }
 
 .wardrobe-sub {
@@ -3708,7 +2887,6 @@ button {
   border-radius: 3px;
 }
 
-
 /*
  * First-person toggle. Sits left of the minimap (240px wide at right: 18px),
  * clear of both it and the centred camera hint.
@@ -3761,7 +2939,6 @@ button {
   border: 1px solid #3a3a3a;
   border-radius: 3px;
 }
-
 
 /*
  * Bottom-right action row. Anchored left of the minimap (240px wide at
@@ -3824,7 +3001,6 @@ button {
 }
 
 .shot-head h3 {
-  font-stretch: 140%;
 }
 
 .shot-x {
@@ -3882,7 +3058,6 @@ button {
 }
 
 .boot-mark {
-  font-stretch: 140%;
   font-size: 30px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -3925,553 +3100,10 @@ button {
   }
 }
 
-/* ---- Landing footer ------------------------------------------------------
-   Sits over the hero video, so it is anchored to the bottom rather than in
-   flow, and kept deliberately quiet: a strip of small type that is there when
-   looked for and ignorable when not. */
-.site-footer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 3;
-  padding: 14px 24px;
-  /* No background of its own: the hero's gradient overlay already darkens this
-     strip, and stacking a second one only crushes the bottom of the frame. */
-}
-
-.site-footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 18px;
-  max-width: 1240px;
-  margin: 0 auto;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.footer-mark {
-  font-stretch: 140%;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.footer-ca {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.footer-ca-label {
-  font-weight: 700;
-  color: rgba(232, 179, 74, 0.9);
-}
-
-/* A button, not text: the address is there to be copied. */
-.footer-ca-value {
-  padding: 0;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.72);
-  background: none;
-  border: none;
-  border-bottom: 1px dotted rgba(255, 255, 255, 0.3);
-  cursor: pointer;
-}
-
-.footer-ca-value:hover {
-  color: #fff;
-  border-bottom-color: rgba(255, 255, 255, 0.6);
-}
-
-.footer-ca-link {
-  color: rgba(255, 255, 255, 0.5);
-  text-decoration: none;
-}
-
-.footer-ca-link:hover {
-  color: #fff;
-}
-
-.footer-links {
-  display: inline-flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.footer-links a {
-  color: rgba(255, 255, 255, 0.55);
-  text-decoration: none;
-}
-
-.footer-links a:hover {
-  color: #fff;
-}
-
-.footer-x {
-  display: inline-flex;
-  align-items: center;
-}
-
-@media (max-width: 640px) {
-  .site-footer-inner {
-    justify-content: center;
-    text-align: center;
-  }
-}
-
-/* ---- Legal pages --------------------------------------------------------- */
-/*
- * Its own scroller. The document never scrolls - body is overflow:hidden so the
- * game canvas cannot be dragged around - so a page taller than the viewport is
- * simply clipped unless it scrolls itself. Both of these run well past a
- * screen, and the half below the fold was unreachable.
- *
- * Deliberately not positioned: .site-header is absolute, and giving this a
- * containing block would make the header scroll away with the text instead of
- * staying put over the viewport.
- */
-.legal-page {
-  height: 100%;
-  overflow-y: auto;
-  background: #0b0b0f;
-}
-
-.legal-main {
-  max-width: 760px;
-  margin: 0 auto;
-  /* 88px of head clearance: the header is absolute at top:14px and 56px tall,
-     so at the old 28px the breadcrumb started underneath it. */
-  padding: 88px 22px 80px;
-  color: #c9c9d1;
-  line-height: 1.65;
-}
-
-.legal-main h1 {
-  margin: 6px 0 4px;
-  font-stretch: 140%;
-  font-size: 30px;
-  color: #f2f2f5;
-}
-
-.legal-main h2 {
-  margin: 28px 0 8px;
-  font-size: 15px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #E8B34A;
-}
-
-.legal-main p {
-  margin-bottom: 12px;
-}
-
-.legal-main ul {
-  margin: 0 0 12px 18px;
-}
-
-.legal-main li {
-  margin-bottom: 8px;
-}
-
-.legal-main strong {
-  color: #eaeaef;
-}
-
-.legal-main a {
-  color: #E8B34A;
-}
-
-.legal-updated {
-  margin-bottom: 22px;
-  font-size: 12px;
-  color: #74747f;
-}
-
-.legal-foot {
-  margin-top: 34px;
-  padding-top: 16px;
-  border-top: 1px solid #22222a;
-  font-size: 13px;
-}
-
-/* ---- Buy-token floating button ------------------------------------------
-   Above the footer strip, clear of the hero's call to action. */
-.buy-fab {
-  position: fixed;
-  right: 24px;
-  bottom: 68px;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.buy-fab-btn {
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 54px;
-  padding: 0;
-  color: #FFB830;
-  background: #0a0a0a;
-  border: 1px solid rgba(255, 184, 48, 0.35);
-  border-radius: 50%;
-  cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  transition: transform 140ms ease, border-color 140ms ease;
-}
-
-.buy-fab-btn svg {
-  width: 26px;
-  height: 26px;
-}
-
-.buy-fab-btn:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 184, 48, 0.75);
-}
-
-.buy-fab.open .buy-fab-btn {
-  border-color: #FFB830;
-}
-
-.buy-fab-menu {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  min-width: 190px;
-  /* Rises into place rather than appearing, so the link between the circle and
-     the panel is visible rather than inferred. */
-  animation: buy-fab-in 150ms ease-out;
-}
-
-@keyframes buy-fab-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: none; }
-}
-
-.buy-fab-link {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 9px 13px;
-  text-decoration: none;
-  background: rgba(10, 10, 10, 0.95);
-  border: 1px solid #2c2c2c;
-  border-radius: 6px;
-}
-
-.buy-fab-link:hover {
-  border-color: rgba(255, 184, 48, 0.6);
-}
-
-.buy-fab-link-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: #f2f2f5;
-}
-
-.buy-fab-link-note {
-  font-size: 11px;
-  color: #8a8a93;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .buy-fab-menu { animation: none; }
-  .buy-fab-btn { transition: none; }
-}
-
-@media (max-width: 640px) {
-  .buy-fab {
-    right: 16px;
-    bottom: 76px;
-  }
-}
-
 /* ---- Header: narrow layout ----------------------------------------------
    The bar holds a brand, a docs link and a wallet button whose label carries an
    address. Below ~720px that will not fit on one line, so the actions collapse
    behind a menu button. */
-
-/* Hidden by default rather than shown-then-hidden: the wide layout is the one
-   most visitors get, and it should not have to undo anything. */
-.header-burger {
-  display: none;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  color: #fff;
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.header-burger:hover {
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-.wallet-label-short {
-  display: none;
-}
-
-.wallet-menu {
-  position: relative;
-}
-
-/*
- * The gap above the panel is padding on the positioned wrapper rather than a
- * margin on the panel itself. A margin would be dead space between the button
- * and the menu, and crossing dead space is a mouseleave - the menu would shut
- * on the way to the thing it is offering.
- */
-.wallet-dropdown {
-  position: absolute;
-  z-index: 30;
-  top: 100%;
-  right: 0;
-  padding-top: 6px;
-  min-width: 100%;
-}
-
-.wallet-dropdown-panel {
-  padding: 6px;
-  background: rgba(10, 10, 10, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-
-.wallet-dropdown-item {
-  display: block;
-  width: 100%;
-  padding: 9px 14px;
-  font: inherit;
-  font-weight: 650;
-  font-stretch: 130%;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  text-align: left;
-  color: #fff;
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-/*
- * Red on hover - it is the one destructive thing in the bar, and --danger is
- * the token the rest of the app already reaches for.
- *
- * Red text on a wash rather than a filled red bar: white on --danger measures
- * 3.06:1, under the 4.5:1 floor for text this size, and darkening the red
- * enough to pass would mean a second red that matches nothing else. This way
- * it reads at 6.47:1 against the panel and still uses the one red.
- */
-.wallet-dropdown-item:hover,
-.wallet-dropdown-item:focus-visible {
-  color: var(--danger);
-  background: rgba(255, 90, 90, 0.12);
-  outline: none;
-}
-
-@media (max-width: 720px) {
-  .site-header {
-    height: 52px;
-    padding: 0 10px 0 14px;
-  }
-
-  .header-burger {
-    display: grid;
-  }
-
-  /*
-   * The actions become a panel under the bar. Anchored to the header rather
-   * than the viewport so it tracks the bar's own centring and width, and stays
-   * put on pages where the header is solid rather than floating.
-   */
-  .header-actions {
-    display: none;
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    right: 0;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    padding: 12px;
-    background: rgba(10, 10, 10, 0.96);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 8px;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-  }
-
-  .header-actions.open {
-    display: flex;
-  }
-
-  /* The bar is a stacked panel here, so the menu takes its place in the column
-     rather than floating over the items under it. */
-  .wallet-dropdown {
-    position: static;
-    padding-top: 8px;
-  }
-
-  .header-actions .docs-link {
-    justify-content: center;
-    padding: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-  }
-
-  .header-actions .btn {
-    width: 100%;
-  }
-
-  /* Swap the wallet label for the short one, which fits a phone. */
-  .wallet-label-full {
-    display: none;
-  }
-
-  .wallet-label-short {
-    display: inline;
-  }
-}
-
-/* The footer spans both docs columns and is pushed to the full width of the
-   page rather than the reading column, so it reads as the page's foot rather
-   than the end of the article. */
-.docs-footer {
-  grid-column: 1 / -1;
-  position: static;
-  background: none;
-  margin-top: 28px;
-  padding: 14px 0 18px;
-  border-top: 1px solid #e4e4e4;
-}
-
-/* On white the footer's light-on-dark palette would be invisible. */
-.docs-footer .site-footer-inner {
-  max-width: none;
-  color: #6b6b6b;
-}
-
-.docs-footer .footer-mark {
-  color: #111;
-}
-
-.docs-footer .footer-links a,
-.docs-footer .footer-ca-value,
-.docs-footer .footer-ca-link {
-  color: #555;
-}
-
-.docs-footer .footer-ca-value {
-  border-bottom-color: #bbb;
-}
-
-.docs-footer .footer-links a:hover,
-.docs-footer .footer-ca-value:hover,
-.docs-footer .footer-ca-link:hover {
-  color: #111;
-}
-
-@media (max-width: 860px) {
-  .docs-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 18px;
-    padding: 84px 18px 0;
-  }
-
-  /*
-   * Stacked above the article rather than hidden. It used to be display:none
-   * below 900px, which left a phone with no way to reach any other doc page -
-   * the nav is the only route between them. Sticking is what does not work on a
-   * short screen, not the nav itself.
-   */
-  .docs-side {
-    position: static;
-    max-height: none;
-  }
-
-  /*
-   * A wrapped row of chips rather than a stack. Eight full-width bars ate most
-   * of a phone screen before any prose started; inline-block got them onto
-   * shared lines but wrapped raggedly, because each link still filled its own
-   * box. Flex on the container with the links shrunk to their text gives an
-   * even row that tapping still targets comfortably.
-   */
-  .docs-side {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px;
-  }
-
-  /* The heading names what is plainly a nav; on a phone it is just height. */
-  .docs-side h2 {
-    display: none;
-  }
-
-  .docs-side > div {
-    display: contents;
-  }
-
-  .docs-side a {
-    width: auto;
-    padding: 7px 12px;
-    font-size: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 999px;
-  }
-
-  .docs-side a.active {
-    border-color: var(--accent);
-  }
-
-  /* City sub-links live in the page body on a phone; repeating them here would
-     double the chip count for one section. */
-  .docs-side .sub {
-    display: none;
-  }
-
-  .docs-main h1 {
-    font-size: 30px;
-    line-height: 1.1;
-  }
-
-  .docs-main h2 {
-    font-size: 21px;
-  }
-
-  .docs-main p,
-  .docs-main li {
-    font-size: 15px;
-  }
-
-  /* A table narrower than its content scrolls on its own rather than pushing
-     the whole page sideways. */
-  .docs-table {
-    display: block;
-    overflow-x: auto;
-  }
-
-  .docs-main h1 {
-    font-size: 34px;
-  }
-}
 
 /* ---- Desktop-only notice -------------------------------------------------
    Shown in place of the game on a touch device or a window too narrow to fit
@@ -4496,19 +3128,18 @@ button {
   width: 58px;
   height: 58px;
   margin-bottom: 18px;
-  color: #FFB830;
-  border: 1px solid rgba(255, 184, 48, 0.35);
+  color: var(--accent);
+  border: 1px solid rgba(20, 241, 149, 0.35);
   border-radius: 50%;
 }
 
-.desktop-only-mark svg {
-  width: 30px;
-  height: 30px;
+.desktop-only-mark .moon-logo {
+  width: 34px;
+  height: 34px;
 }
 
 .desktop-only h1 {
   margin-bottom: 12px;
-  font-stretch: 150%;
   font-size: 26px;
   line-height: 1.2;
   color: #f2f2f5;
@@ -4540,90 +3171,5 @@ button {
   width: auto;
   min-width: 150px;
   text-decoration: none;
-}
-
-/* Stands in for the address before launch. Italic and muted so it reads as a
-   state rather than as a value someone might try to copy. */
-.docs-footer /* ---- Docs: official addresses -------------------------------------------- */
-.addr-list {
-  margin: 20px 0 8px;
-  max-width: 760px;
-}
-
-/* Rows on a rule, like a table without the chrome. No accent edge, no filled
-   panel - the content is three lines of text and does not need a container. */
-.addr-row {
-  padding: 14px 2px;
-  border-bottom: 1px solid #e8e8e8;
-}
-
-.addr-row:first-child {
-  border-top: 1px solid #e8e8e8;
-}
-
-.addr-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.addr-name {
-  font-weight: 700;
-  font-size: 16px;
-  color: #111;
-}
-
-/* Italic and muted: a state, not a value to be copied. */
-.addr-soon {
-  font-style: italic;
-  font-size: 13px;
-  color: #7a7a7a;
-}
-
-/*
- * The address itself. Monospaced so the characters can be compared one by one,
- * which is the only thing this page is for, and allowed to break anywhere: 42
- * characters will not sit beside the label on a phone, and an address that
- * runs off the side of the screen cannot be checked at all.
- */
-.addr-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #111;
-  word-break: break-all;
-  user-select: all;
-}
-
-.addr-what {
-  margin-top: 4px;
-  font-size: 14px;
-  color: #555;
-}
-
-/*
- * One in-game view per district, all in the same box.
- *
- * The source screenshots are hand-taken and range from 1.18 to 1.38 in ratio,
- * so `height: auto` rendered four different heights and the cards no longer
- * lined up. A fixed ratio with object-fit: cover crops each to the same frame
- * instead of letting the capture decide the layout. 4:3 sits in the middle of
- * that spread, so nothing loses much.
- */
-.city-shot {
-  display: block;
-  width: 100%;
-  /* height:auto is load-bearing, not tidiness. The <img> carries a height
-     attribute for layout stability, which acts as a presentational hint and
-     pins the element to the capture's own pixel height - and an explicit height
-     beats aspect-ratio, so without this the ratio below is simply ignored. */
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-  margin-bottom: 12px;
-  background: #ddd;
-  border: 1px solid #e4e4e4;
 }
 

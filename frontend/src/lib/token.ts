@@ -1,31 +1,36 @@
 /**
- * The published $TRIBE contract.
+ * The published $MOON mint on Solana, and where to buy it.
  *
- * Written here rather than fetched, and used by both the footer and the docs
- * Token page so the two cannot disagree. The footer used to read it from the
- * server, which was the right instinct - the backend decides what the game
- * actually gates on - but it made a published fact depend on three things
- * being right at once: a build flag, a reachable API URL, and a backend
- * already restarted onto the new token. Any one of them wrong and the site
- * says "coming soon" about a token that is live and trading.
- *
- * An address people copy in order to spend money is the wrong place for that
- * many moving parts. It is public, it does not change, and if it ever does it
- * is a code change worth reviewing rather than a setting worth flipping.
- *
- * Verified on Robinhood Chain (4663) before publishing: Tribe / TRIBE, 18
- * decimals, 1,000,000,000 supply, and the checksum is correct as written.
+ * Set at build time with VITE_MOON_MINT. Blank until the token launches on
+ * Solana, and every place that shows it - footer, docs, the buy button - says
+ * "coming soon" instead of linking anywhere. Buy links are derived from the
+ * mint rather than configured, so a link can never point at a different token
+ * than the one the site publishes.
  */
-export const TRIBE_CONTRACT = "0xA68bd63519ed181ad169843bd63f04BB6Fd4aB5a";
+
+/** Base58, 32-44 characters. Anything else is treated as unset. */
+function solanaAddress(key: string): string | null {
+  const raw = String(import.meta.env[key] ?? "").trim();
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw) ? raw : null;
+}
+
+export const MOON_MINT = solanaAddress("VITE_MOON_MINT");
+/** Published on the docs Token page so players can check them; "coming soon" until set. */
+export const DEV_WALLET = solanaAddress("VITE_MOON_DEV_WALLET");
+export const STORE_WALLET = solanaAddress("VITE_MOON_STORE_WALLET");
+
+export const DEXSCREENER_URL = MOON_MINT ? `https://dexscreener.com/solana/${MOON_MINT}` : null;
+export const JUPITER_URL = MOON_MINT ? `https://jup.ag/swap/SOL-${MOON_MINT}` : null;
 
 /**
- * Where to go to buy or check on it.
+ * Shown wherever the CA is displayed until the real mint is set.
  *
- * Built from the address above rather than written out, so a link can never
- * point at a different token than the one the site publishes, and pasted into
- * the source rather than read from env for the same reason the address is:
- * these are links people follow in order to spend money, and a missing deploy
- * setting should not be able to quietly remove them.
+ * Deliberately not a valid Solana address - "O" is not in base58 - so a visitor
+ * who copies it and pastes it into a wallet gets an error rather than sending
+ * funds to an address nobody controls.
  */
-export const DEXSCREENER_URL = `https://dexscreener.com/robinhood/${TRIBE_CONTRACT}`;
-export const PONS_URL = `https://www.ponsfamily.com/launchpad/${TRIBE_CONTRACT}`;
+export const PLACEHOLDER_CA = "MOON11111111111111111111111111111111111pump";
+
+/** The address to display: the real mint once published, the placeholder until then. */
+export const DISPLAY_CA = MOON_MINT ?? PLACEHOLDER_CA;
+export const CA_IS_PLACEHOLDER = MOON_MINT === null;

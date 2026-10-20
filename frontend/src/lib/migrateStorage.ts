@@ -1,34 +1,25 @@
 /**
- * The game was called "The Block" before it was called Tribe, and its saved data
- * was namespaced to match. Characters, settings and the wallet session all live
- * in localStorage, so renaming the keys without moving the values would silently
- * wipe every existing player.
+ * Clears what earlier versions of the game left in localStorage.
  *
- * Runs before React mounts, because the wallet and character stores read straight
- * from localStorage during their first render.
+ * The game was called The Block, then Tribe, and saved characters, settings and
+ * sessions under those names. Those players were wiped with the move to
+ * accounts, so their keys are dropped rather than carried over: a stale
+ * character keyed to an identity that no longer exists can only confuse the
+ * create and play pages.
+ *
+ * Runs before React mounts, because the session and character stores read
+ * straight from localStorage during their first render.
  */
-const PREFIXES: [string, string][] = [
-  ["the-block:", "tribe:"],
-  ["the-block.", "tribe."],
-];
+const LEGACY_PREFIXES = ["the-block:", "the-block.", "tribe:", "tribe."];
 
 export function migrateLegacyStorage() {
   try {
-    for (const [from, to] of PREFIXES) {
-      // Snapshot the keys first: we delete as we go.
-      for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith(from)) continue;
-        const value = localStorage.getItem(key);
-        const renamed = to + key.slice(from.length);
-        // Never clobber a newer value that is already under the new name.
-        if (value !== null && localStorage.getItem(renamed) === null) {
-          localStorage.setItem(renamed, value);
-        }
-        localStorage.removeItem(key);
-      }
+    // Snapshot the keys first: we delete as we go.
+    for (const key of Object.keys(localStorage)) {
+      if (LEGACY_PREFIXES.some((p) => key.startsWith(p))) localStorage.removeItem(key);
     }
   } catch {
-    // Private windows and blocked site data can throw on any access. Losing the
-    // migration only costs the player their saved character, so never throw here.
+    // Private windows and blocked site data can throw on any access. Nothing
+    // here is worth failing the page over.
   }
 }

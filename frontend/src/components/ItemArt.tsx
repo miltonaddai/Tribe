@@ -1,4 +1,4 @@
-import { CITIES, homeFloors, parseHomeId, type CityId, type ItemId } from "@tribe/shared";
+import { CITIES, homeFloors, parseHomeId, type CityId, type ItemId } from "@moonville/shared";
 
 /**
  * Flat 2D icons for the store and inventory.
@@ -172,7 +172,7 @@ export function VehicleArt({ kind, color }: { kind: string; color: string }) {
  * A home, drawn to match the building it actually is.
  *
  * Floors come from the same lot derivation the world builder uses, so a
- * four-storey Valhalla tower does not get the same icon as a one-storey Trench
+ * four-storey Uptown tower does not get the same icon as a one-storey Trenches
  * house, and the tint is the district accent.
  */
 export function HomeArt({ id, city }: { id: string; city: string }) {

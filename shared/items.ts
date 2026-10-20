@@ -95,10 +95,10 @@ export const PETS: { id: PetId; label: string }[] = [
 ];
 
 /**
- * Prices are in Tribute, which is the $TRIBE token itself.
+ * Prices are in Moon, which is the $MOON token itself.
  *
- * Calibrated against a 1B supply at a $1M market cap, so 1 Tribute = $0.001 and
- * 1,000 Tribute = $1. On that basis the whole catalog is roughly $25 and a Sport
+ * Calibrated against a 1B supply at a $1M market cap, so 1 Moon = $0.001 and
+ * 1,000 Moon = $1. On that basis the whole catalog is roughly $25 and a Sport
  * car is $35 - impulse-buy money, which is what a social game needs.
  *
  * The catch: these are fixed in TOKEN terms, so the real cost tracks the token
@@ -112,9 +112,9 @@ export const CATALOG: CatalogItem[] = [
   { id: "earbuds", kind: "accessory", name: "Earbuds", blurb: "Ignore the plaza. On purpose.", price: 1000, tier: 2, unique: true },
   { id: "visor", kind: "accessory", name: "Visor", blurb: "Night market energy. Zero UV.", price: 1500, tier: 2, unique: true },
   { id: "watch", kind: "accessory", name: "Watch", blurb: "You have places to be. Maybe.", price: 2000, tier: 3, unique: true },
-  { id: "chain", kind: "accessory", name: "Gold Chain", blurb: "The smallest Valhalla flex that still counts.", price: 3000, tier: 3, unique: true },
+  { id: "chain", kind: "accessory", name: "Gold Chain", blurb: "The smallest Uptown flex that still counts.", price: 3000, tier: 3, unique: true },
   // Retired from the store. Still valid for anyone who already bought one.
-  { id: "pipe", kind: "gun", name: "Lead Pipe", blurb: "Not licensed. Very Trench.", price: 1500, tier: 1, unique: true, listed: false },
+  { id: "pipe", kind: "gun", name: "Lead Pipe", blurb: "Not licensed. Very Trenches.", price: 1500, tier: 1, unique: true, listed: false },
   { id: "pistol", kind: "gun", name: "Sidearm", blurb: "Holds in the right hand. Hits harder.", price: 3000, tier: 1, unique: true },
   { id: "rifle", kind: "gun", name: "Street Rifle", blurb: "Long, loud, and a little extra.", price: 5000, tier: 4, unique: true },
   { id: "mutt", kind: "pet", name: "Block Mutt", blurb: "Follows you. Judges nobody.", price: 2500, tier: 1, unique: true },
@@ -122,16 +122,16 @@ export const CATALOG: CatalogItem[] = [
 
   // Outfits sold at the fashion house. Only the paid ones are catalog items:
   // Every one is tier 1, because clothes are priced rather than gated - a
-  // Trench player who saves up can wear Valhalla Gold. See isTierGated().
+  // Trenches player who saves up can wear Uptown Gold. See isTierGated().
   // the free outfits need no ownership record, because everybody has them.
   // Kept here rather than in a parallel shop so buying one goes through the
   // same on-chain payment, the same uniqueness check and the same inventory
   // that every other purchase already uses.
   { id: "puffer", kind: "outfit", name: "Puffer Jacket", blurb: "Bulk, in a good way.", price: 1500, tier: 1, unique: true },
   { id: "suit", kind: "outfit", name: "Suit & Tie", blurb: "For when the deal is large.", price: 2000, tier: 1, unique: true },
-  { id: "trench-coat", kind: "outfit", name: "Trench Coat", blurb: "Named for the district, worn everywhere.", price: 2500, tier: 1, unique: true },
+  { id: "trench-coat", kind: "outfit", name: "Trench Coat", blurb: "Built for the Trenches, worn everywhere.", price: 2500, tier: 1, unique: true },
   { id: "neon", kind: "outfit", name: "Neon Runner", blurb: "Visible from the next block.", price: 3000, tier: 1, unique: true },
-  { id: "gold", kind: "outfit", name: "Valhalla Gold", blurb: "Subtlety is not the point.", price: 5000, tier: 1, unique: true },
+  { id: "gold", kind: "outfit", name: "Uptown Gold", blurb: "Subtlety is not the point.", price: 5000, tier: 1, unique: true },
 ];
 
 const CATALOG_MAP = new Map(CATALOG.map((item) => [item.id, item]));

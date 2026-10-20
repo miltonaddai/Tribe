@@ -1,4 +1,4 @@
-import { HOME_PRICE, MIN_ASKING_PRICE, type CityId } from "@tribe/shared";
+import { HOME_PRICE, MIN_ASKING_PRICE, type CityId } from "@moonville/shared";
 
 /**
  * Homes are bought outright: one price, one payment, instant transfer.
@@ -11,12 +11,12 @@ import { HOME_PRICE, MIN_ASKING_PRICE, type CityId } from "@tribe/shared";
 
 /** Price of a home the city still owns. */
 export function cityHomePrice(city: CityId) {
-  return HOME_PRICE[city] ?? HOME_PRICE.trench;
+  return HOME_PRICE[city] ?? HOME_PRICE.trenches;
 }
 
 /**
  * Sellers name any price they like - there is deliberately no ceiling. The only
- * limit is TRIBUTE_CAP, which is what a wallet can physically hold.
+ * limit is MOON_CAP, which is what a wallet can physically hold.
  */
 export function clampAskingPrice(value: unknown) {
   const n = Math.round(Number(value));
@@ -30,4 +30,4 @@ export function clampAskingPrice(value: unknown) {
  * junk id cannot name a home that does not exist.
  */
 // Re-exported so callers keep importing market rules from one place.
-export { isHomeId, MIN_ASKING_PRICE } from "@tribe/shared";
+export { isHomeId, MIN_ASKING_PRICE } from "@moonville/shared";

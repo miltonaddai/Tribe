@@ -23,30 +23,35 @@ export type ShoeId = "sneakers" | "boots" | "slides" | "loafers" | "none";
 export type PreviewMotion = "idle" | "walk" | "wave" | "dance";
 
 /**
- * Robinhood Chain mainnet, and nothing else. The wallet_chain enum in Postgres
- * still carries the dead solana-testnet value so old rows stay readable, but
- * nothing writes it. Network parameters live in chain.ts on each side; this is
- * only the stored discriminator.
+ * Solana, and nothing else. The wallet_chain enum in Postgres still carries the
+ * dead robinhood values so old rows stay readable, but nothing writes them.
+ * Network parameters live in chain.ts on each side; this is only the stored
+ * discriminator.
+ *
+ * Players are no longer identified by a wallet. Every row keyed by
+ * wallet_address now holds an account id (`acct:<uuid>`), and a Solana wallet
+ * is something an account links later, only to pay for things.
  */
-export type WalletChainId = "robinhood";
+export type WalletChainId = "solana";
 
-export const DEFAULT_CHAIN: WalletChainId = "robinhood";
+export const DEFAULT_CHAIN: WalletChainId = "solana";
 
-export const WALLET_CHAINS: {
-  id: WalletChainId;
-  label: string;
-  network: string;
-  symbol: "ETH";
-  hint: string;
-}[] = [
-  {
-    id: "robinhood",
-    label: "Robinhood Chain",
-    network: "MetaMask / Phantom EVM",
-    symbol: "ETH",
-    hint: "Sign in with an EVM wallet on Robinhood Chain",
-  },
-];
+/** The prefix that marks a player id as a username account rather than a wallet. */
+export const ACCOUNT_PREFIX = "acct:";
+
+/** What the server hands back on register, login and /api/accounts/me. */
+export type AccountSession = {
+  /** The player id every game table is keyed by: `acct:<uuid>`. */
+  playerId: string;
+  username: string;
+  /** Bearer token for the API and the game room. */
+  token: string;
+  /** The Solana wallet linked for purchases, or null. */
+  solanaAddress: string | null;
+};
+
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 128;
 
 export type CharacterAppearance = {
   displayName: string;
@@ -66,7 +71,7 @@ export type CharacterRecord = CharacterAppearance & {
   homeCity: CityId;
   accessTier: number;
   brokemeter: number;
-  tribute: number;
+  moon: number;
   inventory: InventoryStack[];
   equippedGun: GunId | null;
   equippedPet: PetId | null;
@@ -125,7 +130,7 @@ export const OUTFITS: { id: OutfitId; label: string }[] = [
   { id: "hoodie", label: "Street Hoodie" },
   { id: "suit", label: "Suit & Tie" },
   { id: "neon", label: "Neon Runner" },
-  { id: "gold", label: "Valhalla Gold" },
+  { id: "gold", label: "Uptown Gold" },
   { id: "puffer", label: "Puffer Jacket" },
   { id: "jersey", label: "Block Jersey" },
   { id: "trench-coat", label: "Trench Coat" },

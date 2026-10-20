@@ -2,7 +2,7 @@ import { Client, type Room } from "@colyseus/sdk";
 
 const url = import.meta.env.VITE_COLYSEUS_URL || "ws://localhost:2567";
 
-export type JoinFailure = "full" | "offline";
+export type JoinFailure = "full" | "offline" | "auth";
 
 export type JoinResult = { room: Room; reason?: undefined } | { room: null; reason: JoinFailure };
 
@@ -19,6 +19,10 @@ export async function joinWorld(options: Record<string, unknown>): Promise<JoinR
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes("WORLD_FULL") || message.includes("locked")) {
       return { room: null, reason: "full" };
+    }
+    // The room refused the session token: expired, or signed by an old secret.
+    if (message.includes("SIGN_IN_REQUIRED")) {
+      return { room: null, reason: "auth" };
     }
     console.warn("[colyseus] offline fallback", err);
     return { room: null, reason: "offline" };

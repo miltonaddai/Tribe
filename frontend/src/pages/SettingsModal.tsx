@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import type { GameSettings } from "@tribe/shared";
-import { DEFAULT_SETTINGS } from "@tribe/shared";
+import type { GameSettings } from "@moonville/shared";
+import { DEFAULT_SETTINGS } from "@moonville/shared";
 import { loadSettings, persistSettings, saveSettings } from "../lib/storage";
-import { shorten } from "../lib/wallet";
-import { useWallet } from "../state/WalletStore";
+import { shorten } from "../lib/session";
+import { useSession } from "../state/SessionStore";
 import { Dropdown } from "../components/Dropdown";
 
 const VOICE = ["Push to Talk", "Open Mic", "Off"];
@@ -21,8 +21,9 @@ export function SettingsModal({
   onClose: () => void;
   onSave?: (s: GameSettings) => void;
 }) {
-  const { wallet } = useWallet();
+  const { session, openLink, unlink } = useSession();
   const [s, setS] = useState<GameSettings>(() => loadSettings());
+  const [walletError, setWalletError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setS(loadSettings());
@@ -72,9 +73,36 @@ export function SettingsModal({
           <section className="settings-card">
             <h2>ACCOUNT</h2>
             <div className="setting-row">
-              <span>Connected Wallet</span>
-              <div className="wallet-chip">{wallet ? shorten(wallet.address) : "Not connected"}</div>
+              <span>Username</span>
+              <div className="wallet-chip">{session?.username ?? "Not signed in"}</div>
             </div>
+            <div className="setting-row">
+              <span>Solana Wallet</span>
+              <div className="wallet-actions">
+                <div className="wallet-chip">
+                  {session?.solanaAddress ? shorten(session.solanaAddress) : "Not linked"}
+                </div>
+                {session && !session.demo && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => {
+                      setWalletError(null);
+                      if (!session.solanaAddress) {
+                        openLink();
+                        return;
+                      }
+                      unlink().catch((err: unknown) =>
+                        setWalletError(err instanceof Error ? err.message : "Could not unlink the wallet."),
+                      );
+                    }}
+                  >
+                    {session.solanaAddress ? "Unlink" : "Link"}
+                  </button>
+                )}
+              </div>
+            </div>
+            {walletError && <p className="field-error">{walletError}</p>}
             <Toggle label="Show Wallet Publicly" on={s.showWalletPublicly} onChange={(v) => patch({ showWalletPublicly: v })} />
             <Select label="Trade Requests" value={s.tradeRequests} options={TRADE} onChange={(v) => patch({ tradeRequests: v })} />
             <Toggle label="Email Notifications" on={s.emailNotifications} onChange={(v) => patch({ emailNotifications: v })} />
@@ -89,7 +117,7 @@ export function SettingsModal({
             type="button"
             onClick={() => {
               saveSettings(s);
-              if (wallet) void persistSettings(wallet.address, wallet.chain, s);
+              if (session && !session.demo) void persistSettings(session.playerId, session.chain, s);
               onSave?.(s);
               onClose();
             }}

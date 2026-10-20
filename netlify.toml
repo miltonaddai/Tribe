@@ -3,7 +3,7 @@
 #
 # `base` is the directory Netlify runs the build in, but it still clones the
 # whole repository - which matters here, because frontend/package.json depends
-# on "@tribe/shared": "file:../shared". That path resolves only if the parent
+# on "@moonville/shared": "file:../shared". That path resolves only if the parent
 # directory came along.
 
 [build]

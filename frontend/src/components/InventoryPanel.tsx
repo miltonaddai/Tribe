@@ -1,4 +1,4 @@
-import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@tribe/shared";
+import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@moonville/shared";
 import { HomeArt, ItemArt, VehicleArt } from "./ItemArt";
 
 type OwnedHome = {
@@ -35,7 +35,7 @@ function homeStatus(home: OwnedHome) {
 }
 
 export function InventoryPanel({
-  tribute,
+  moon,
   inventory,
   inStore,
   accessTier,
@@ -49,7 +49,7 @@ export function InventoryPanel({
   homes,
   cars,
 }: {
-  tribute: number;
+  moon: number;
   inventory: InventoryStack[];
   inStore: boolean;
   accessTier: number;
@@ -78,7 +78,7 @@ export function InventoryPanel({
         <div>
           <h2>{inStore ? "Store" : "Inventory"}</h2>
           <p>
-            {tribute} {CURRENCY}
+            {moon} {CURRENCY}
             {inStore ? " · buy with the city till" : " · equip or take it to trade"}
           </p>
         </div>

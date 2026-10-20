@@ -13,7 +13,7 @@ import {
   lotCentre,
   parseHomeId,
   type CityId,
-} from "@tribe/shared";
+} from "@moonville/shared";
 import { CarMarker, HomeMarker } from "./ItemArt";
 import type { MapCitizen, OwnedCar, OwnedHome } from "../game/engine";
 

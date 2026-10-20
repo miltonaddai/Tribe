@@ -1,6 +1,23 @@
 # Changelog
 
-All notable changes to Tribe are listed here.
+All notable changes to Moonville (formerly Tribe) are listed here.
+
+## Unreleased — 2026-10-19
+
+### Changed
+
+- **Homes unlock districts, not $MOON held.** Everyone starts in the Trenches; owning a home in a district opens the next one up (Trenches home → Bagtown, Bagtown home → Midtown, Midtown home → Uptown). Lower districts stay open, and a home always lets you back into its own district. The gate tells you which district to buy in. `CITY_MIN_MOON_*` now only affects dev-launcher demo players.
+- Buying something with no wallet linked opens the link-wallet dialog, and the purchase carries on once a wallet is linked.
+- **Tribe is now Moonville**, and the token is **$MOON**. The districts are renamed to match the climb: Trench City → **Trenches**, Gas City → **Bagtown**, The Real World → **Midtown**, Valhalla → **Uptown**. The Valhalla Gold outfit is now Uptown Gold. Internal names follow too (storage keys, `MOON_*` env vars, the `@moonville/shared` package, district ids and the database), and migration 018 wipes all player game data. Accounts are kept.
+- **Play without a wallet.** Anyone can sign up with a unique username and a password and play straight away. The username is your nametag. Characters, homes, cars and inventory are saved to the account, so they follow you to any computer.
+- **Solana replaces Robinhood Chain.** $MOON is now an SPL token on Solana. Link Phantom, Solflare or Backpack from Settings or the account menu by signing one message; the linked wallet's $MOON opens the richer districts and pays for purchases. Accounts with no wallet play in the Trenches. This is a fresh start: Robinhood-era characters and property are not carried over.
+- **New look.** A scrollable landing page (how it works, districts, features, $MOON, FAQ), a new sign-in page, redesigned docs with grouped navigation and an Accounts & wallets page, and a new type pairing (Inter and Unbounded) and palette across the site and the game HUD.
+- The token mint, dev wallet and store wallet are now build settings (`VITE_MOON_MINT`, `VITE_MOON_DEV_WALLET`, `VITE_MOON_STORE_WALLET`) and show *Coming soon* until set. The buy button is hidden until there is a mint.
+
+### Security
+
+- The game room now takes the player's identity from a signed session token. It used to trust the wallet address sent by the client, which let a crafted client join as anyone.
+- Character and settings saves require a session too, for the same reason.
 
 ## Unreleased — 2026-09-18
 

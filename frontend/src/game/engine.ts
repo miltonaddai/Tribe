@@ -3,7 +3,8 @@ import { getStateCallbacks, type Room } from "@colyseus/sdk";
 import { CURRENCY,
   type CrimeReport,
   type OutfitId,
-  type CityThreshold,
+  homeAccessTier,
+  unlockingCity,
   isTierGated,
   armSlots,
   ownsOutfit,
@@ -38,12 +39,14 @@ import { CURRENCY,
   type InventoryStack,
   type ItemId,
   type PetId,
-} from "@tribe/shared";
+} from "@moonville/shared";
 import { composeShot, snapshot } from "../lib/screenshot";
-import { tributeThresholds } from "../lib/cityThresholds";
 import { joinWorld, type JoinFailure } from "../lib/colyseus";
 import { loadCharacter, saveCharacter } from "../lib/storage";
-import { loadWallet } from "../lib/wallet";
+import { loadSession } from "../lib/session";
+
+/** Shown when a purchase needs a wallet the account has not linked yet. */
+const LINK_WALLET = "Link a Solana wallet to buy this: Pause → Settings → Account.";
 import { VoiceChat, loadOutputDevice, saveOutputDevice } from "../lib/voiceChat";
 import { payForPurchase, paymentsRequired } from "../lib/payments";
 import { playGunshot, setSfxVolume } from "../lib/sfx";
@@ -83,7 +86,7 @@ const SPOT_SAVE_TIMEOUT_MS = 6000;
  * is not somewhere the game will put them back.
  */
 const SPOT_SAVE_PROBLEM: Record<string, string> = {
-  "no-wallet": "Connect a wallet to save your location.",
+  "no-wallet": "Sign in to save your location.",
   indoors: "Step outside first — indoor spots are not saved.",
   nowhere: "You are not standing anywhere that can be saved.",
   offline: "Could not reach the server. Try again.",
@@ -167,7 +170,7 @@ const REMOTE_SNAP = 4;
  * changes: every other wall still stops you, other players are unaffected, and
  * the server never had building collision to begin with.
  */
-const WALL_PASS_CITY: string | null = "trench";
+const WALL_PASS_CITY: string | null = "trenches";
 
 /** Cars travel further per patch than people, so they need more room before a snap. */
 const VEHICLE_SNAP = 12;
@@ -182,7 +185,7 @@ const HOME_SALE_LABEL_RANGE = 26;
  * Signs used to hang above the roof, which put them off the top of the screen
  * exactly when you walked up to read them. The view is 42 degrees vertically,
  * which is narrower than it feels: a civic building's sign at 11.6 units left
- * the screen within 24 units of it, and a ten-floor Valhalla tower anchors its
+ * the screen within 24 units of it, and a ten-floor Uptown tower anchors its
  * sign 33.4 units up, off screen until you are 81 units away. Tags stop being
  * drawn at 72, so that one was never visible from anywhere.
  *
@@ -344,7 +347,7 @@ export type HudState = {
   chat: { name: string; text: string }[];
   citizens: MapCitizen[];
   connected: boolean;
-  tribute: number;
+  moon: number;
   inventory: InventoryStack[];
   inStore: boolean;
   /** Standing in a police station: unlocks the blotter panel. */
@@ -413,12 +416,12 @@ type KnockdownState = {
 };
 
 const LOCAL_VEHICLES = [
-  { id: "veh-0", city: "trench", x: -48, z: 58, rotY: 0, color: "#F4F4F4", kind: "hatch" },
-  { id: "veh-1", city: "trench", x: -62, z: 42, rotY: Math.PI / 2, color: "#EEEEEE", kind: "hatch" },
-  { id: "veh-2", city: "gas", x: 46, z: 62, rotY: 0, color: "#5B8FCF", kind: "sedan" },
-  { id: "veh-3", city: "realworld", x: -42, z: -58, rotY: Math.PI, color: "#D9772C", kind: "sedan" },
-  { id: "veh-4", city: "valhalla", x: 44, z: -40, rotY: 0, color: "#FF8A1F", kind: "sport" },
-  { id: "veh-5", city: "valhalla", x: 62, z: -56, rotY: Math.PI / 2, color: "#2B4C9B", kind: "sedan" },
+  { id: "veh-0", city: "trenches", x: -48, z: 58, rotY: 0, color: "#F4F4F4", kind: "hatch" },
+  { id: "veh-1", city: "trenches", x: -62, z: 42, rotY: Math.PI / 2, color: "#EEEEEE", kind: "hatch" },
+  { id: "veh-2", city: "bagtown", x: 46, z: 62, rotY: 0, color: "#5B8FCF", kind: "sedan" },
+  { id: "veh-3", city: "midtown", x: -42, z: -58, rotY: Math.PI, color: "#D9772C", kind: "sedan" },
+  { id: "veh-4", city: "uptown", x: 44, z: -40, rotY: 0, color: "#FF8A1F", kind: "sport" },
+  { id: "veh-5", city: "uptown", x: 62, z: -56, rotY: Math.PI / 2, color: "#2B4C9B", kind: "sedan" },
 ];
 
 export class GameEngine {
@@ -460,7 +463,7 @@ export class GameEngine {
   private vehicleSpeed = 0;
   private driving = false;
   private accessTier = 1;
-  private city: CityId = "trench";
+  private city: CityId = "trenches";
   private health = 100;
   private lastHealth = 100;
   private punchReady = 0;
@@ -500,6 +503,13 @@ export class GameEngine {
   private pointerLocked = false;
   /** A panel is open, so the cursor belongs to the UI, not to aiming. */
   private uiOpen = false;
+  /**
+   * Opens the "link a wallet" dialog and resolves true once one is linked.
+   * Supplied by the game page, which owns the dialog.
+   */
+  private walletLinker: (() => Promise<boolean>) | null = null;
+  /** Purchases waiting for the server's answer to a holdings refresh. */
+  private bagWaiters: (() => void)[] = [];
   /** True once the server's spawn has been applied, so it happens only once. */
   private spawned = false;
   /** Resolves start()'s wait for that first authoritative position. */
@@ -536,7 +546,7 @@ export class GameEngine {
   private remoteYaw = new Map<string, number>();
   private localName = "citizen";
   private look: Appearance | null = null;
-  private tribute = 0;
+  private moon = 0;
   private homes = new Map<string, HomeInfo>();
   private homeOpeningBid = 250;
   private homeBidIncrement = 50;
@@ -567,7 +577,6 @@ export class GameEngine {
    * the local env so a message is possible before the server answers, then
    * replaced by the authoritative list on join.
    */
-  private gateCosts: CityThreshold[] = tributeThresholds();
   private crimeReports: CrimeReport[] = [];
   private tradeInvite: { fromSession: string; fromName: string } | null = null;
   private trade: TradeView | null = null;
@@ -591,7 +600,7 @@ export class GameEngine {
     this.look = { ...appearanceOf(character), gun: character.equippedGun };
     // A cached figure so the HUD is not blank offline. The server overwrites it
     // with the wallet's real balance as soon as the room sends a bag.
-    this.tribute = Number.isFinite(character.tribute) ? character.tribute : 0;
+    this.moon = Number.isFinite(character.moon) ? character.moon : 0;
     this.inventory = seedInventory(character.accessories, character.inventory);
     this.gun = character.equippedGun ?? null;
     this.petKind = character.equippedPet ?? null;
@@ -636,8 +645,9 @@ export class GameEngine {
     this.wallet = character.wallet;
     const joined = await joinWorld({
       name: character.displayName,
+      token: loadSession()?.token ?? "",
       wallet: character.wallet,
-      chain: loadWallet()?.chain ?? DEFAULT_CHAIN,
+      chain: loadSession()?.chain ?? DEFAULT_CHAIN,
       city: character.homeCity,
       accessTier: character.accessTier,
       bodyType: character.bodyType,
@@ -650,7 +660,7 @@ export class GameEngine {
       accessories: (character.accessories ?? []).join(","),
       health: this.health,
       brokemeter: this.health,
-      tribute: this.tribute,
+      moon: this.moon,
       inventory: encodeInventory(this.inventory),
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
@@ -828,7 +838,8 @@ export class GameEngine {
       return counter === "fashion" ? "Walk into the Fashion House to buy that." : "Walk into a Store to buy.";
     }
     if (isTierGated(item) && item.tier > this.accessTier) return `Needs tier ${item.tier}.`;
-    if (this.tribute < item.price) return `Not enough ${CURRENCY}.`;
+    if (!(await this.walletReady())) return null;
+    if (this.moon < item.price) return `Not enough ${CURRENCY}.`;
     if (item.unique && hasItem(this.inventory, item.id)) return "You already own that.";
     if (this.paying) return null;
 
@@ -836,12 +847,11 @@ export class GameEngine {
       this.room?.send("buy-item", { id: item.id });
       return null;
     }
-    if (!this.wallet) return "Connect a wallet to buy anything.";
 
     this.paying = true;
     this.setNotice(`Confirm ${item.price} ${CURRENCY} in your wallet…`);
     try {
-      const paid = await payForPurchase(this.wallet, item.price);
+      const paid = await payForPurchase(item.price);
       if (!paid.ok) return paid.reason || "Purchase cancelled.";
       this.setNotice("Payment sent, confirming…");
       this.room?.send("buy-item", { id: item.id, txHash: paid.txHash });
@@ -892,6 +902,66 @@ export class GameEngine {
     this.rightHeld = false;
     this.looking = false;
     if (this.canvas && document.pointerLockElement === this.canvas) document.exitPointerLock();
+  }
+
+  /** Lets a purchase open the wallet-link dialog and wait for it. */
+  setWalletLinker(linker: (() => Promise<boolean>) | null) {
+    this.walletLinker = linker;
+  }
+
+  /**
+   * Makes sure a purchase can be paid for, linking a wallet first if need be.
+   *
+   * Runs before the balance check: with no wallet linked the balance is zero,
+   * so checking it first would say "not enough" to someone who simply has not
+   * connected yet. When a wallet is linked here, the server is asked to re-read
+   * holdings straight away, so the balance check that follows sees the real
+   * figure rather than the zero from a minute ago.
+   */
+  private async walletReady(): Promise<boolean> {
+    const session = loadSession();
+    // Asked for whether or not on-chain payments are switched on yet: buying
+    // is something you do with a wallet, so the prompt is part of buying even
+    // before $MOON launches. Demo players have no account to link one to and
+    // spend the off-chain test balance instead.
+    if (session?.demo) return true;
+    if (session?.solanaAddress) return true;
+    // One dialog at a time; a second click while it is open does nothing.
+    if (this.paying) return false;
+    if (!this.walletLinker) {
+      this.setNotice(LINK_WALLET);
+      return false;
+    }
+    this.releaseAim();
+    this.setNotice("Link a Solana wallet to pay - it only takes a signature.");
+    this.paying = true;
+    try {
+      const linked = await this.walletLinker();
+      if (!linked || !loadSession()?.solanaAddress) {
+        this.setNotice("No wallet linked, so nothing was bought.");
+        return false;
+      }
+      this.setNotice(`Wallet linked. Checking your ${CURRENCY}…`);
+      await this.refreshHoldings();
+      return true;
+    } finally {
+      this.paying = false;
+    }
+  }
+
+  /** Asks the server to re-read holdings now, and waits (briefly) for the answer. */
+  private refreshHoldings(): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        window.clearTimeout(timer);
+        this.bagWaiters = this.bagWaiters.filter((w) => w !== done);
+        resolve();
+      };
+      // The read is a chain call; never hold a purchase hostage to a slow RPC.
+      const timer = window.setTimeout(done, 6000);
+      this.bagWaiters.push(done);
+      this.room?.send("holdings-refresh");
+    });
   }
 
   /** Panels own the cursor while they are open; aiming resumes when they close. */
@@ -1092,8 +1162,8 @@ export class GameEngine {
     if (!room) return;
     const $ = getStateCallbacks(room);
 
-    room.onMessage("gate-denied", (msg: { city: CityId; requiredTribute?: number; yourTribute?: number }) => {
-      this.gateMessage = this.gateText(msg.city, msg.requiredTribute, msg.yourTribute);
+    room.onMessage("gate-denied", (msg: { city: CityId }) => {
+      this.gateMessage = this.gateText(msg.city);
       this.gateUntil = performance.now() + 2800;
     });
     room.onMessage("whisper", (msg: WhisperLine) => {
@@ -1125,9 +1195,6 @@ export class GameEngine {
         this.vehicleSpeed = 0;
       },
     );
-    room.onMessage("gates", (msg: { thresholds?: CityThreshold[] }) => {
-      if (Array.isArray(msg.thresholds) && msg.thresholds.length > 0) this.gateCosts = msg.thresholds;
-    });
     room.onMessage("crime-list", (msg: { reports?: CrimeReport[] }) => {
       this.crimeReports = Array.isArray(msg.reports) ? msg.reports : [];
     });
@@ -1148,12 +1215,13 @@ export class GameEngine {
       this.tradeInvite = null;
       this.setNotice(msg.reason ?? "Trade closed.");
     });
-    room.onMessage("bag-sync", (msg: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string; accessTier?: number }) => {
+    room.onMessage("bag-sync", (msg: { inventory?: string; moon?: number; gun?: string; pet?: string; accessories?: string; accessTier?: number }) => {
       // Holdings are re-read every 60s, so the tier can move under a player who
       // never reconnects. Track it or the local gate check drifts from the
       // server's and every step gets corrected instead of refused.
       if (typeof msg.accessTier === "number") this.accessTier = msg.accessTier;
       this.applyBag(msg);
+      for (const settle of [...this.bagWaiters]) settle();
     });
 
     $(room.state).chat.onAdd((line) => {
@@ -1211,12 +1279,12 @@ export class GameEngine {
     });
 
     room.onMessage("session-replaced", () => {
-      this.sessionEnded = "This wallet signed in somewhere else. Only one session can be open at a time.";
+      this.sessionEnded = "This account signed in somewhere else. Only one session can be open at a time.";
     });
     room.onLeave((code) => {
       // 4100 is our own displaced-session code; anything else is a real drop.
       if (code === 4100 && !this.sessionEnded) {
-        this.sessionEnded = "This wallet signed in somewhere else. Only one session can be open at a time.";
+        this.sessionEnded = "This account signed in somewhere else. Only one session can be open at a time.";
       }
       this.room = null;
     });
@@ -1417,8 +1485,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     if (!character) return false;
     const joined = await joinWorld({
       name: character.displayName,
+      token: loadSession()?.token ?? "",
       wallet: character.wallet,
-      chain: loadWallet()?.chain ?? DEFAULT_CHAIN,
+      chain: loadSession()?.chain ?? DEFAULT_CHAIN,
       city: character.homeCity,
       accessTier: character.accessTier,
       bodyType: character.bodyType,
@@ -1431,7 +1500,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       accessories: (character.accessories ?? []).join(","),
       health: this.health,
       brokemeter: this.health,
-      tribute: this.tribute,
+      moon: this.moon,
       inventory: encodeInventory(this.inventory),
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
@@ -1543,8 +1612,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.setNotice("You already own a car. One each.");
       return;
     }
-    if (this.tribute < item.carPrice) {
-      this.setNotice(`${item.label ?? "That car"} costs ${item.carPrice} ${CURRENCY}. You have ${this.tribute}.`);
+    if (!(await this.walletReady())) return;
+    if (this.moon < item.carPrice) {
+      this.setNotice(`${item.label ?? "That car"} costs ${item.carPrice} ${CURRENCY}. You have ${this.moon}.`);
       return;
     }
     // Guard against a second prompt while the wallet is already open.
@@ -1554,15 +1624,11 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city });
       return;
     }
-    if (!this.wallet) {
-      this.setNotice("Connect a wallet to buy a car.");
-      return;
-    }
 
     this.paying = true;
     this.setNotice("Confirm the payment in your wallet…");
     try {
-      const paid = await payForPurchase(this.wallet, item.carPrice);
+      const paid = await payForPurchase(item.carPrice);
       if (!paid.ok) {
         // An empty reason is the player cancelling; they know they did that.
         if (paid.reason) this.setNotice(paid.reason);
@@ -1736,8 +1802,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
 
     if (!owner || asking == null) return;
-    if (this.tribute < asking) {
-      this.setNotice(`That car costs ${asking} ${CURRENCY}. You have ${this.tribute}.`);
+    if (!(await this.walletReady())) return;
+    if (this.moon < asking) {
+      this.setNotice(`That car costs ${asking} ${CURRENCY}. You have ${this.moon}.`);
       return;
     }
     if (this.ownedCars.size > 0) {
@@ -1750,14 +1817,10 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.room?.send("car-buy", { id });
       return;
     }
-    if (!this.wallet) {
-      this.setNotice("Connect a wallet to buy a car.");
-      return;
-    }
     this.paying = true;
     this.setNotice(`Confirm ${asking} ${CURRENCY} in your wallet…`);
     try {
-      const paid = await payForPurchase(this.wallet, asking);
+      const paid = await payForPurchase(asking);
       if (!paid.ok) {
         this.setNotice(paid.reason || "Purchase cancelled.");
         return;
@@ -1810,8 +1873,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
 
     const price = this.homeCost(home.id, info);
-    if (this.tribute < price) {
-      this.setNotice(`That home costs ${price} ${CURRENCY}. You have ${this.tribute}.`);
+    if (!(await this.walletReady())) return;
+    if (this.moon < price) {
+      this.setNotice(`That home costs ${price} ${CURRENCY}. You have ${this.moon}.`);
       return;
     }
     if (this.paying) return;
@@ -1820,15 +1884,11 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.room?.send("home-buy", { id: home.id, city: home.city });
       return;
     }
-    if (!this.wallet) {
-      this.setNotice("Connect a wallet to buy a home.");
-      return;
-    }
 
     this.paying = true;
     this.setNotice(`Confirm ${price} ${CURRENCY} in your wallet…`);
     try {
-      const paid = await payForPurchase(this.wallet, price);
+      const paid = await payForPurchase(price);
       if (!paid.ok) {
         this.setNotice(paid.reason || "Purchase cancelled.");
         return;
@@ -2649,7 +2709,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
 
   /**
    * TEMPORARY - delete this method, WALL_PASS_CITY, and the two calls to it
-   * once the car wedged in the Trench hospital has been driven out.
+   * once the car wedged in the Trenches hospital has been driven out.
    *
    * Hands back that one building's collider so it can be passed through. It is
    * found rather than hard-coded, and it is a single box: every other wall in
@@ -2797,21 +2857,26 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
   }
 
   /**
-   * Holdings open a district, and so does owning a home in it. Property you
-   * paid for does not stop being yours when the token price moves, and a door
-   * you cannot walk through is a door you cannot sell behind.
+   * Homes open districts, one rung at a time (see homeAccessTier): a home in
+   * the Trenches opens Bagtown, and so on up. Computed from the replicated home
+   * state with the same function the server uses, so the client predicts the
+   * server's answer exactly and buying a home opens the next gate at once.
    *
-   * Mirrors the server's rule off the same replicated home state, so the client
-   * predicts the same answer the server will give and there is no rubber-band.
+   * Dev-launcher demo players own nothing; the server derives their tier from
+   * their made-up balance and sends it, so for them that tier is the answer.
    */
   private mayEnter(city: CityId): boolean {
-    const required = this.gateCosts.find((row) => row.city === city)?.min;
-    if (required != null && this.tribute >= required) return true;
-    if (!this.wallet) return false;
+    return CITIES[city].tier <= this.ladderTier();
+  }
+
+  private ladderTier(): number {
+    if (!this.wallet) return 1;
+    if (this.wallet.startsWith("demo:")) return this.accessTier;
+    const owned: CityId[] = [];
     for (const home of this.homes.values()) {
-      if (home.city === city && home.owner === this.wallet) return true;
+      if (home.owner === this.wallet) owned.push(home.city as CityId);
     }
-    return false;
+    return homeAccessTier(owned);
   }
 
   private nearestInteractable(): Interactable | null {
@@ -3037,7 +3102,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       chat: this.chat,
       citizens,
       connected: Boolean(this.room),
-      tribute: this.tribute,
+      moon: this.moon,
       inventory: this.inventory,
       inStore: this.inBuilding?.interiorKind === "store",
       inStation: this.inBuilding?.interiorKind === "police",
@@ -3703,30 +3768,15 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
    * seeing the clothes you arrived in until you reconnect.
    */
   /**
-   * What the gate says when it turns you away.
-   *
-   * Leads with the number, because that is the only part a player can act on:
-   * "gated to Tier 3+" says nothing about how far off they are, while a figure
-   * against their own balance says exactly what is missing. Owning property in
-   * the district opens it too, and that is worth saying to anyone close enough
-   * for it to matter.
-   *
-   * `required` and `held` come from the server when it was the one refusing;
-   * otherwise they fall back to the cached thresholds and the local balance.
+   * What the gate says when it turns you away: the one thing that opens it,
+   * which is a home in the district below. Names both places, so a player at
+   * the Midtown gate learns it is a Bagtown home they need - not just "no".
    */
-  private gateText(city: CityId, required?: number, held?: number): string {
+  private gateText(city: CityId): string {
     const name = CITIES[city].name;
-    const need = required ?? this.gateCosts.find((t) => t.city === city)?.min ?? 0;
-    const have = held ?? this.tribute;
-    if (need <= 0) return `${name} is gated.`;
-    const short = Math.max(0, need - have);
-    const n = (v: number) => Math.round(v).toLocaleString();
-    if (short === 0) {
-      // Holdings are re-read on a timer, so a balance that has just cleared the
-      // bar is not wrong - it simply has not been picked up yet.
-      return `${name} needs ${n(need)} ${CURRENCY}. Your balance is being rechecked — try again in a moment.`;
-    }
-    return `${name} needs ${n(need)} ${CURRENCY}. You hold ${n(have)} — ${n(short)} short.`;
+    const below = unlockingCity(city);
+    if (!below) return `${name} is closed right now.`;
+    return `${name} is for residents of ${CITIES[below].name}. Buy a home in ${CITIES[below].name} to get in.`;
   }
 
   /**
@@ -3847,7 +3897,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     });
   }
 
-  /** "Trench City · BLK 07 · -57, 198" - where the shot was taken. */
+  /** "the Trenches · BLK 07 · -57, 198" - where the shot was taken. */
   private shotCaption(): string {
     const p = this.player?.getPosition();
     const city = CITIES[this.city]?.name ?? "";
@@ -3939,7 +3989,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     this.refreshLook();
     this.room?.send("loadout", { outfit: id });
     const c = loadCharacter();
-    if (c) saveCharacter({ ...c, outfit: id }, loadWallet()?.chain);
+    if (c) saveCharacter({ ...c, outfit: id }, loadSession()?.chain);
     this.setNotice(`Wearing ${catalogItem(id)?.name ?? outfitLabel(id)}.`);
   }
 
@@ -3949,19 +3999,19 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       saveCharacter(
         {
           ...c,
-          tribute: this.tribute,
+          moon: this.moon,
           inventory: this.inventory,
           accessories: this.look?.accessories ?? c.accessories,
           equippedGun: this.gun,
           equippedPet: this.petKind,
           brokemeter: clampHealth(this.health),
         },
-        loadWallet()?.chain,
+        loadSession()?.chain,
       );
     }
     this.room?.send("loadout", {
       inventory: encodeInventory(this.inventory),
-      tribute: this.tribute,
+      moon: this.moon,
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
       accessories: (this.look?.accessories ?? []).join(","),
@@ -4029,9 +4079,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
   }
 
-  private applyBag(msg: { inventory?: string; tribute?: number; gun?: string; pet?: string; accessories?: string }) {
+  private applyBag(msg: { inventory?: string; moon?: number; gun?: string; pet?: string; accessories?: string }) {
     if (typeof msg.inventory === "string") this.inventory = decodeInventory(msg.inventory);
-    if (typeof msg.tribute === "number") this.tribute = msg.tribute;
+    if (typeof msg.moon === "number") this.moon = msg.moon;
     this.gun = isGunId(String(msg.gun ?? "")) ? (msg.gun as GunId) : null;
     const nextPet = isPetId(String(msg.pet ?? "")) ? (msg.pet as PetId) : null;
     if (typeof msg.accessories === "string" && this.look) this.look.accessories = parseAccessories(msg.accessories);

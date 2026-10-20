@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { PetId } from "@tribe/shared";
+import type { PetId } from "@moonville/shared";
 import { box } from "./pcApp";
 
 export type PetWalker = {

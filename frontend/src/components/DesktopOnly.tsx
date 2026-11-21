@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { BrandLogo } from "./Header";
 import { MIN_PLAY_WIDTH, type Blocked } from "../lib/device";
 
 /**
@@ -15,10 +14,6 @@ export function DesktopOnly({ reason }: { reason: Blocked }) {
   return (
     <div className="desktop-only">
       <div className="desktop-only-card">
-        <span className="desktop-only-mark">
-          <BrandLogo />
-        </span>
-
         <h1>{narrow ? "Your window is too narrow" : "Tribe needs a desktop"}</h1>
 
         <p>

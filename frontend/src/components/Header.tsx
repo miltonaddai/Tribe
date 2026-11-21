@@ -4,11 +4,6 @@ import { CURRENCY } from "@tribe/shared";
 import { useSession } from "../state/SessionStore";
 import { loadCharacterForWallet } from "../lib/storage";
 
-/** The Tribe mark. Decorative: every use sits beside the name or a label. */
-export function BrandLogo() {
-  return <img className="brand-logo" src="/logo.svg" alt="" aria-hidden draggable={false} />;
-}
-
 /** Three bars, or a cross once the menu is open. */
 function BurgerIcon({ open }: { open: boolean }) {
   return (
@@ -86,9 +81,6 @@ export function Header({ solid = false }: { solid?: boolean }) {
     <header className={cls} ref={root}>
       <div className="nav-inner">
         <Link to="/" className="nav-brand" aria-label="Tribe home">
-          <span className="nav-logo">
-            <BrandLogo />
-          </span>
           Tribe
         </Link>
 

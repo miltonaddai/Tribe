@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import { CURRENCY, PROPERTY_MARKET_OPEN } from "@tribe/shared";
-import { BrandLogo } from "./Header";
 
 export function SiteFooter() {
   return (
@@ -8,9 +7,6 @@ export function SiteFooter() {
       <div className="foot-inner">
         <div className="foot-brand">
           <Link to="/" className="nav-brand">
-            <span className="nav-logo">
-              <BrandLogo />
-            </span>
             Tribe
           </Link>
           <p>A browser city built block by block. Free to play, owned by the people living in it.</p>

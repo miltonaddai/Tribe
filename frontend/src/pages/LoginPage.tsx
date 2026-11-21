@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CURRENCY, NAME_MAX, checkName, nameProblemText } from "@tribe/shared";
-import { BrandLogo } from "../components/Header";
 import { checkUsername, playAs } from "../lib/session";
 import { loadCharacterForWallet } from "../lib/storage";
 import { useSession } from "../state/SessionStore";
@@ -91,9 +90,6 @@ export function LoginPage() {
 
       <main className="auth-main">
         <Link to="/" className="nav-brand auth-brand">
-          <span className="nav-logo">
-            <BrandLogo />
-          </span>
           Tribe
         </Link>
 

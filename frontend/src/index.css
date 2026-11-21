@@ -3122,22 +3122,6 @@ button {
   text-align: center;
 }
 
-.desktop-only-mark {
-  display: inline-grid;
-  place-items: center;
-  width: 58px;
-  height: 58px;
-  margin-bottom: 18px;
-  color: var(--accent);
-  border: 1px solid rgba(20, 241, 149, 0.35);
-  border-radius: 50%;
-}
-
-.desktop-only-mark .brand-logo {
-  width: 34px;
-  height: 34px;
-}
-
 .desktop-only h1 {
   margin-bottom: 12px;
   font-size: 26px;

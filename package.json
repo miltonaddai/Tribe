@@ -5,6 +5,7 @@
   "license": "MIT",
   "description": "Tribe — a Roblox-style social city game that runs offline",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "install:all": "yarn --cwd frontend install && yarn --cwd backend install",
     "dev:web": "yarn --cwd frontend dev",
     "dev:backend": "yarn --cwd backend dev",

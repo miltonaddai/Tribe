@@ -64,12 +64,13 @@ You need Node.js 22+ and Yarn 1.
 yarn install:all
 ```
 
-Then in two terminals:
+Then start the game server and the website together:
 
 ```bash
-yarn dev:backend
-yarn dev:web
+yarn dev
 ```
+
+Both run in one terminal, each line labelled `server` or `web`, and Ctrl+C stops both. To run them separately instead, use `yarn dev:backend` and `yarn dev:web` in two terminals.
 
 Open http://localhost:5173, pick a name and play. Typing a name that already exists picks that player back up, so open a second tab with a different name to see multiplayer in action. Other machines on your network can join at `http://<your-ip>:5173`.
 
@@ -96,10 +97,6 @@ Each of `frontend/` and `backend/` installs its own dependencies - do not run `y
 The server is authoritative: balances, inventory, property and health live on it, and the client only ever asks. Voice chat is peer-to-peer WebRTC audio, with the game room used for signalling.
 
 The property market is one switch: `PROPERTY_MARKET_OPEN` in `shared/cities.ts`. It is `false` for now, which closes home and car sales and locks every district above the Trenches. Set it to `true` to open both.
-
-### Coming from an earlier version
-
-Tribe was previously called Block, with Block Bucks, and before that Moonville, with $MOON. Old saves carry over automatically: browser storage moves from `moonville:` and `block:` keys to `tribe:` keys on first load, and an existing save file has its `moon` balances renamed to `bucks` when the server starts.
 
 ## License
 

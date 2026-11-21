@@ -1,43 +1,64 @@
-# Moonville
+# Block
 
-Crypto-native, Roblox-style social game. Sign up with a username, spawn a character, and drop into a living city. A Solana wallet is optional and only needed to buy things.
+**Start in the Trenches. Make it Uptown.**
 
-Code identifiers still use the old names (`moonville:` storage keys, `MOON_*` env vars, city ids `trenches` / `bagtown` / `midtown` / `uptown`) so saved data and deploy config keep working.
+Block is a multiplayer social city in your browser. Pick a name, build a character, and drop into a living city with other players: dress up, trade, talk, throw a punch, and explore the Trenches. Homes, cars and the climb to the gold towers of Uptown are coming soon.
 
-## Folders
+## The city
 
-| Folder | What it is |
-| --- | --- |
-| `frontend/` | React + Vite + PlayCanvas. Own `.env` and `node_modules`. |
-| `backend/` | Colyseus + Express. Own `.env` and `node_modules`. |
-| `shared/` | City config and character types used by both. No env, no install. |
+The world is one connected map, ordered by wealth. Each district is a 6×6 grid of lots behind a wall with gates, and you climb it one rung at a time.
 
-Do not run `yarn install` in the repo root. Each app installs its own dependencies.
-
-## Stack
-
-- **Frontend:** React + Vite, PlayCanvas renderer
-- **Backend:** Node.js + Colyseus (player / vehicle positions, rooms, events)
-- **Data:** Supabase (PostgreSQL). Run the files in `supabase/migrations/` in order in the SQL Editor.
-- **Presence:** Redis
-- **Accounts:** username + password (scrypt hashes, HMAC-signed session tokens). Players are keyed by `acct:<uuid>`.
-- **Wallets:** Solana, optional — linked to an account by signing one message; $MOON (SPL) balances gate districts and pay for purchases
-- **Assets:** Cloudflare R2 (avatars, clothing, cars)
-
-## Cities
-
-One connected map, gated by tier. Higher-city citizens can always travel down. You cannot buy your way up.
-
-| Tier | City | Feel |
+| Tier | District | Feel |
 | --- | --- | --- |
-| 1 | Trenches | Rough, random, everyone starts here |
-| 2 | Bagtown | Sparse, calm, hardworking |
-| 3 | Midtown | Neon, orderly, booming |
-| 4 | Uptown | Gold towers, fancy cars |
+| 1 | **Trenches** | Rough, random - everyone starts here |
+| 2 | **Bagtown** | Sparse, calm, hardworking |
+| 3 | **Midtown** | Neon, orderly, booming |
+| 4 | **Uptown** | Gold towers, fancy cars |
 
-The $MOON held by your linked Solana wallet sets which districts you can enter; with no wallet linked you play in the Trenches. Health is your lifeline — punch other citizens to wear it down, and walk into a hospital to refill it.
+> **For now, only the Trenches is open.** Homes and cars aren't for sale yet, and Bagtown, Midtown and Uptown are locked for everyone until they are.
 
-## Run locally
+**Homes will be the keys.** Once homes go on sale, a home in the Trenches opens Bagtown, a Bagtown home opens Midtown, and a Midtown home opens Uptown. You can always travel back down, and a home always lets you back into its own district.
+
+Every district has the same civic spine:
+
+- **Town Hall** - columns, benches and a dais. Whoever holds the floor holds the room.
+- **Hospital** - walk in and your health refills, free.
+- **Police Station** - file crime reports on the city's blotter.
+- **Store** and **Fashion House** - clothes, accessories, pets and weapons.
+- **Dealership** - cars on the forecourt, going on sale soon.
+- **Park** - trees, benches, and no reason to be there other than being there.
+
+## What you do
+
+- **Spend Block Bucks.** Block Bucks are the city's currency. Every new player starts with a stack of them to spend on clothes, accessories, pets and weapons.
+- **Meet people.** City chat, whispers to whoever is next to you, and proximity voice that fades with distance. Send friend requests and see who is online on the map.
+- **Trade.** Offer items from your bag face to face.
+- **Fight.** Throw a punch or carry a gun. Health wears down when you are hit; a hospital patches you up. Nobody can take what you own.
+- **Govern.** Each district seats a council of twelve. For now it is social: show up, be known, and the room notices.
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| **W A S D** | Walk (A/D turn). Hold Shift to sprint. In a car, drive and steer. |
+| **Mouse** | Look around. With a gun out it aims; otherwise hold right mouse to look. |
+| **F** / left click | Punch, or fire the gun you are holding. |
+| **Space** | Jump. |
+| **E** | Enter or leave a building or car. |
+| **C** | Sit on a nearby chair or bench. |
+| **I** | Inventory - inside a Store this is also the shop. |
+| **M** | Map: districts, your property, and who is online. |
+| **N** | Inbox: receipts, sales and friend requests. |
+| **G** | Send a friend request to whoever is next to you. |
+| **T** | Offer an item to the player beside you. |
+| **Enter** | Whisper if someone is in range, otherwise city chat. |
+| **Esc** | Pause and release the mouse. |
+
+Block runs on a desktop or laptop browser - Chrome, Edge, Firefox or Safari.
+
+## Running it
+
+You need Node.js 22+ and Yarn 1.
 
 ```bash
 yarn install:all
@@ -46,39 +67,40 @@ yarn install:all
 Then in two terminals:
 
 ```bash
-yarn dev:web
 yarn dev:backend
+yarn dev:web
 ```
 
-Or from each folder:
+Open http://localhost:5173, pick a name and play. Typing a name that already exists picks that player back up, so open a second tab with a different name to see multiplayer in action. Other machines on your network can join at `http://<your-ip>:5173`.
 
-```bash
-cd frontend
-yarn install
-yarn dev
-```
+| | |
+| --- | --- |
+| Web | http://localhost:5173 |
+| Game server | ws://localhost:2567 |
+| Health check | http://localhost:2567/health |
 
-```bash
-cd backend
-yarn install
-yarn dev
-```
+No configuration is required. Optional settings - starting balance, the car cap, voice servers, a floating dev launcher for jumping straight into any district - are documented in `backend/.env.example` and `frontend/.env.example`.
 
-- Web: http://localhost:5173
-- Colyseus: ws://localhost:2567
-- Health: http://localhost:2567/health
+The world is saved by the game server to `backend/data/sandbox-db.json`. Stop the server and delete that file to start the city fresh.
 
-Copy `frontend/.env.example` → `frontend/.env` and `backend/.env.example` → `backend/.env`. **Play free** creates a username account; linking a Solana wallet (Phantom, Solflare, Backpack) is done later from Settings or the account menu. Set `SESSION_SECRET` in `backend/.env` so restarts do not sign everyone out, and run `supabase/migrations/017_solana_accounts.sql` before deploying. Set `VITE_DEV_TOOLS=true` in `frontend/.env` (and `ALLOW_DEMO_PLAYERS=true` in `backend/.env`, never in production) to show a floating launcher for jumping between pages and city game modes without an account.
+## How it is built
 
-The game runs without Supabase, Redis, a Solana RPC, or R2. Without Supabase, accounts are kept in memory and lost on restart.
+| Folder | What it is |
+| --- | --- |
+| `frontend/` | React + Vite site and the PlayCanvas 3D game client. |
+| `backend/` | Node.js game server: Colyseus rooms for positions, vehicles and events, plus an Express API. |
+| `shared/` | City layout, items, prices and character types used by both. |
 
-### Controls
+Each of `frontend/` and `backend/` installs its own dependencies - do not run `yarn install` in the repo root.
 
-- **WASD / arrows / on-screen pad** — walk (or drive when in a car)
-- **E** — enter / exit buildings and vehicles, work a job block
-- **Enter** — city chat
-- **T** — trade when standing next to another player
-- **Microphone button** — opt in to proximity voice chat (within 22 world units)
-- **Esc** — pause
+The server is authoritative: balances, inventory, property and health live on it, and the client only ever asks. Voice chat is peer-to-peer WebRTC audio, with the game room used for signalling.
 
-Voice chat uses peer-to-peer WebRTC audio and the existing Colyseus room for signaling. Microphone access requires HTTPS in production (localhost is allowed during development). The default public STUN server is suitable for local testing; configure `VITE_VOICE_ICE_SERVERS` with a TURN service in `frontend/.env` for reliable production connectivity.
+The property market is one switch: `PROPERTY_MARKET_OPEN` in `shared/cities.ts`. It is `false` for now, which closes home and car sales and locks every district above the Trenches. Set it to `true` to open both.
+
+### Coming from Moonville
+
+Block was previously called Moonville, with a currency called $MOON. Old saves carry over automatically: browser storage moves from `moonville:` to `block:` keys on first load, and an existing save file has its `moon` balances renamed to `bucks` when the server starts.
+
+## License
+
+Block is open source under the [MIT License](LICENSE).

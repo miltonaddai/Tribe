@@ -1,6 +1,11 @@
 import type { Room } from "@colyseus/sdk";
 
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+/**
+ * No STUN/TURN by default: the sandbox runs offline, and peers on the same
+ * machine or LAN connect over host candidates without one. Set
+ * VITE_VOICE_ICE_SERVERS to add servers if you ever need them.
+ */
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [];
 
 type VoiceSignal = {
   fromSession: string;
@@ -28,7 +33,7 @@ export type VoiceDiagnostic = {
   volume: number;
 };
 
-const OUTPUT_KEY = "moonville.audio-output";
+const OUTPUT_KEY = "block.audio-output";
 /** Browsers that cannot route audio per element only ever use the system default. */
 export const canPickOutput = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
@@ -131,7 +136,7 @@ function iceServers(): RTCIceServer[] {
     const parsed = JSON.parse(configured) as RTCIceServer[];
     return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_ICE_SERVERS;
   } catch {
-    console.warn("[voice] VITE_VOICE_ICE_SERVERS is not valid JSON; using the default STUN server.");
+    console.warn("[voice] VITE_VOICE_ICE_SERVERS is not valid JSON; using host candidates only.");
     return DEFAULT_ICE_SERVERS;
   }
 }

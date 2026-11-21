@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@moonville/shared";
+import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@block/shared";
 import { isDevToolsEnabled } from "../lib/devTools";
 import { connectDemo } from "../lib/session";
 import { loadCharacter, saveCharacter } from "../lib/storage";
@@ -33,8 +33,7 @@ export function DevLauncher() {
 
   async function seedCity(city: CityId) {
     const look = LOOKS[city];
-    // Demo players join as demo:<n> with no account; the backend only admits
-    // them with ALLOW_DEMO_PLAYERS=true.
+    // Demo players join as demo:<n> with no profile and a made-up balance.
     const existingName = loadCharacter()?.displayName;
     const session = connectDemo(look.balance, existingName || look.name);
     setSession(session);
@@ -54,7 +53,7 @@ export function DevLauncher() {
       homeCity: city,
       accessTier: CITIES[city].tier,
       brokemeter: 100,
-      moon: existing?.moon ?? 0,
+      bucks: existing?.bucks ?? 0,
       inventory: existing?.inventory ?? seedInventory(existing?.accessories ?? []),
       equippedGun: existing?.equippedGun ?? null,
       equippedPet: existing?.equippedPet ?? null,

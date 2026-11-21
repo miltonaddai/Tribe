@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@moonville/shared";
-import type { GameSettings } from "@moonville/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@block/shared";
+import type { GameSettings } from "@block/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
 import { clearSession, loadSession } from "../lib/session";
@@ -20,7 +20,7 @@ import { playBlock, type Blocked } from "../lib/device";
 import { MiniMap, zoneLabel } from "../components/MiniMap";
 import { AudioOutputPicker } from "../components/AudioOutputPicker";
 import { loadOutputDevice } from "../lib/voiceChat";
-import type { ItemId } from "@moonville/shared";
+import type { ItemId } from "@block/shared";
 
 const EMPTY: HudState = {
   city: "trenches",
@@ -38,7 +38,7 @@ const EMPTY: HudState = {
   chat: [],
   citizens: [],
   connected: false,
-  moon: 0,
+  bucks: 0,
   inventory: [],
   inStore: false,
   inStation: false,
@@ -124,7 +124,7 @@ function WorldFullScreen({ onRetry }: { onRetry: () => Promise<boolean> }) {
   return (
     <div className="session-ended">
       <div className="session-ended-card">
-        <p className="list-kicker">MOONVILLE IS FULL</p>
+        <p className="list-kicker">BLOCK IS FULL</p>
         <p className="session-ended-body">
           Every slot in the city is taken right now. You are in line and will be let in as soon as someone
           leaves.
@@ -150,11 +150,6 @@ function WorldFullScreen({ onRetry }: { onRetry: () => Promise<boolean> }) {
 
 export function GamePage() {
   const nav = useNavigate();
-  const { openLink, linkOpen } = useSession();
-  // The engine is built once, so it reaches the dialog through a ref that
-  // always holds the current opener.
-  const openLinkRef = useRef(openLink);
-  openLinkRef.current = openLink;
   const [params] = useSearchParams();
   const cityKey = params.get("city") ?? "";
   const openSettings = params.get("settings") === "1";
@@ -219,7 +214,7 @@ export function GamePage() {
   const anyPanelOpen =
     invOpen || mapOpen || inboxOpen || chatOpen || whisperOpen || tradeOpen || settingsOpen || paused ||
     Boolean(hud.trade) || Boolean(hud.tradeInvite) || crimeOpen || fitOpen || bugOpen || Boolean(shot) ||
-    Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt) || linkOpen;
+    Boolean(hud.carListPrompt) || Boolean(hud.namePrompt) || Boolean(hud.listPrompt);
   useEffect(() => {
     // Tell the engine either way: it must not grab the cursor back while a
     // panel is open, and it may resume aiming once one closes.
@@ -249,8 +244,7 @@ export function GamePage() {
     // hiding the canvas matters: booting the engine would download and build a
     // whole 3D city on a phone that is about to be turned away.
     if (blocked) return;
-    // Playing needs an account now; a character saved by the old wallet
-    // sign-in belongs to an identity that no longer exists.
+    // Playing needs a profile name; with none, pick one first.
     const session = loadSession();
     if (!session) {
       nav("/login", { replace: true });
@@ -265,13 +259,6 @@ export function GamePage() {
     if (!canvas) return;
     const engine = new GameEngine();
     engineRef.current = engine;
-    // A purchase with no wallet linked opens the link dialog and waits for it.
-    // Demo players have no account to link a wallet to.
-    engine.setWalletLinker(() => {
-      const current = loadSession();
-      if (!current || current.demo) return Promise.resolve(false);
-      return openLinkRef.current("purchase");
-    });
     // start() now resolves once the authoritative spawn has been applied, so
     // the canvas stays behind the loader until the player is in the right city.
     void engine.start(canvas, character, loadSettings(), setHud).finally(() => setLoading(false));
@@ -503,8 +490,8 @@ export function GamePage() {
             <rect x="9" y="1" width="3" height="12" />
           </svg>
         </button>
-        <div className="moon-chip">
-          {hud.moon} {CURRENCY}
+        <div className="bucks-chip">
+          {hud.bucks} {CURRENCY}
         </div>
       </div>
       <button
@@ -594,7 +581,7 @@ export function GamePage() {
       {loading && (
         <div className="boot" role="status" aria-live="polite">
           <div className="boot-card">
-            <p className="boot-mark">MOONVILLE</p>
+            <p className="boot-mark">BLOCK</p>
             <div className="boot-bar">
               <span />
             </div>
@@ -1061,7 +1048,7 @@ export function GamePage() {
 
       {invOpen && (
         <InventoryPanel
-          moon={hud.moon}
+          bucks={hud.bucks}
           inventory={hud.inventory}
           inStore={hud.inStore}
           accessTier={hud.accessTier}
@@ -1121,7 +1108,7 @@ export function GamePage() {
         <Wardrobe
           inventory={hud.inventory}
           current={hud.outfit}
-          moon={hud.moon}
+          bucks={hud.bucks}
           error={buyError}
           onWear={(id) => engineRef.current?.wearOutfit(id as never)}
           onBuy={(id) => {

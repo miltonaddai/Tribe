@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { AccessoryId, BodyType, GunId, HeadwearId, OutfitId, ShoeId } from "@moonville/shared";
+import type { AccessoryId, BodyType, GunId, HeadwearId, OutfitId, ShoeId } from "@block/shared";
 import { box } from "./pcApp";
 
 export type Appearance = {

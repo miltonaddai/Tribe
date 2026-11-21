@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { CURRENCY } from "@block/shared";
 import { useSession } from "../state/SessionStore";
-import { shorten } from "../lib/session";
 import { loadCharacterForWallet } from "../lib/storage";
 
-/** The Moonville mark. Decorative: every use sits beside the name or a label. */
-export function MoonLogo() {
-  return <img className="moon-logo" src="/moon.svg" alt="" aria-hidden draggable={false} />;
+/** The Block mark. Decorative: every use sits beside the name or a label. */
+export function BrandLogo() {
+  return <img className="brand-logo" src="/logo.svg" alt="" aria-hidden draggable={false} />;
 }
 
 /** Three bars, or a cross once the menu is open. */
@@ -29,11 +29,11 @@ const LINKS = [
   { href: "/#how", label: "How it works" },
   { href: "/#districts", label: "Districts" },
   { href: "/#features", label: "Features" },
-  { href: "/#token", label: "$MOON" },
+  { href: "/#bucks", label: CURRENCY },
 ];
 
 export function Header({ solid = false }: { solid?: boolean }) {
-  const { session, signOut, openLink } = useSession();
+  const { session, signOut } = useSession();
   const nav = useNavigate();
   const playTarget = usePlayTarget();
   const [open, setOpen] = useState(false);
@@ -85,11 +85,11 @@ export function Header({ solid = false }: { solid?: boolean }) {
   return (
     <header className={cls} ref={root}>
       <div className="nav-inner">
-        <Link to="/" className="nav-brand" aria-label="Moonville home">
+        <Link to="/" className="nav-brand" aria-label="Block home">
           <span className="nav-logo">
-            <MoonLogo />
+            <BrandLogo />
           </span>
-          Moonville
+          Block
         </Link>
 
         <nav className="nav-links" id="nav-menu" aria-label="Main">
@@ -138,25 +138,11 @@ export function Header({ solid = false }: { solid?: boolean }) {
                 <div className="account-menu" role="menu">
                   <div className="account-menu-head">
                     <strong>{session.username}</strong>
-                    <span>
-                      {session.solanaAddress ? `Wallet ${shorten(session.solanaAddress)}` : "No wallet linked"}
-                    </span>
+                    <span>Offline sandbox · {CURRENCY}</span>
                   </div>
                   <button type="button" role="menuitem" onClick={() => nav(playTarget)}>
                     Play now
                   </button>
-                  {!session.demo && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMenu(false);
-                        openLink();
-                      }}
-                    >
-                      {session.solanaAddress ? "Change linked wallet" : "Link Solana wallet"}
-                    </button>
-                  )}
                   <button
                     type="button"
                     role="menuitem"
@@ -167,14 +153,14 @@ export function Header({ solid = false }: { solid?: boolean }) {
                       nav("/");
                     }}
                   >
-                    Sign out
+                    Switch player
                   </button>
                 </div>
               )}
             </div>
           ) : (
             <Link to="/login" className="btn btn-ghost btn-sm nav-signin">
-              Sign in
+              Pick a name
             </Link>
           )}
           <Link to={playTarget} className="btn btn-accent btn-sm">

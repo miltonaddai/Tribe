@@ -1,4 +1,4 @@
-import { CITIES, homeFloors, parseHomeId, type CityId, type ItemId } from "@moonville/shared";
+import { CITIES, homeFloors, parseHomeId, type CityId, type ItemId } from "@block/shared";
 
 /**
  * Flat 2D icons for the store and inventory.

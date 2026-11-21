@@ -95,16 +95,9 @@ export const PETS: { id: PetId; label: string }[] = [
 ];
 
 /**
- * Prices are in Moon, which is the $MOON token itself.
- *
- * Calibrated against a 1B supply at a $1M market cap, so 1 Moon = $0.001 and
- * 1,000 Moon = $1. On that basis the whole catalog is roughly $25 and a Sport
- * car is $35 - impulse-buy money, which is what a social game needs.
- *
- * The catch: these are fixed in TOKEN terms, so the real cost tracks the token
- * price. At a $100M cap the Sidearm below is $30, not $3, and at $1B it is $300.
- * If the token runs, these have to be re-cut or moved to a USD peg, or the game
- * prices out its own players exactly when it is winning.
+ * Prices are in Block Bucks, the in-game currency.
+ * Pitched so the whole catalog costs about the price of one Trenches home:
+ * cosmetics and gear are impulse buys, property is the goal.
  */
 export const CATALOG: CatalogItem[] = [
   { id: "glasses", kind: "accessory", name: "Glasses", blurb: "See the city. Look like you read.", price: 500, tier: 1, unique: true },

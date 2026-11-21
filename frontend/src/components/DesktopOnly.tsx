@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MoonLogo } from "./Header";
+import { BrandLogo } from "./Header";
 import { MIN_PLAY_WIDTH, type Blocked } from "../lib/device";
 
 /**
@@ -16,10 +16,10 @@ export function DesktopOnly({ reason }: { reason: Blocked }) {
     <div className="desktop-only">
       <div className="desktop-only-card">
         <span className="desktop-only-mark">
-          <MoonLogo />
+          <BrandLogo />
         </span>
 
-        <h1>{narrow ? "Your window is too narrow" : "Moonville needs a desktop"}</h1>
+        <h1>{narrow ? "Your window is too narrow" : "Block needs a desktop"}</h1>
 
         <p>
           {narrow ? (
@@ -38,7 +38,7 @@ export function DesktopOnly({ reason }: { reason: Blocked }) {
 
         {!narrow && (
           <p className="desktop-only-sub">
-            Open <strong>Moonville</strong> on a laptop or desktop and sign in - your character and
+            Open <strong>Block</strong> on a laptop or desktop and pick your name - your character and
             everything you own will be exactly where you left them.
           </p>
         )}

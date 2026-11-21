@@ -4,6 +4,9 @@ import { CURRENCY,
   type CrimeReport,
   type OutfitId,
   homeAccessTier,
+  capTier,
+  PROPERTY_MARKET_OPEN,
+  PROPERTY_CLOSED_TEXT,
   unlockingCity,
   isTierGated,
   armSlots,
@@ -39,16 +42,14 @@ import { CURRENCY,
   type InventoryStack,
   type ItemId,
   type PetId,
-} from "@moonville/shared";
+} from "@block/shared";
 import { composeShot, snapshot } from "../lib/screenshot";
 import { joinWorld, type JoinFailure } from "../lib/colyseus";
 import { loadCharacter, saveCharacter } from "../lib/storage";
 import { loadSession } from "../lib/session";
 
 /** Shown when a purchase needs a wallet the account has not linked yet. */
-const LINK_WALLET = "Link a Solana wallet to buy this: Pause → Settings → Account.";
 import { VoiceChat, loadOutputDevice, saveOutputDevice } from "../lib/voiceChat";
-import { payForPurchase, paymentsRequired } from "../lib/payments";
 import { playGunshot, setSfxVolume } from "../lib/sfx";
 import { createPcApp, destroyPcApp, entityYaw, hitsAabb, material, setCycleGlow, type Aabb } from "./pcApp";
 import { createCitizen, setCitizenDetail, type Appearance } from "./character";
@@ -347,7 +348,7 @@ export type HudState = {
   chat: { name: string; text: string }[];
   citizens: MapCitizen[];
   connected: boolean;
-  moon: number;
+  bucks: number;
   inventory: InventoryStack[];
   inStore: boolean;
   /** Standing in a police station: unlocks the blotter panel. */
@@ -507,7 +508,6 @@ export class GameEngine {
    * Opens the "link a wallet" dialog and resolves true once one is linked.
    * Supplied by the game page, which owns the dialog.
    */
-  private walletLinker: (() => Promise<boolean>) | null = null;
   /** Purchases waiting for the server's answer to a holdings refresh. */
   private bagWaiters: (() => void)[] = [];
   /** True once the server's spawn has been applied, so it happens only once. */
@@ -546,7 +546,7 @@ export class GameEngine {
   private remoteYaw = new Map<string, number>();
   private localName = "citizen";
   private look: Appearance | null = null;
-  private moon = 0;
+  private bucks = 0;
   private homes = new Map<string, HomeInfo>();
   private homeOpeningBid = 250;
   private homeBidIncrement = 50;
@@ -600,7 +600,7 @@ export class GameEngine {
     this.look = { ...appearanceOf(character), gun: character.equippedGun };
     // A cached figure so the HUD is not blank offline. The server overwrites it
     // with the wallet's real balance as soon as the room sends a bag.
-    this.moon = Number.isFinite(character.moon) ? character.moon : 0;
+    this.bucks = Number.isFinite(character.bucks) ? character.bucks : 0;
     this.inventory = seedInventory(character.accessories, character.inventory);
     this.gun = character.equippedGun ?? null;
     this.petKind = character.equippedPet ?? null;
@@ -660,7 +660,7 @@ export class GameEngine {
       accessories: (character.accessories ?? []).join(","),
       health: this.health,
       brokemeter: this.health,
-      moon: this.moon,
+      bucks: this.bucks,
       inventory: encodeInventory(this.inventory),
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
@@ -838,27 +838,11 @@ export class GameEngine {
       return counter === "fashion" ? "Walk into the Fashion House to buy that." : "Walk into a Store to buy.";
     }
     if (isTierGated(item) && item.tier > this.accessTier) return `Needs tier ${item.tier}.`;
-    if (!(await this.walletReady())) return null;
-    if (this.moon < item.price) return `Not enough ${CURRENCY}.`;
+    if (this.bucks < item.price) return `Not enough ${CURRENCY}.`;
     if (item.unique && hasItem(this.inventory, item.id)) return "You already own that.";
-    if (this.paying) return null;
 
-    if (!(await paymentsRequired())) {
-      this.room?.send("buy-item", { id: item.id });
-      return null;
-    }
-
-    this.paying = true;
-    this.setNotice(`Confirm ${item.price} ${CURRENCY} in your wallet…`);
-    try {
-      const paid = await payForPurchase(item.price);
-      if (!paid.ok) return paid.reason || "Purchase cancelled.";
-      this.setNotice("Payment sent, confirming…");
-      this.room?.send("buy-item", { id: item.id, txHash: paid.txHash });
-      return null;
-    } finally {
-      this.paying = false;
-    }
+    this.room?.send("buy-item", { id: item.id });
+    return null;
   }
 
 /**
@@ -904,51 +888,6 @@ export class GameEngine {
     if (this.canvas && document.pointerLockElement === this.canvas) document.exitPointerLock();
   }
 
-  /** Lets a purchase open the wallet-link dialog and wait for it. */
-  setWalletLinker(linker: (() => Promise<boolean>) | null) {
-    this.walletLinker = linker;
-  }
-
-  /**
-   * Makes sure a purchase can be paid for, linking a wallet first if need be.
-   *
-   * Runs before the balance check: with no wallet linked the balance is zero,
-   * so checking it first would say "not enough" to someone who simply has not
-   * connected yet. When a wallet is linked here, the server is asked to re-read
-   * holdings straight away, so the balance check that follows sees the real
-   * figure rather than the zero from a minute ago.
-   */
-  private async walletReady(): Promise<boolean> {
-    const session = loadSession();
-    // Asked for whether or not on-chain payments are switched on yet: buying
-    // is something you do with a wallet, so the prompt is part of buying even
-    // before $MOON launches. Demo players have no account to link one to and
-    // spend the off-chain test balance instead.
-    if (session?.demo) return true;
-    if (session?.solanaAddress) return true;
-    // One dialog at a time; a second click while it is open does nothing.
-    if (this.paying) return false;
-    if (!this.walletLinker) {
-      this.setNotice(LINK_WALLET);
-      return false;
-    }
-    this.releaseAim();
-    this.setNotice("Link a Solana wallet to pay - it only takes a signature.");
-    this.paying = true;
-    try {
-      const linked = await this.walletLinker();
-      if (!linked || !loadSession()?.solanaAddress) {
-        this.setNotice("No wallet linked, so nothing was bought.");
-        return false;
-      }
-      this.setNotice(`Wallet linked. Checking your ${CURRENCY}…`);
-      await this.refreshHoldings();
-      return true;
-    } finally {
-      this.paying = false;
-    }
-  }
-
   /** Asks the server to re-read holdings now, and waits (briefly) for the answer. */
   private refreshHoldings(): Promise<void> {
     return new Promise((resolve) => {
@@ -957,7 +896,7 @@ export class GameEngine {
         this.bagWaiters = this.bagWaiters.filter((w) => w !== done);
         resolve();
       };
-      // The read is a chain call; never hold a purchase hostage to a slow RPC.
+      // Never hold the caller hostage to a slow answer.
       const timer = window.setTimeout(done, 6000);
       this.bagWaiters.push(done);
       this.room?.send("holdings-refresh");
@@ -1215,7 +1154,7 @@ export class GameEngine {
       this.tradeInvite = null;
       this.setNotice(msg.reason ?? "Trade closed.");
     });
-    room.onMessage("bag-sync", (msg: { inventory?: string; moon?: number; gun?: string; pet?: string; accessories?: string; accessTier?: number }) => {
+    room.onMessage("bag-sync", (msg: { inventory?: string; bucks?: number; gun?: string; pet?: string; accessories?: string; accessTier?: number }) => {
       // Holdings are re-read every 60s, so the tier can move under a player who
       // never reconnects. Track it or the local gate check drifts from the
       // server's and every step gets corrected instead of refused.
@@ -1500,7 +1439,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       accessories: (character.accessories ?? []).join(","),
       health: this.health,
       brokemeter: this.health,
-      moon: this.moon,
+      bucks: this.bucks,
       inventory: encodeInventory(this.inventory),
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
@@ -1604,6 +1543,10 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
 
   private async buyCar(item: Interactable) {
     if (!item.carKind || item.carPrice == null) return;
+    if (!PROPERTY_MARKET_OPEN) {
+      this.setNotice(PROPERTY_CLOSED_TEXT);
+      return;
+    }
     if (this.fleetCap > 0 && this.fleetSold >= this.fleetCap) {
       this.setNotice(`Sold out - all ${this.fleetCap} cars are owned.`);
       return;
@@ -1612,34 +1555,12 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.setNotice("You already own a car. One each.");
       return;
     }
-    if (!(await this.walletReady())) return;
-    if (this.moon < item.carPrice) {
-      this.setNotice(`${item.label ?? "That car"} costs ${item.carPrice} ${CURRENCY}. You have ${this.moon}.`);
-      return;
-    }
-    // Guard against a second prompt while the wallet is already open.
-    if (this.paying) return;
-
-    if (!(await paymentsRequired())) {
-      this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city });
+    if (this.bucks < item.carPrice) {
+      this.setNotice(`${item.label ?? "That car"} costs ${item.carPrice} ${CURRENCY}. You have ${this.bucks}.`);
       return;
     }
 
-    this.paying = true;
-    this.setNotice("Confirm the payment in your wallet…");
-    try {
-      const paid = await payForPurchase(item.carPrice);
-      if (!paid.ok) {
-        // An empty reason is the player cancelling; they know they did that.
-        if (paid.reason) this.setNotice(paid.reason);
-        else this.setNotice("Purchase cancelled.");
-        return;
-      }
-      this.setNotice("Payment sent, confirming…");
-      this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city, txHash: paid.txHash });
-    } finally {
-      this.paying = false;
-    }
+    this.room?.send("buy-vehicle", { kind: item.carKind, city: item.city });
   }
 
   private nearestHome(): Interactable | null {
@@ -1665,9 +1586,10 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     if (owner === this.wallet) {
       const lock = `L to ${this.vehicleLocks.get(id) ? "unlock" : "lock"}`;
       if (asking != null) return `Press E to drive · listed at ${asking} ${CURRENCY} · B to withdraw · ${lock}`;
+      if (!PROPERTY_MARKET_OPEN) return `Press E to drive · ${lock}`;
       return `Press E to drive · B to sell · ${lock}`;
     }
-    if (asking != null) {
+    if (asking != null && PROPERTY_MARKET_OPEN) {
       const seller = this.remoteNameForWallet(owner);
       return `${seller}'s ${this.vehicles.get(id)?.kind ?? "car"} · B to buy for ${asking} ${CURRENCY}`;
     }
@@ -1689,7 +1611,12 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     if (info && info.owner === this.wallet) {
       const lock = info.locked ? "L to unlock" : "L to lock";
       if (info.forSale) return `${base} · listed at ${info.askingPrice} ${CURRENCY} · B to withdraw · ${lock}`;
+      if (!PROPERTY_MARKET_OPEN) return `${base} · H to name · ${lock}`;
       return `${base} · B to list · H to name · ${lock}`;
+    }
+    if (!PROPERTY_MARKET_OPEN) {
+      if (!info?.owner) return base;
+      return info.locked ? `${info.ownerName}'s home - locked` : `${base} · ${info.ownerName}'s home`;
     }
     if (info?.owner && info.owner !== this.wallet && !info.forSale) {
       return info.locked ? `${info.ownerName}'s home - locked` : `${base} · ${info.ownerName}'s home`;
@@ -1797,39 +1724,29 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
         this.room?.send("car-list", { id, list: false });
         return;
       }
+      if (!PROPERTY_MARKET_OPEN) {
+        this.setNotice(PROPERTY_CLOSED_TEXT);
+        return;
+      }
       this.pendingCarListing = { id, suggested: asking ?? 0 };
       return;
     }
 
     if (!owner || asking == null) return;
-    if (!(await this.walletReady())) return;
-    if (this.moon < asking) {
-      this.setNotice(`That car costs ${asking} ${CURRENCY}. You have ${this.moon}.`);
+    if (!PROPERTY_MARKET_OPEN) {
+      this.setNotice(PROPERTY_CLOSED_TEXT);
+      return;
+    }
+    if (this.bucks < asking) {
+      this.setNotice(`That car costs ${asking} ${CURRENCY}. You have ${this.bucks}.`);
       return;
     }
     if (this.ownedCars.size > 0) {
       this.setNotice("You already own a car. One each.");
       return;
     }
-    if (this.paying) return;
 
-    if (!(await paymentsRequired())) {
-      this.room?.send("car-buy", { id });
-      return;
-    }
-    this.paying = true;
-    this.setNotice(`Confirm ${asking} ${CURRENCY} in your wallet…`);
-    try {
-      const paid = await payForPurchase(asking);
-      if (!paid.ok) {
-        this.setNotice(paid.reason || "Purchase cancelled.");
-        return;
-      }
-      this.setNotice("Payment sent, confirming…");
-      this.room?.send("car-buy", { id, txHash: paid.txHash });
-    } finally {
-      this.paying = false;
-    }
+    this.room?.send("car-buy", { id });
   }
 
   listCar(price: number) {
@@ -1858,6 +1775,10 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
         this.room?.send("home-list", { id: home.id, list: false });
         return;
       }
+      if (!PROPERTY_MARKET_OPEN) {
+        this.setNotice(PROPERTY_CLOSED_TEXT);
+        return;
+      }
       // Listing needs an asking price, so hand off to the HUD for the number.
       this.pendingListing = {
         id: home.id,
@@ -1871,33 +1792,18 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       this.setNotice(`This home belongs to ${info.ownerName}`);
       return;
     }
+    if (!PROPERTY_MARKET_OPEN) {
+      this.setNotice(PROPERTY_CLOSED_TEXT);
+      return;
+    }
 
     const price = this.homeCost(home.id, info);
-    if (!(await this.walletReady())) return;
-    if (this.moon < price) {
-      this.setNotice(`That home costs ${price} ${CURRENCY}. You have ${this.moon}.`);
-      return;
-    }
-    if (this.paying) return;
-
-    if (!(await paymentsRequired())) {
-      this.room?.send("home-buy", { id: home.id, city: home.city });
+    if (this.bucks < price) {
+      this.setNotice(`That home costs ${price} ${CURRENCY}. You have ${this.bucks}.`);
       return;
     }
 
-    this.paying = true;
-    this.setNotice(`Confirm ${price} ${CURRENCY} in your wallet…`);
-    try {
-      const paid = await payForPurchase(price);
-      if (!paid.ok) {
-        this.setNotice(paid.reason || "Purchase cancelled.");
-        return;
-      }
-      this.setNotice("Payment sent, confirming…");
-      this.room?.send("home-buy", { id: home.id, city: home.city, txHash: paid.txHash });
-    } finally {
-      this.paying = false;
-    }
+    this.room?.send("home-buy", { id: home.id, city: home.city });
   }
 
   private applyNetworkVehicle(vehicle: RemoteVehicle, vehicleId: string) {
@@ -2871,7 +2777,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
 
   private ladderTier(): number {
     if (!this.wallet) return 1;
-    if (this.wallet.startsWith("demo:")) return this.accessTier;
+    if (this.wallet.startsWith("demo:")) return capTier(this.accessTier);
     const owned: CityId[] = [];
     for (const home of this.homes.values()) {
       if (home.owner === this.wallet) owned.push(home.city as CityId);
@@ -3102,7 +3008,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       chat: this.chat,
       citizens,
       connected: Boolean(this.room),
-      moon: this.moon,
+      bucks: this.bucks,
       inventory: this.inventory,
       inStore: this.inBuilding?.interiorKind === "store",
       inStation: this.inBuilding?.interiorKind === "police",
@@ -3266,7 +3172,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       const owned = Boolean(info?.owner);
       const mine = Boolean(info && info.owner === this.wallet);
       // An unowned home is always on the market; an owned one only when relisted.
-      const onMarket = !owned || Boolean(info?.forSale);
+      // While the market is closed only your own live listing shows, so you can withdraw it.
+      const onMarket = PROPERTY_MARKET_OPEN ? !owned || Boolean(info?.forSale) : mine && Boolean(info?.forSale);
+      if (!owned && !PROPERTY_MARKET_OPEN) continue;
       const hx = item.interior?.x ?? item.x;
       const hz = item.interior?.z ?? item.z;
       const dist = Math.hypot(hx - ox, hz - oz);
@@ -3299,7 +3207,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
         // A named home shows its name; an unnamed one falls back to whose it is.
         name = info.name || (mine ? "YOUR HOME" : "SOLD");
         detail = mine
-          ? dist < HOME_BID_RANGE
+          ? dist < HOME_BID_RANGE && PROPERTY_MARKET_OPEN
             ? "Press B to list for sale"
             : null
           : info.ownerName || null;
@@ -3336,6 +3244,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
 
       const owner = this.vehicleOwners.get(id) ?? "";
       const mine = owner === this.wallet;
+      if (!mine && !PROPERTY_MARKET_OPEN) continue;
       const seller = mine ? "" : ` · ${this.remoteNameForWallet(owner)}`;
       tags.push({
         sessionId: `car:${id}`,
@@ -3775,7 +3684,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
   private gateText(city: CityId): string {
     const name = CITIES[city].name;
     const below = unlockingCity(city);
-    if (!below) return `${name} is closed right now.`;
+    if (!below || !PROPERTY_MARKET_OPEN) return `${name} is closed for now. Only the Trenches is open.`;
     return `${name} is for residents of ${CITIES[below].name}. Buy a home in ${CITIES[below].name} to get in.`;
   }
 
@@ -3999,7 +3908,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
       saveCharacter(
         {
           ...c,
-          moon: this.moon,
+          bucks: this.bucks,
           inventory: this.inventory,
           accessories: this.look?.accessories ?? c.accessories,
           equippedGun: this.gun,
@@ -4011,7 +3920,7 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
     this.room?.send("loadout", {
       inventory: encodeInventory(this.inventory),
-      moon: this.moon,
+      bucks: this.bucks,
       gun: this.gun ?? "",
       pet: this.petKind ?? "",
       accessories: (this.look?.accessories ?? []).join(","),
@@ -4079,9 +3988,9 @@ room.onMessage("car-result", (msg: { ok?: boolean; reason?: string }) => {
     }
   }
 
-  private applyBag(msg: { inventory?: string; moon?: number; gun?: string; pet?: string; accessories?: string }) {
+  private applyBag(msg: { inventory?: string; bucks?: number; gun?: string; pet?: string; accessories?: string }) {
     if (typeof msg.inventory === "string") this.inventory = decodeInventory(msg.inventory);
-    if (typeof msg.moon === "number") this.moon = msg.moon;
+    if (typeof msg.bucks === "number") this.bucks = msg.bucks;
     this.gun = isGunId(String(msg.gun ?? "")) ? (msg.gun as GunId) : null;
     const nextPet = isPetId(String(msg.pet ?? "")) ? (msg.pet as PetId) : null;
     if (typeof msg.accessories === "string" && this.look) this.look.accessories = parseAccessories(msg.accessories);

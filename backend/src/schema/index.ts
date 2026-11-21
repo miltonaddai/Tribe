@@ -26,8 +26,8 @@ export class PlayerState extends Schema {
   sitting = false;
   /** Lying down rather than sitting, so onlookers see a sleeper not a stander. */
   lying = false;
-  /** The wallet's $MOON balance, pushed by the server. Never seeded here. */
-  moon = 0;
+  /** The player's Block Bucks balance, pushed by the server. Never seeded here. */
+  bucks = 0;
   inventory = "[]";
   gun = "";
   pet = "";
@@ -57,7 +57,7 @@ defineTypes(PlayerState, {
   buildingId: "string",
   sitting: "boolean",
   lying: "boolean",
-  moon: "number",
+  bucks: "number",
   inventory: "string",
   gun: "string",
   pet: "string",

@@ -1,11 +1,7 @@
 /**
  * Reading and writing the station blotter.
  *
- * Falls back to an in-process list when no database is configured, so the
- * feature still works in local development. The fallback is explicitly not a
- * cache: it is only consulted when there is no Supabase at all, because a board
- * that silently served stale rows after a database hiccup would be worse than
- * one that came back empty.
+ * Stored in the local sandbox database, so reports survive a restart.
  */
 
 import {
@@ -18,11 +14,8 @@ import {
   type CrimeReport,
   type OffenceId,
   type WalletChainId,
-} from "@moonville/shared";
-import { getSupabase } from "./supabase";
-
-/** Reports are short-lived and few; a plain array is ample without a database. */
-const memory: (CrimeReport & { reporterWallet: string })[] = [];
+} from "@block/shared";
+import { getDb } from "./localDb";
 
 export type ReportDraft = {
   city: string;
@@ -49,7 +42,7 @@ function windowStart() {
  */
 export async function fileReport(draft: ReportDraft): Promise<FileResult> {
   if (!isOffenceId(draft.offence)) return { ok: false, reason: "Pick an offence." };
-  if (!draft.reporterWallet) return { ok: false, reason: "Connect a wallet to file a report." };
+  if (!draft.reporterWallet) return { ok: false, reason: "Join the world to file a report." };
 
   const offence = draft.offence as OffenceId;
   const note = cleanText(draft.note ?? "", REPORT_NOTE_MAX);
@@ -57,31 +50,10 @@ export async function fileReport(draft: ReportDraft): Promise<FileResult> {
   // a name could never have belonged to one.
   const accusedName = cleanText(draft.accusedName ?? "", 16);
 
-  const supabase = getSupabase();
+  const db = getDb();
   const now = Date.now();
 
-  if (!supabase) {
-    const mine = memory.filter(
-      (r) => r.reporterWallet === draft.reporterWallet && now - r.at < REPORT_WINDOW_MS,
-    );
-    const limited = checkLimits(mine.map((r) => r.at), now);
-    if (limited) return { ok: false, reason: limited };
-    const report: CrimeReport = {
-      id: `local-${now}-${memory.length}`,
-      city: draft.city,
-      offence,
-      reporterName: draft.reporterName,
-      accusedName,
-      note,
-      at: now,
-    };
-    memory.unshift({ ...report, reporterWallet: draft.reporterWallet });
-    // Unbounded growth is the only real risk in a process that never restarts.
-    if (memory.length > 500) memory.length = 500;
-    return { ok: true, report };
-  }
-
-  const { data: recent, error: recentError } = await supabase
+  const { data: recent, error: recentError } = await db
     .from("crime_reports")
     .select("created_at")
     .eq("reporter_wallet", draft.reporterWallet)
@@ -95,7 +67,7 @@ export async function fileReport(draft: ReportDraft): Promise<FileResult> {
   const limited = checkLimits((recent ?? []).map((r) => Date.parse(r.created_at)), now);
   if (limited) return { ok: false, reason: limited };
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("crime_reports")
     .insert({
       city: draft.city,
@@ -142,15 +114,9 @@ function checkLimits(times: number[], now: number): string | null {
 
 /** The last 72 hours for one city, newest first. */
 export async function recentReports(city: string): Promise<CrimeReport[]> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    const cutoff = Date.now() - REPORT_WINDOW_MS;
-    return memory
-      .filter((r) => r.city === city && r.at >= cutoff)
-      .map(({ reporterWallet: _ignored, ...report }) => report);
-  }
+  const db = getDb();
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("crime_reports")
     .select("id,city,offence,reporter_name,accused_name,note,created_at")
     .eq("city", city)

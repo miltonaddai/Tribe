@@ -14,7 +14,7 @@
     "emitDecoratorMetadata": true,
     "resolveJsonModule": true,
     "paths": {
-      "@moonville/shared": ["../shared/index.ts"]
+      "@block/shared": ["../shared/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

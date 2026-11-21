@@ -16,10 +16,8 @@
  * reason and changes nothing, so there is no path where items leave one player
  * without arriving at the other.
  *
- * Currency is deliberately not tradeable. A player's MOON balance is their
- * on-chain wallet balance, which this server reads and cannot move; staking it
- * here would mean a wallet transfer that cannot settle atomically with the item
- * swap, and a crash between the two halves would cost somebody real money.
+ * Currency is deliberately not tradeable: trades swap items only. Block Bucks
+ * move through purchases and sales, which the server prices itself.
  */
 
 import {
@@ -30,7 +28,7 @@ import {
   takeItem,
   type InventoryStack,
   type ItemId,
-} from "@moonville/shared";
+} from "@block/shared";
 
 /** Per side, so a full stake still fits the trade panel without scrolling. */
 export const TRADE_MAX_ITEMS = 8;

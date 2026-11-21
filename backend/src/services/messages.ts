@@ -1,5 +1,5 @@
-import type { WalletChainId } from "@moonville/shared";
-import { getSupabase } from "./supabase";
+import type { WalletChainId } from "@block/shared";
+import { getDb } from "./localDb";
 
 export type MessageKind =
   | "bid"
@@ -25,16 +25,16 @@ const INBOX_LIMIT = 60;
 
 /** Newest first, capped — the HUD only ever renders a short list. */
 export async function loadMessages(wallet: string, chain: WalletChainId): Promise<PlayerMessage[]> {
-  const supabase = getSupabase();
-  if (!supabase || !wallet) return [];
-  const { data, error } = await supabase
+  const db = getDb();
+  if (!wallet) return [];
+  const { data, error } = await db
     .from("player_messages")
     .select("*")
     .eq("wallet", wallet)
     .eq("chain", chain)
     .order("created_at", { ascending: false })
     .limit(INBOX_LIMIT);
-  if (error) console.warn(`[supabase] load messages failed: ${error.message}`);
+  if (error) console.warn(`[db] load messages failed: ${error.message}`);
   return (data ?? []).map((row) => ({
     id: String(row.id),
     kind: row.kind as MessageKind,
@@ -58,9 +58,9 @@ export async function saveMessage(
     read: false,
     at: Date.now(),
   };
-  const supabase = getSupabase();
-  if (!supabase || !wallet) return local;
-  const { data, error } = await supabase
+  const db = getDb();
+  if (!wallet) return local;
+  const { data, error } = await db
     .from("player_messages")
     .insert({
       wallet,
@@ -71,19 +71,19 @@ export async function saveMessage(
     })
     .select("id, created_at")
     .single();
-  if (error) console.warn(`[supabase] save message failed: ${error.message}`);
+  if (error) console.warn(`[db] save message failed: ${error.message}`);
   if (!data) return local;
   return { ...local, id: String(data.id), at: Date.parse(String(data.created_at)) || local.at };
 }
 
 export async function markMessagesRead(wallet: string, chain: WalletChainId) {
-  const supabase = getSupabase();
-  if (!supabase || !wallet) return;
-  const { error } = await supabase
+  const db = getDb();
+  if (!wallet) return;
+  const { error } = await db
     .from("player_messages")
     .update({ read: true })
     .eq("wallet", wallet)
     .eq("chain", chain)
     .eq("read", false);
-  if (error) console.warn(`[supabase] mark messages read failed: ${error.message}`);
+  if (error) console.warn(`[db] mark messages read failed: ${error.message}`);
 }

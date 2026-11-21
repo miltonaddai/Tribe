@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { PreviewMotion } from "@moonville/shared";
+import type { PreviewMotion } from "@block/shared";
 
 export const SIT_HIP = 0.65;
 

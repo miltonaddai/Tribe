@@ -7,13 +7,11 @@ import {
   CITY_ORDER,
   DEALER_STOCK,
   HOME_PRICE,
+  PROPERTY_MARKET_OPEN,
   unlockingCity,
-  PASSWORD_MIN,
-} from "@moonville/shared";
+} from "@block/shared";
 import { Header } from "../components/Header";
 import { SiteFooter } from "../components/SiteFooter";
-import { CHAIN_NAME, SOLANA_EXPLORER } from "../lib/chain";
-import { DEV_WALLET, MOON_MINT } from "../lib/token";
 
 type Section = { id: string; label: string; blurb: string };
 
@@ -21,17 +19,25 @@ const GROUPS: { title: string; sections: Section[] }[] = [
   {
     title: "Getting started",
     sections: [
-      { id: "how-to-play", label: "How to play", blurb: "Sign up, build a character, learn the controls." },
-      { id: "overview", label: "Overview", blurb: "What Moonville is and what you do in it." },
-      { id: "wallets", label: "Accounts & wallets", blurb: "Usernames, passwords, and linking Solana." },
+      { id: "how-to-play", label: "How to play", blurb: "Pick a name, build a character, learn the controls." },
+      { id: "overview", label: "Overview", blurb: "What Block is and what you do in it." },
+      { id: "wallets", label: `Profiles & ${CURRENCY}`, blurb: "Names, saving, and the city's currency." },
     ],
   },
   {
     title: "The world",
     sections: [
       { id: "cities", label: "The four cities", blurb: "The Trenches, Bagtown, Midtown and Uptown." },
-      { id: "access", label: "Unlocking districts", blurb: "Homes are the keys to the next district up." },
-      { id: "property", label: "Homes & cars", blurb: "Owning, locking, naming and finding things." },
+      {
+        id: "access",
+        label: "Unlocking districts",
+        blurb: PROPERTY_MARKET_OPEN ? "Homes are the keys to the next district up." : "Only the Trenches is open for now.",
+      },
+      {
+        id: "property",
+        label: "Homes & cars",
+        blurb: PROPERTY_MARKET_OPEN ? "Owning, locking, naming and finding things." : "Not for sale yet - coming soon.",
+      },
       { id: "governance", label: "City governance", blurb: "Town Halls, the dais and the council." },
       { id: "health", label: "Health", blurb: "Getting hurt and getting patched up." },
     ],
@@ -39,8 +45,11 @@ const GROUPS: { title: string; sections: Section[] }[] = [
   {
     title: "Economy",
     sections: [
-      { id: "market", label: "Buying & selling", blurb: "Prices, the Store, dealerships and houses." },
-      { id: "token", label: "Official addresses", blurb: "The mint and wallets to check against." },
+      {
+        id: "market",
+        label: PROPERTY_MARKET_OPEN ? "Buying & selling" : "Shopping",
+        blurb: PROPERTY_MARKET_OPEN ? "Prices, the Store, dealerships and houses." : "The Store, the Fashion House and prices.",
+      },
     ],
   },
 ];
@@ -56,7 +65,8 @@ const CITY_SHOTS = {
 
 /** Old links still land somewhere sensible. */
 const ALIASES: Record<string, string> = {
-  addresses: "token",
+  addresses: "wallets",
+  token: "wallets",
   moving: "access",
   brokemeter: "health",
   store: "market",
@@ -136,6 +146,67 @@ export function DocsPage() {
   );
 }
 
+/** "Unlocking districts" while homes are not for sale: what is open, and what comes next. */
+function AccessClosed() {
+  return (
+    <>
+      <h1>Unlocking districts</h1>
+      <p className="lede">
+        For now the city is the Trenches. Bagtown, Midtown and Uptown are locked for everyone, and walking up to
+        their gates turns you back.
+      </p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>District</th>
+              <th>Right now</th>
+            </tr>
+          </thead>
+          <tbody>
+            {CITY_ORDER.map((cid) => (
+              <tr key={cid}>
+                <td>
+                  <span className="dot" style={{ background: CITIES[cid].accent }} />
+                  {CITIES[cid].name}
+                </td>
+                <td>{unlockingCity(cid) ? "Locked" : "Open to everyone"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h2>What comes next</h2>
+      <p>
+        The districts open with homes. Once homes go on sale, a home in each district is the key to the next one up:
+        a Trenches home opens Bagtown, a Bagtown home opens Midtown, and a Midtown home opens Uptown.
+      </p>
+      <Note>{CURRENCY} on their own will never open a gate. The home does.</Note>
+    </>
+  );
+}
+
+/** "Homes & cars" while they are not for sale. */
+function PropertyClosed() {
+  return (
+    <>
+      <h1>Homes &amp; cars</h1>
+      <p className="lede">Coming soon. Homes and cars aren&apos;t for sale yet.</p>
+      <h2>Driving</h2>
+      <p>
+        The unowned cars parked on the street belong to nobody, and anyone can drive them. Walk up and press{" "}
+        <kbd>E</kbd> to get in, <Keys>W A S D</Keys> to drive, and <kbd>E</kbd> again to get out.
+      </p>
+      <h2>What is coming</h2>
+      <ul>
+        <li>Houses you buy outright, name, lock, and sell to other players at your own price.</li>
+        <li>A car of your own from the dealership, parked where you left it between sessions.</li>
+        <li>Homes as the keys to the districts above the Trenches.</li>
+      </ul>
+    </>
+  );
+}
+
 /** Docs list what the store sells, so retired items are left out. */
 function priceList(kind: string) {
   return CATALOG.filter((i) => i.kind === kind && i.listed !== false);
@@ -190,137 +261,41 @@ function PriceTable({ items }: { items: { id: string; name: string; price: numbe
   );
 }
 
-/**
- * The addresses page: the one place to check an address against. Blunt about
- * what is not published yet - "coming soon" is a verifiable fact, while a page
- * that omits an address leaves room for someone else to supply one.
- */
-function Addresses() {
-  const rows = [
-    {
-      name: "Official $MOON mint",
-      what: `The SPL token itself on ${CHAIN_NAME}. Every balance, gate check and purchase reads from this mint.`,
-      address: MOON_MINT,
-      kind: "token",
-    },
-    { name: "Dev wallet", what: "The team wallet.", address: DEV_WALLET, kind: "account" },
-  ];
-
-  return (
-    <>
-      <h1>Official addresses</h1>
-      <p className="lede">
-        Check anything you are about to send funds to against this list, and treat an address from anywhere
-        else as wrong until it matches.
-      </p>
-      <div className="addresses">
-        {rows.map((r) => (
-          <div className="address" key={r.name}>
-            <div className="address-head">
-              <strong>{r.name}</strong>
-              {r.address ? (
-                <a
-                  href={`${SOLANA_EXPLORER.replace(/\/$/, "")}/${r.kind}/${r.address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Explorer ↗
-                </a>
-              ) : (
-                <span className="soon">Coming soon</span>
-              )}
-            </div>
-            {r.address && <code>{r.address}</code>}
-            <p>{r.what}</p>
-          </div>
-        ))}
-      </div>
-      <Note>
-        Moonville moved from Robinhood Chain to {CHAIN_NAME}. Any EVM (0x…) address claiming to be $MOON is not
-        ours. Moonville will never DM you an address, and never ask for your seed phrase, private key or password.
-      </Note>
-    </>
-  );
-}
-
 function content(id: string) {
-  if (id === "token") return <Addresses />;
-
   if (id === "wallets") {
     return (
       <>
-        <h1>Accounts &amp; wallets</h1>
+        <h1>Profiles &amp; {CURRENCY}</h1>
         <p className="lede">
-          You play with a username and password. A {CHAIN_NAME} wallet is optional, and only matters when you
-          want to buy things.
+          This build is an offline sandbox. There is no sign-in: you pick a name and play, and {CURRENCY} are the
+          in-game currency.
         </p>
 
-        <h2>Your account</h2>
+        <h2>Your profile</h2>
         <ul>
           <li>
-            <strong>Username.</strong> 3 to 16 letters, numbers or underscores. It is unique and it is your
-            nametag, so nobody else can walk around wearing your name. Lookalikes count as the same name:
-            &quot;milton&quot; and &quot;milt0n&quot; collide.
+            <strong>Name.</strong> 3 to 16 letters, numbers or underscores. It is your nametag. Lookalikes count as
+            the same name: &quot;milton&quot; and &quot;milt0n&quot; collide.
           </li>
           <li>
-            <strong>Password.</strong> At least {PASSWORD_MIN} characters. It is stored only as a salted hash.
-            Forgot it? If you linked a wallet, choose <em>Forgot password? Recover your account</em> on the sign-in
-            page, sign with that wallet, and set a new one. Without a linked wallet there is no way to reset it, so
-            link one or keep your password somewhere safe.
+            <strong>No password.</strong> Typing a name that already exists picks that profile back up. Open a second
+            tab with a different name to test as two players at once.
           </li>
           <li>
-            <strong>Everything follows the account.</strong> Your character, homes, car, inventory and friends
-            are saved to it. Sign in on another computer and they are all there.
+            <strong>Stored locally.</strong> Your character, inventory, friends and anything you own are saved by the game
+            server on this machine, in <code>backend/data/sandbox-db.json</code>. Delete that file to reset the world.
           </li>
         </ul>
 
-        <h2>Linking a Solana wallet</h2>
-        <ol>
-          <li>Install a Solana browser wallet: Phantom, Solflare or Backpack.</li>
-          <li>
-            In the game, open Pause → Settings → Account and press <strong>Link</strong>. Or use the account
-            menu at the top of the website.
-          </li>
-          <li>Pick your wallet, approve the connection, and sign the message it shows you.</li>
-        </ol>
-        <p>
-          The message names your account and the wallet, and signing it costs nothing - it is how the game
-          knows the wallet is really yours. Nothing is sent and no permission to spend is granted.
-        </p>
-        <Note>
-          One wallet can be linked to one account at a time. You can unlink it from Settings whenever you like,
-          and link a different one. Unlinking drops you back to Trenches-level access until another wallet is
-          linked.
-        </Note>
-
-        <h2>Signing in with a wallet</h2>
-        <p>
-          On the sign-in page, choose <strong>Sign in with a Solana wallet</strong> and sign the message. What
-          happens next depends on the wallet:
-        </p>
+        <h2>{CURRENCY}</h2>
         <ul>
+          <li>Every new profile starts with a stack of {CURRENCY} to spend in the city.</li>
+          <li>Purchases come straight out of that balance. There is no real money involved.</li>
           <li>
-            <strong>Already linked to an account</strong> - you are straight in. No password.
+            {PROPERTY_MARKET_OPEN
+              ? "When you sell a home or a car to another player, their " + CURRENCY + " move to you."
+              : "Trades swap items, not " + CURRENCY + "."}
           </li>
-          <li>
-            <strong>Not linked yet, and you have an account</strong> - choose <em>I have an account</em> and enter
-            your username and password once. The wallet is linked to that account, and from then on it signs you
-            in by itself.
-          </li>
-          <li>
-            <strong>Not linked yet, and you are new</strong> - choose <em>New account</em> and pick a username.
-            That account has no password: your wallet is how you sign in.
-          </li>
-        </ul>
-        <Note>
-          An account made with a wallet has no password, so its wallet cannot be unlinked - only swapped for
-          another one. Keep access to that wallet; it is the key to the account.
-        </Note>
-
-        <h2>What a linked wallet does</h2>
-        <ul>
-          <li>It pays for anything you buy. Each purchase burns ${CURRENCY} with a transaction you approve in the wallet.</li>
-          <li>You need a little SOL in it for network fees, as with any {CHAIN_NAME} transaction.</li>
         </ul>
       </>
     );
@@ -331,34 +306,46 @@ function content(id: string) {
       <>
         <h1>Overview</h1>
         <p className="lede">
-          Moonville is a social city in your browser. Make an account, build a character, and drop into one of four
-          districts. Everything for sale is priced in ${CURRENCY}, an SPL token on {CHAIN_NAME}.
+          Block is a social city in your browser. Pick a name, build a character, and drop into
+          {PROPERTY_MARKET_OPEN ? " one of four districts" : " the Trenches"}. Everything for sale is priced in{" "}
+          {CURRENCY}.
         </p>
-        <h2>Free to play, wallet optional</h2>
+        <h2>Free to play</h2>
         <p>
-          You do not need a wallet to play. Anyone can sign up with a username and password and spend as long as
-          they like in the Trenches. Link a {CHAIN_NAME} wallet when you want to buy clothes, a car or a house,
-          - a home is also how you unlock the next district up.
+          There is no sign-up and nothing to buy with real money. Pick a name and spend as long as you like in the
+          Trenches - and when you want
+          {PROPERTY_MARKET_OPEN
+            ? " clothes, a car or a house, pay for it in " + CURRENCY + ". A home is also how you unlock the next district up."
+            : " clothes, a pet or a weapon, pay for it in " + CURRENCY + "."}
         </p>
-        <h2>One token, one economy</h2>
+        <h2>One currency, one economy</h2>
         <p>
-          There is no separate game currency to top up. The balance on your HUD is the ${CURRENCY} in your
-          linked wallet, read from the chain. When you buy something, your wallet asks you to approve a burn of
-          the price, and the item is yours once that transaction confirms. Burned ${CURRENCY} is destroyed for
-          good - it goes to no one, the team included. Nothing is held on your behalf.
+          The balance on your HUD is your {CURRENCY}. Every new player starts with a stack of them. Buy something
+          and the price comes out of your balance
+          {PROPERTY_MARKET_OPEN ? "; sell a car or a home to another player and theirs moves to you." : "."}
         </p>
         <h2>What you actually do</h2>
         <ul>
           <li>Walk the grid, drive, and duck into the civic buildings every district has.</li>
-          <li>Buy clothes, pets and weapons from a Store. Buy a car from a dealership. Buy a house.</li>
-          <li>Name your house, lock it, or put it back on the market at a price you set.</li>
+          {PROPERTY_MARKET_OPEN ? (
+            <>
+              <li>Buy clothes, pets and weapons from a Store. Buy a car from a dealership. Buy a house.</li>
+              <li>Name your house, lock it, or put it back on the market at a price you set.</li>
+            </>
+          ) : (
+            <>
+              <li>Buy clothes, pets and weapons from the Store and the Fashion House.</li>
+              <li>Borrow one of the unowned cars parked on the street - anyone can drive them.</li>
+            </>
+          )}
           <li>Talk in city chat, whisper to whoever is standing next to you, or turn on proximity voice.</li>
           <li>Send friend requests, trade items, and see who is online on the map.</li>
           <li>Throw a punch. Carry a gun if you would rather not. Hospitals patch you up.</li>
         </ul>
         <Note>
-          Districts open one at a time, and the key to each is a home in the district below. Buy a home in the
-          Trenches to open Bagtown, a Bagtown home to open Midtown, and a Midtown home to open Uptown.
+          {PROPERTY_MARKET_OPEN
+            ? "Districts open one at a time, and the key to each is a home in the district below. Buy a home in the Trenches to open Bagtown, a Bagtown home to open Midtown, and a Midtown home to open Uptown."
+            : "Homes and cars aren't for sale yet, so for now the city is the Trenches: Bagtown, Midtown and Uptown are locked. When homes go on sale, a home in each district becomes the key to the next one up."}
         </Note>
       </>
     );
@@ -396,35 +383,40 @@ function content(id: string) {
         </div>
         <h2 id="trenches">The Trenches: the degen floor</h2>
         <p>
-          Low-rise, dense, and busy. Homes here run {homeRange("trenches")} {CURRENCY}, the cheapest doors on the
-          map, and it is where everyone starts. Open to everyone - and a home here is your key to Bagtown.
+          {PROPERTY_MARKET_OPEN
+            ? `Low-rise, dense, and busy. Homes here run ${homeRange("trenches")} ${CURRENCY}, the cheapest doors on the map, and it is where everyone starts. Open to everyone - and a home here is your key to Bagtown.`
+            : "Low-rise, dense, and busy. It is where everyone starts - and, for now, the only district that is open."}
         </p>
         <h2 id="bagtown">Bagtown: quiet, paid, still hungry</h2>
         <p>
-          Wider lots, fewer buildings, more sky. Homes run {homeRange("bagtown")} {CURRENCY}. The gate opens to
-          anyone who owns a home in the Trenches.
+          {PROPERTY_MARKET_OPEN
+            ? `Wider lots, fewer buildings, more sky. Homes run ${homeRange("bagtown")} ${CURRENCY}. The gate opens to anyone who owns a home in the Trenches.`
+            : "Wider lots, fewer buildings, more sky. Locked for now."}
         </p>
         <h2 id="midtown">Midtown: neon after dark</h2>
         <p>
-          The district that never turns the lights off. Homes run {homeRange("midtown")} {CURRENCY}, and you
-          need a home in Bagtown to get in.
+          {PROPERTY_MARKET_OPEN
+            ? `The district that never turns the lights off. Homes run ${homeRange("midtown")} ${CURRENCY}, and you need a home in Bagtown to get in.`
+            : "The district that never turns the lights off. Locked for now."}
         </p>
         <h2 id="uptown">Uptown: the bag that made it</h2>
         <p>
-          Gold towers, four to ten storeys, and the most expensive property in the game at{" "}
-          {homeRange("uptown")} {CURRENCY}. The gate opens to Midtown homeowners.
+          {PROPERTY_MARKET_OPEN
+            ? `Gold towers, four to ten storeys, and the most expensive property in the game at ${homeRange("uptown")} ${CURRENCY}. The gate opens to Midtown homeowners.`
+            : "Gold towers, four to ten storeys. Locked for now."}
         </p>
       </>
     );
   }
 
   if (id === "access") {
+    if (!PROPERTY_MARKET_OPEN) return <AccessClosed />;
     return (
       <>
         <h1>Unlocking districts</h1>
         <p className="lede">
           You climb the city one district at a time, and the key to each one is a home in the district below
-          it. Nothing else opens a gate - not ${CURRENCY} held, not a pass.
+          it. Nothing else opens a gate - not {CURRENCY} held, not a pass.
         </p>
         <h2>The ladder</h2>
         <div className="table-wrap">
@@ -471,7 +463,7 @@ function content(id: string) {
           unless you own a home in Bagtown itself, which keeps that district open.
         </p>
         <Note>
-          ${CURRENCY} still pays for everything - homes, cars, clothes - but it does not open any gate on its own. The
+          {CURRENCY} still pay for everything - homes, cars, clothes - but it does not open any gate on its own. The
           home does.
         </Note>
       </>
@@ -481,21 +473,19 @@ function content(id: string) {
   if (id === "market") {
     return (
       <>
-        <h1>Buying &amp; selling</h1>
+        <h1>{PROPERTY_MARKET_OPEN ? "Buying & selling" : "Shopping"}</h1>
         <p className="lede">
-          Everything is priced in ${CURRENCY} and paid from your linked {CHAIN_NAME} wallet. Your wallet asks you
-          to approve burning the exact amount; approve it and the item arrives once the transaction
-          confirms, reject it and nothing happens.
+          Everything is priced in {CURRENCY}, paid straight from your balance the moment you buy.
         </p>
         <Note>
-          You need a linked wallet to buy anything, and a little SOL in it for network fees. Nothing is ever taken
-          without you approving it. Every purchase also leaves a receipt in your inbox - press <kbd>N</kbd>.
+          Every purchase leaves a receipt in your inbox - press <kbd>N</kbd>.
         </Note>
 
         <h2>The Store</h2>
         <p>
-          Every district has one. Walk in, press <kbd>I</kbd>, and the shop replaces your bag. Some items need a
-          higher access tier before they will sell to you.
+          Every district has one. Walk in, press <kbd>I</kbd>, and the shop replaces your bag. Clothes and outfits
+          are at the Fashion House next door. Some items need a higher district tier before they will sell to you
+          {PROPERTY_MARKET_OPEN ? "." : " - while only the Trenches is open, those stay locked."}
         </p>
         <h3>Accessories</h3>
         <PriceTable items={priceList("accessory")} />
@@ -504,6 +494,8 @@ function content(id: string) {
         <h3>Pets</h3>
         <PriceTable items={priceList("pet")} />
 
+        {PROPERTY_MARKET_OPEN ? (
+          <>
         <h2>Cars</h2>
         <p>
           Every district has a dealership. Walk up to the car you want on the forecourt and press <kbd>E</kbd>.
@@ -544,17 +536,28 @@ function content(id: string) {
           Stand at your own door and press <kbd>B</kbd> to list it at a price you name. The only floor is 1,000{" "}
           {CURRENCY}. The listing stands until somebody pays it or you withdraw it with <kbd>B</kbd> again.
         </p>
+          </>
+        ) : (
+          <>
+            <h2>Homes and cars</h2>
+            <p>
+              Not for sale yet. The cars on dealership forecourts are on display only, and houses have no price tag.
+              They are coming soon - <Link to="/docs/property">here is what to expect</Link>.
+            </p>
+          </>
+        )}
       </>
     );
   }
 
   if (id === "property") {
+    if (!PROPERTY_MARKET_OPEN) return <PropertyClosed />;
     return (
       <>
         <h1>Homes &amp; cars</h1>
         <p className="lede">
-          Property is tied to your account, not your session. Sign in next week on any computer and your house and
-          car are exactly where you left them.
+          Property is tied to your name, not your session. Come back next week with the same name and your house
+          and car are exactly where you left them.
         </p>
         <h2>Your house</h2>
         <p>
@@ -602,10 +605,10 @@ function content(id: string) {
         <h2>The council of 12</h2>
         <p>
           Every district seats a council of twelve to vote on the things that keep a city standing. Council terms
-          are social rather than on-chain for now, so show up, be known, and the room notices.
+          are social for now, so show up, be known, and the room notices.
         </p>
         <Note>
-          Governance is the part of Moonville still being built. The hall, the dais and the voice are real; the voting
+          Governance is the part of Block still being built. The hall, the dais and the voice are real; the voting
           is currently whatever the people in the room agree it is.
         </Note>
       </>
@@ -627,49 +630,52 @@ function content(id: string) {
         </p>
         <h2>Fixing it</h2>
         <p>Every district has a Hospital. Walk through the door and your health refills on its own. Free.</p>
-        <Note>Violence in Moonville is social, not economic. Someone can ruin your afternoon. Nobody can take your property.</Note>
+        <Note>Violence in Block is social, not economic. Someone can ruin your afternoon. Nobody can take your property.</Note>
       </>
     );
   }
 
-  const controls: [string, string][] = [
+  /** Keys that only do something while homes and cars can be bought. */
+  const MARKET_KEYS = new Set(["B", "H", "L"]);
+  const allControls: [string, string][] = [
     ["W A S D", "Walk. A/D turn. Hold Shift to sprint. In a car, drive and steer."],
     ["Mouse", "Look around. With a gun equipped the mouse aims it; otherwise hold right mouse to look."],
     ["F", "Punch, or fire the gun you are holding (left click works too)."],
     ["Space", "Jump. Indoors it stays under the ceiling."],
-    ["E", "Enter or leave a building or car; buy a car at a dealership."],
+    ["E", PROPERTY_MARKET_OPEN ? "Enter or leave a building or car; buy a car at a dealership." : "Enter or leave a building or car."],
     ["B", "At a house: buy it, list your own, or withdraw the listing."],
     ["H", "Name a house you own."],
     ["L", "Lock or unlock your house or car."],
     ["C", "Sit next to a chair or bench. WASD or C again to stand."],
     ["I", "Inventory. Inside a Store this is also the shop."],
-    ["M", "Map: districts, your property, and who is online."],
-    ["N", "Inbox: receipts, sales and friend requests."],
+    ["M", PROPERTY_MARKET_OPEN ? "Map: districts, your property, and who is online." : "Map: districts and who is online."],
+    ["N", PROPERTY_MARKET_OPEN ? "Inbox: receipts, sales and friend requests." : "Inbox: receipts and friend requests."],
     ["G", "Send a friend request to whoever is next to you."],
     ["T", "Offer an item from your bag to the citizen beside you."],
     ["Enter", "Whisper if someone is in range, otherwise city chat."],
     ["Esc", "Pause, and release the mouse."],
   ];
+  const controls = PROPERTY_MARKET_OPEN ? allControls : allControls.filter(([k]) => !MARKET_KEYS.has(k));
 
   return (
     <>
       <h1>How to play</h1>
       <p className="lede">
-        Moonville runs in the browser on a desktop or laptop. Make an account, build a character, and you are on the
-        street. No download, no launcher, no wallet required.
+        Block runs in the browser on a desktop or laptop. Pick a name, build a character, and you are on the
+        street. No download, no launcher, no sign-up.
       </p>
 
       <h2>Get in</h2>
       <ol className="steps-list">
         <li>
-          Press <strong>Play free</strong> and create an account: a unique username, which becomes your nametag,
-          and a password.
+          Press <strong>Play free</strong> and pick a name. It becomes your nametag.
         </li>
         <li>Build a look: body, skin, clothes, shoes, headwear and accessories, with a live 3D preview.</li>
         <li>Spawn in the Trenches. Explore, meet people, and make the place yours.</li>
         <li>
-          Optional: link a {CHAIN_NAME} wallet from Settings to buy things - a home in the Trenches opens Bagtown.{" "}
-          <Link to="/docs/wallets">How linking works</Link>.
+          Spend your {CURRENCY}
+          {PROPERTY_MARKET_OPEN ? " - a home in the Trenches opens Bagtown." : " on clothes, pets and gear."}{" "}
+          <Link to="/docs/wallets">How {CURRENCY} work</Link>.
         </li>
       </ol>
 
@@ -698,10 +704,18 @@ function content(id: string) {
           <strong>Police Station.</strong> Glass desk, lockers, a cell with bars. File crime reports here.
         </li>
         <li>
-          <strong>Store.</strong> Clothes, pets and weapons. Press <kbd>I</kbd> inside.
+          <strong>Store.</strong> Accessories, pets and weapons. Press <kbd>I</kbd> inside. Outfits are at the
+          Fashion House.
         </li>
         <li>
-          <strong>Dealership.</strong> Where cars are sold. Press <kbd>E</kbd> at the one you want.
+          <strong>Dealership.</strong>{" "}
+          {PROPERTY_MARKET_OPEN ? (
+            <>
+              Where cars are sold. Press <kbd>E</kbd> at the one you want.
+            </>
+          ) : (
+            "Cars on display - not for sale yet."
+          )}
         </li>
         <li>
           <strong>Park.</strong> Trees, benches, and no reason to be there other than being there.

@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import { CURRENCY,
+import { CURRENCY, PROPERTY_MARKET_OPEN,
   CITIES,
   CITY_BOUNDS,
   CITY_GRID,
@@ -18,7 +18,7 @@ import { CURRENCY,
   type CityId,
   type CityTheme,
   type LandmarkKind,
-} from "@moonville/shared";
+} from "@block/shared";
 import { aabbFrom, box, entityYaw, graphicsDevice, hitsAabb, lightPool, type Aabb } from "./pcApp";
 import { brickBox } from "./bricks";
 import { createCitizen, type Appearance } from "./character";
@@ -1662,7 +1662,9 @@ function addDealership(
       kind: spec.kind,
     });
     colliders.push({ minX: cx - 1.3, maxX: cx + 1.3, minZ: carZ - 2.9, maxZ: carZ + 2.9 });
-    interactables.push({
+    // The forecourt cars stay as scenery while the market is closed; they are
+    // only something you can buy when it is open.
+    if (PROPERTY_MARKET_OPEN) interactables.push({
       kind: "buy-car",
       id: `${theme.id}-car-${spec.kind}`,
       x: cx,

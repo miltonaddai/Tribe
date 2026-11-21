@@ -1,4 +1,4 @@
-import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@moonville/shared";
+import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@block/shared";
 import { HomeArt, ItemArt, VehicleArt } from "./ItemArt";
 
 type OwnedHome = {
@@ -35,7 +35,7 @@ function homeStatus(home: OwnedHome) {
 }
 
 export function InventoryPanel({
-  moon,
+  bucks,
   inventory,
   inStore,
   accessTier,
@@ -49,7 +49,7 @@ export function InventoryPanel({
   homes,
   cars,
 }: {
-  moon: number;
+  bucks: number;
   inventory: InventoryStack[];
   inStore: boolean;
   accessTier: number;
@@ -78,7 +78,7 @@ export function InventoryPanel({
         <div>
           <h2>{inStore ? "Store" : "Inventory"}</h2>
           <p>
-            {moon} {CURRENCY}
+            {bucks} {CURRENCY}
             {inStore ? " · buy with the city till" : " · equip or take it to trade"}
           </p>
         </div>

@@ -1,5 +1,5 @@
 /*
- * The website around the game: landing, sign-in, docs, legal, and the shared
+ * The website around the game: landing, sign-in, docs, and the shared
  * buttons the game's own panels also use. Tokens live on :root in index.css.
  *
  * The body never scrolls - the game needs it pinned - so every page here is
@@ -242,25 +242,25 @@
   letter-spacing: -0.01em;
 }
 
-/* Moonlight: a tight warm halo plus a wider faint one, breathing slowly. The
-   colours are the moon's own face (#F0EEDB), so it lights rather than tints. */
-.moon-logo {
+/* A tight warm halo plus a wider faint one, breathing slowly. The
+   colours are the logo's own face (#F0EEDB), so it lights rather than tints. */
+.brand-logo {
   display: block;
   width: 100%;
   height: 100%;
   user-select: none;
   filter: drop-shadow(0 0 4px rgba(240, 238, 219, 0.35)) drop-shadow(0 0 14px rgba(240, 238, 219, 0.18));
-  animation: moon-glow 5s ease-in-out infinite;
+  animation: brand-glow 5s ease-in-out infinite;
 }
 
-@keyframes moon-glow {
+@keyframes brand-glow {
   50% {
     filter: drop-shadow(0 0 6px rgba(240, 238, 219, 0.5)) drop-shadow(0 0 20px rgba(240, 238, 219, 0.26));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .moon-logo {
+  .brand-logo {
     animation: none;
   }
 }
@@ -938,7 +938,7 @@
   }
 }
 
-.token-band {
+.bucks-band {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
   gap: 48px;
@@ -952,7 +952,7 @@
     var(--panel);
 }
 
-.token-copy > p:not(.eyebrow) {
+.bucks-copy > p:not(.eyebrow) {
   margin-top: 16px;
   font-size: 16px;
   line-height: 1.65;
@@ -987,14 +987,7 @@
     var(--accent);
 }
 
-.token-mint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.token-card {
+.bucks-card {
   padding: 26px;
   border-radius: 20px;
   background: rgba(7, 8, 12, 0.6);
@@ -1002,7 +995,7 @@
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.35);
 }
 
-.token-card-row {
+.bucks-card-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1011,13 +1004,13 @@
   font-size: 15px;
 }
 
-.token-card-row span {
+.bucks-card-row span {
   display: inline-flex;
   align-items: center;
   gap: 10px;
 }
 
-.token-card-row span::before {
+.bucks-card-row span::before {
   content: "";
   width: 9px;
   height: 9px;
@@ -1025,13 +1018,13 @@
   background: var(--city, var(--trenches));
 }
 
-.token-card-row b {
+.bucks-card-row b {
   font-family: var(--font-display);
   font-size: 15px;
   color: var(--white);
 }
 
-.token-card p {
+.bucks-card p {
   margin-top: 14px;
   font-size: 12px;
   color: var(--muted);
@@ -1115,7 +1108,7 @@
   .features {
     grid-template-columns: repeat(2, 1fr);
   }
-  .token-band {
+  .bucks-band {
     grid-template-columns: 1fr;
     padding: 40px;
   }
@@ -1133,7 +1126,7 @@
   .features {
     grid-template-columns: 1fr;
   }
-  .token-band {
+  .bucks-band {
     padding: 28px 20px;
     border-radius: 20px;
   }
@@ -1146,43 +1139,7 @@
   }
 }
 
-/* ---- Mint address, footer, buy button --------------------------------------- */
-
-.mint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.mint-soon {
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px dashed var(--border-strong);
-  color: var(--muted);
-}
-
-.mint-value {
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-}
-
-.mint-value:hover {
-  border-color: var(--border-strong);
-}
-
-.mint-link {
-  color: var(--muted);
-  padding: 4px;
-}
-
-.mint-link:hover {
-  color: var(--accent);
-}
+/* ---- Footer ------------------------------------------------------------------ */
 
 .foot {
   border-top: 1px solid var(--border);
@@ -1204,13 +1161,6 @@
   font-size: 14px;
   line-height: 1.6;
   color: var(--muted);
-}
-
-.foot-mint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
 }
 
 .foot-label {
@@ -1238,12 +1188,6 @@
 
 .foot-col a:hover {
   color: var(--white);
-}
-
-.foot-x {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .foot-base {
@@ -1278,67 +1222,6 @@
     width: calc(100% - 32px);
     padding: 18px 0 24px;
   }
-}
-
-.buy-fab {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 25;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.buy-fab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px 10px 12px;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--border-strong);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.buy-fab-btn .moon-logo {
-  width: 20px;
-  height: 20px;
-}
-
-.buy-fab-btn:hover,
-.buy-fab.open .buy-fab-btn {
-  border-color: var(--accent);
-}
-
-.buy-fab-menu {
-  display: grid;
-  gap: 6px;
-  padding: 6px;
-  min-width: 220px;
-  border-radius: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
-}
-
-.buy-fab-link {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: 10px;
-}
-
-.buy-fab-link:hover {
-  background: var(--panel-2);
-}
-
-.buy-fab-link span {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* ---- Link-wallet dialog ----------------------------------------------------- */
@@ -2156,63 +2039,6 @@ kbd {
   .city-cards {
     grid-template-columns: 1fr;
   }
-}
-
-/* ---- Legal ------------------------------------------------------------------- */
-
-.legal-main {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 56px 24px 80px;
-  font-size: 16px;
-  line-height: 1.75;
-  color: #c4c8d6;
-}
-
-.legal-main h1 {
-  font-family: var(--font-display);
-  font-size: clamp(30px, 4vw, 42px);
-  color: var(--white);
-}
-
-.legal-main h2 {
-  margin: 36px 0 10px;
-  font-size: 20px;
-  color: var(--white);
-}
-
-.legal-main p,
-.legal-main ul {
-  margin-bottom: 14px;
-}
-
-.legal-main ul {
-  padding-left: 22px;
-}
-
-.legal-main li {
-  margin-bottom: 8px;
-}
-
-.legal-main strong {
-  color: var(--white);
-}
-
-.legal-main a {
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-.legal-updated {
-  margin: 8px 0 28px;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.legal-foot {
-  margin-top: 40px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
 }
 
 /* ---- Character creation ------------------------------------------------------ */

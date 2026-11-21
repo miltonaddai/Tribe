@@ -1,5 +1,5 @@
-import type { WalletChainId } from "@moonville/shared";
-import { getSupabase } from "./supabase";
+import type { WalletChainId } from "@block/shared";
+import { getDb } from "./localDb";
 
 export type FriendLink = {
   wallet: string;
@@ -10,14 +10,14 @@ export type FriendLink = {
 };
 
 function warn(action: string, error: { message: string } | null) {
-  if (error) console.warn(`[supabase] ${action} failed: ${error.message}`);
+  if (error) console.warn(`[db] ${action} failed: ${error.message}`);
 }
 
 /** Everything involving this wallet, flattened to the other party's view. */
 export async function loadFriends(wallet: string, chain: WalletChainId): Promise<FriendLink[]> {
-  const supabase = getSupabase();
-  if (!supabase || !wallet) return [];
-  const { data, error } = await supabase
+  const db = getDb();
+  if (!wallet) return [];
+  const { data, error } = await db
     .from("friendships")
     .select("*")
     .or(`and(requester_wallet.eq.${wallet},requester_chain.eq.${chain}),and(addressee_wallet.eq.${wallet},addressee_chain.eq.${chain})`);
@@ -39,8 +39,7 @@ export async function createRequest(
   from: { wallet: string; chain: WalletChainId; name: string },
   to: { wallet: string; chain: WalletChainId; name: string },
 ) {
-  const supabase = getSupabase();
-  if (!supabase) return { ok: false as const, reason: "Friends are unavailable right now." };
+  const db = getDb();
 
   const existing = await loadFriends(from.wallet, from.chain);
   const already = existing.find((link) => link.wallet === to.wallet && link.chain === to.chain);
@@ -52,7 +51,7 @@ export async function createRequest(
     return accepted.ok ? { ok: true as const, accepted: true } : accepted;
   }
 
-  const { error } = await supabase.from("friendships").insert({
+  const { error } = await db.from("friendships").insert({
     requester_wallet: from.wallet,
     requester_chain: from.chain,
     requester_name: from.name,
@@ -72,10 +71,9 @@ export async function respondToRequest(
   addressee: { wallet: string; chain: WalletChainId },
   accept: boolean,
 ) {
-  const supabase = getSupabase();
-  if (!supabase) return { ok: false as const, reason: "Friends are unavailable right now." };
+  const db = getDb();
   // The filter has to hang off update/delete, not off from().
-  const table = supabase.from("friendships");
+  const table = db.from("friendships");
   const query = accept
     ? table.update({ status: "accepted", responded_at: new Date().toISOString() })
     : table.delete();
@@ -94,9 +92,8 @@ export async function removeFriend(
   a: { wallet: string; chain: WalletChainId },
   b: { wallet: string; chain: WalletChainId },
 ) {
-  const supabase = getSupabase();
-  if (!supabase) return;
-  const { error } = await supabase
+  const db = getDb();
+  const { error } = await db
     .from("friendships")
     .delete()
     .or(

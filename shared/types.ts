@@ -39,19 +39,17 @@ export const DEFAULT_CHAIN: WalletChainId = "solana";
 /** The prefix that marks a player id as a username account rather than a wallet. */
 export const ACCOUNT_PREFIX = "acct:";
 
-/** What the server hands back on register, login and /api/accounts/me. */
+/** What the server hands back from /api/accounts/play and /api/accounts/me. */
 export type AccountSession = {
   /** The player id every game table is keyed by: `acct:<uuid>`. */
   playerId: string;
   username: string;
-  /** Bearer token for the API and the game room. */
+  /**
+   * Sent back to the API and the game room to say who is playing. In the
+   * offline sandbox this is just the player id - nothing is signed.
+   */
   token: string;
-  /** The Solana wallet linked for purchases, or null. */
-  solanaAddress: string | null;
 };
-
-export const PASSWORD_MIN = 8;
-export const PASSWORD_MAX = 128;
 
 export type CharacterAppearance = {
   displayName: string;
@@ -71,7 +69,7 @@ export type CharacterRecord = CharacterAppearance & {
   homeCity: CityId;
   accessTier: number;
   brokemeter: number;
-  moon: number;
+  bucks: number;
   inventory: InventoryStack[];
   equippedGun: GunId | null;
   equippedPet: PetId | null;

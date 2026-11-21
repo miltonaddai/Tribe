@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@moonville/shared": path.resolve(__dirname, "../shared/index.ts"),
+      "@block/shared": path.resolve(__dirname, "../shared/index.ts"),
     },
   },
   server: {

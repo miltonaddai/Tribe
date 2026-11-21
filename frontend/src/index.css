@@ -1272,7 +1272,7 @@ button {
   transition: width 0.16s linear, background 0.16s linear;
 }
 
-.moon-chip {
+.bucks-chip {
   height: 44px;
   display: flex;
   align-items: center;
@@ -3133,7 +3133,7 @@ button {
   border-radius: 50%;
 }
 
-.desktop-only-mark .moon-logo {
+.desktop-only-mark .brand-logo {
   width: 34px;
   height: 34px;
 }

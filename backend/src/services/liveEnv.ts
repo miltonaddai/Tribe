@@ -27,22 +27,22 @@ export function envNumber(key: string, fallback: number) {
 }
 
 /**
- * Ceiling on a wallet's Moon balance: the whole $MOON supply, 1B tokens.
+ * Ceiling on a player's Block Bucks balance, 1B.
  *
- * This is an overflow guard, not an economic limit, and it MUST stay at or above
- * total supply. It is applied with Math.min, so a cap below what a wallet can
- * legitimately hold would silently destroy the excess on deposit. If the supply
- * ever changes, change this first.
+ * An overflow guard, not an economic limit. It is applied with Math.min, so
+ * keep it far above anything a player could realistically earn.
  */
-export const MOON_CAP = 1_000_000_000;
+export const BUCKS_CAP = 1_000_000_000;
 
 /**
- * Moon handed to a brand new wallet. Must be 0 wherever the token is real:
- * Moon is $MOON held as a deposited float, so a starting balance mints
- * tokens the treasury never received. Set it only on a throwaway database to
- * keep the game testable before the deposit flow exists.
+ * Block Bucks handed to a brand new player in the sandbox.
+ *
+ * Block Bucks are not a token on any chain - just a number on the character
+ * row in the local database. 2M is enough to buy a home in every district, so the
+ * whole map is reachable without grinding. Change SANDBOX_STARTING_BUCKS to test
+ * a poorer economy.
  */
-export const MOON_DEV_GRANT = envNumber("MOON_DEV_GRANT", 0);
+export const STARTING_BUCKS = envNumber("SANDBOX_STARTING_BUCKS", 2_000_000);
 
 /**
  * How many cars players may own across the whole world, ever.

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  CURRENCY,
+  PROPERTY_MARKET_OPEN,
   ACCESSORIES,
   CITIES,
   HEADWEAR,
@@ -18,7 +20,7 @@ import {
   type OutfitId,
   type PreviewMotion,
   type ShoeId,
-} from "@moonville/shared";
+} from "@block/shared";
 import { Dropdown } from "../components/Dropdown";
 import { Header } from "../components/Header";
 import { CharacterPreview } from "../game/preview";
@@ -27,7 +29,7 @@ import { useSession } from "../state/SessionStore";
 
 export function CreateCharacterPage() {
   const nav = useNavigate();
-  const { session, openLink } = useSession();
+  const { session } = useSession();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const preview = useRef<CharacterPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function CreateCharacterPage() {
   const appearance = { bodyType, skinTone: skin, outfit, pantsColor, shoe, shoeColor, headwear, accessories };
   const city = session?.city ?? "trenches";
 
-  // No account, no character: send them to sign up first. A character that
+  // No profile, no character: send them to pick a name first. A character that
   // already exists goes straight to the game.
   useEffect(() => {
     if (!session) {
@@ -97,7 +99,7 @@ export function CreateCharacterPage() {
       accessTier: CITIES[city].tier,
       brokemeter: 100,
       // Balance comes from the wallet, not from character creation.
-      moon: 0,
+      bucks: 0,
       inventory: seedInventory(accessories),
       equippedGun: null,
       equippedPet: null,
@@ -132,7 +134,10 @@ export function CreateCharacterPage() {
           }}
         >
           <h1>Create your character</h1>
-          <p className="lede">Your look is yours to change. Everyone starts in the Trenches - buy a home there to open Bagtown.</p>
+          <p className="lede">
+            Your look is yours to change. Everyone starts in the Trenches
+            {PROPERTY_MARKET_OPEN ? " - buy a home there to open Bagtown." : "."}
+          </p>
 
           <div className="field">
             <label>NAMETAG</label>
@@ -259,23 +264,13 @@ export function CreateCharacterPage() {
 
           <div className="city-lock" style={{ borderColor: CITIES[city].accent }}>
             <strong style={{ color: CITIES[city].accent }}>{CITIES[city].name}</strong>
-            <span>
-              {session?.solanaAddress
-                ? `${(session.balance ?? 0).toLocaleString()} $MOON held`
-                : "No wallet linked"}
-            </span>
+            <span>{`${(session?.balance ?? 0).toLocaleString()} ${CURRENCY}`}</span>
           </div>
           <p className="lock-note">
-            Everyone starts in the Trenches. Each home you buy opens the next district up; link a Solana wallet to buy one
-            {session && !session.demo && !session.solanaAddress && (
-              <>
-                {" "}-{" "}
-                <button type="button" className="link-btn" onClick={() => void openLink()}>
-                  link one now
-                </button>
-              </>
-            )}
-            . It is optional and you can do it any time.
+            {PROPERTY_MARKET_OPEN
+              ? "Everyone starts in the Trenches. Each home you buy opens the next district up. "
+              : "For now the city is the Trenches - the other districts open when homes go on sale. "}
+            {CURRENCY} are the in-game currency and live only on this machine.
           </p>
           {error && <p className="field-error">{error}</p>}
           <button

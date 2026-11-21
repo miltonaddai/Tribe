@@ -1,8 +1,9 @@
 {
-  "name": "moonville",
+  "name": "block",
   "private": true,
   "version": "0.1.0",
-  "description": "Moonville — a crypto-native Roblox-style social game",
+  "license": "MIT",
+  "description": "Block — a Roblox-style social city game that runs offline",
   "scripts": {
     "install:all": "yarn --cwd frontend install && yarn --cwd backend install",
     "dev:web": "yarn --cwd frontend dev",

@@ -1,12 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { CITIES, CITY_ORDER, CURRENCY, HOME_PRICE, unlockingCity } from "@moonville/shared";
+import { CITIES, CITY_ORDER, CURRENCY, HOME_PRICE, PROPERTY_MARKET_OPEN, unlockingCity } from "@block/shared";
 import { Header, usePlayTarget } from "../components/Header";
-import { MintAddress, SiteFooter } from "../components/SiteFooter";
-import { BuyTokenFab } from "../components/BuyTokenFab";
+import { SiteFooter } from "../components/SiteFooter";
 import { useSession } from "../state/SessionStore";
-import { CHAIN_NAME } from "../lib/chain";
-import { CA_IS_PLACEHOLDER, DISPLAY_CA } from "../lib/token";
 
 const CITY_SHOTS: Record<string, string> = {
   trenches: "trenches.png",
@@ -48,8 +45,10 @@ function Icon({ name }: { name: string }) {
 const FEATURES = [
   {
     icon: "home",
-    title: "Own your block",
-    body: "Buy a house, name it, lock the door or list it for sale at your price. Park your car where you left it - it stays there between sessions.",
+    title: PROPERTY_MARKET_OPEN ? "Own your block" : "Homes and cars - coming soon",
+    body: PROPERTY_MARKET_OPEN
+      ? "Buy a house, name it, lock the door or list it for sale at your price. Park your car where you left it - it stays there between sessions."
+      : "Houses and cars aren't for sale yet. When they open, a home will be yours to name, lock and sell - and the key to the next district up.",
   },
   {
     icon: "voice",
@@ -74,41 +73,39 @@ const FEATURES = [
   {
     icon: "coin",
     title: "A real economy",
-    body: `Everything is priced in $${CURRENCY}, an SPL token on ${CHAIN_NAME}. Link a wallet when you are ready to buy - not before.`,
+    body: `Everything is priced in ${CURRENCY}. Everyone starts with a stack of them to spend on clothes, pets and gear.`,
   },
 ];
 
 const FAQ = [
   {
-    q: "Do I need a crypto wallet to play?",
-    a: "No. Pick a username and password and you are in. You only link a Solana wallet when you want to buy items, cars or homes.",
+    q: "Do I need an account?",
+    a: "No. Pick a name and you are in. Type the same name next time to pick your character back up.",
   },
   {
     q: "Is it free?",
-    a: "Yes. Making an account, building a character and playing in the Trenches costs nothing. Purchases are optional and paid in $MOON.",
+    a: `Yes, and there is nothing to buy with real money. ${CURRENCY} are the in-game currency: every new player starts with some, and you spend them in the city.`,
   },
   {
-    q: "Which wallets work?",
-    a: "Any Solana wallet that runs as a browser extension: Phantom, Solflare and Backpack are detected automatically. You sign one message to link it - nothing is sent.",
+    q: "Where is my progress saved?",
+    a: "On the game server, in a single save file. Come back with the same name and everything is where you left it.",
   },
   {
     q: "How do the districts work?",
-    a: "Everyone starts in the Trenches. Each district above opens once you own a home in the one below: a Trenches home opens Bagtown, a Bagtown home opens Midtown, and a Midtown home opens Uptown.",
+    a: PROPERTY_MARKET_OPEN
+      ? "Everyone starts in the Trenches. Each district above opens once you own a home in the one below: a Trenches home opens Bagtown, a Bagtown home opens Midtown, and a Midtown home opens Uptown."
+      : "For now the city is the Trenches - Bagtown, Midtown and Uptown are locked. They open once homes go on sale: a home in each district will be the key to the next one up.",
   },
   {
     q: "What do I need to run it?",
     a: "A desktop or laptop browser - Chrome, Edge, Firefox or Safari. There is nothing to download or install.",
   },
-  {
-    q: "Can the game move my tokens?",
-    a: "No. Every purchase is a burn you approve in your own wallet - the $MOON is destroyed, not sent to anyone. The game server holds no keys and only reads the chain to confirm the burn landed.",
-  },
 ];
 
 const STEPS = [
   {
-    title: "Create an account",
-    body: "Pick a unique username - it is also the nametag everyone sees over your head - and a password.",
+    title: "Pick a name",
+    body: "It is the nametag everyone sees over your head. No password, no sign-up.",
   },
   {
     title: "Build your character",
@@ -116,11 +113,13 @@ const STEPS = [
   },
   {
     title: "Drop into the city",
-    body: "Spawn in the Trenches, explore, meet people and make the place yours. Progress saves to your account.",
+    body: "Spawn in the Trenches, explore, meet people and make the place yours. Progress saves automatically.",
   },
   {
-    title: "Link a wallet - optional",
-    body: "Connect Phantom, Solflare or Backpack when you want to buy property or gear. A home is also the key to the next district up.",
+    title: `Spend your ${CURRENCY}`,
+    body: PROPERTY_MARKET_OPEN
+      ? "Buy clothes, a car or a home. Every home you buy is the key to the next district up."
+      : "Buy clothes, pets and gear at the Store and the Fashion House.",
   },
 ];
 
@@ -192,16 +191,17 @@ export function LandingPage() {
         <div className="hero-inner">
           <p className="pill">
             <span className="pill-dot" aria-hidden />
-            Free to play · No wallet needed
+            Free to play · No sign-up
           </p>
           <h1 className="display">
             Start in the Trenches.
             <br />
-            <span className="grad">Make it Uptown.</span>
+            <span className="grad">{PROPERTY_MARKET_OPEN ? "Make it Uptown." : "Make it yours."}</span>
           </h1>
           <p className="hero-lede">
-            Moonville is a multiplayer city in your browser. Make a character, claim a home, drive, trade, talk
-            and climb through four districts - with a real on-chain economy behind it when you want one.
+            {PROPERTY_MARKET_OPEN
+              ? "Block is a multiplayer city in your browser. Make a character, claim a home, drive, trade, talk and climb through four districts."
+              : "Block is a multiplayer city in your browser. Make a character, dress up, drive, trade, talk and make the Trenches your own - with three more districts to come."}
           </p>
           <div className="hero-ctas">
             <Link to={playTarget} className="btn btn-accent btn-lg">
@@ -214,13 +214,12 @@ export function LandingPage() {
           </div>
           <dl className="hero-stats">
             <div>
-              <dt>Districts</dt>
-              <dd>4</dd>
+              <dt>{PROPERTY_MARKET_OPEN ? "Districts" : "Districts open"}</dt>
+              <dd>{PROPERTY_MARKET_OPEN ? CITY_ORDER.length : `1 of ${CITY_ORDER.length}`}</dd>
             </div>
-            <div className="hero-stat-ca">
-              <dt>CA</dt>
-              {/* Until the token is live there is nothing worth copying. */}
-              <dd>{CA_IS_PLACEHOLDER ? "Coming soon" : <CopyCA />}</dd>
+            <div>
+              <dt>Sign-up</dt>
+              <dd>None</dd>
             </div>
           </dl>
         </div>
@@ -233,7 +232,7 @@ export function LandingPage() {
         <header className="section-head" data-reveal>
           <p className="eyebrow">How it works</p>
           <h2 className="display-sm">On the street in under a minute</h2>
-          <p>No launcher, no extension, no seed phrase. Your account is a username and a password.</p>
+          <p>No launcher, no extension, no account. Just a name.</p>
         </header>
         <ol className="steps">
           {STEPS.map((step, i) => (
@@ -251,8 +250,9 @@ export function LandingPage() {
           <p className="eyebrow">The world</p>
           <h2 className="display-sm">Four districts, one map</h2>
           <p>
-            Walled off from each other and climbed one at a time: a home in each district is the key to the
-            next one up.
+            {PROPERTY_MARKET_OPEN
+              ? "Walled off from each other and climbed one at a time: a home in each district is the key to the next one up."
+              : "Walled off from each other. For now only the Trenches is open - the rest unlock when homes go on sale."}
           </p>
         </header>
         <div className="districts">
@@ -276,14 +276,16 @@ export function LandingPage() {
                   <dl>
                     <div>
                       <dt>To get in</dt>
-                      <dd>{below ? `Home in ${CITIES[below].name}` : "Open to all"}</dd>
+                      <dd>{!below ? "Open to all" : PROPERTY_MARKET_OPEN ? `Home in ${CITIES[below].name}` : "Locked for now"}</dd>
                     </div>
-                    <div>
-                      <dt>Homes from</dt>
-                      <dd>
-                        {n(HOME_PRICE[id])} ${CURRENCY}
-                      </dd>
-                    </div>
+                    {PROPERTY_MARKET_OPEN && (
+                      <div>
+                        <dt>Homes from</dt>
+                        <dd>
+                          {n(HOME_PRICE[id])} {CURRENCY}
+                        </dd>
+                      </div>
+                    )}
                   </dl>
                 </div>
               </article>
@@ -311,38 +313,38 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="section" id="token">
-        <div className="token-band" data-reveal>
-          <div className="token-copy">
-            <p className="eyebrow">${CURRENCY} on {CHAIN_NAME}</p>
-            <h2 className="display-sm">Play first. Bring a wallet when you want to own things.</h2>
+      <section className="section" id="bucks">
+        <div className="bucks-band" data-reveal>
+          <div className="bucks-copy">
+            <p className="eyebrow">{CURRENCY}</p>
+            <h2 className="display-sm">The city runs on {CURRENCY}.</h2>
             <p>
-              ${CURRENCY} is the city&apos;s currency: an SPL token on {CHAIN_NAME}. Link a wallet to your account
-              and you can buy clothes, pets, cars and homes - and every home you buy is the key to the next
-              district up.
+              {CURRENCY} are the city&apos;s currency. Everyone starts with a stack, and you spend them on clothes,
+              pets and gear
+              {PROPERTY_MARKET_OPEN ? " - and on cars and homes, and every home you buy is the key to the next district up." : "."}
             </p>
             <ul className="checks">
-              <li>Every purchase burns $MOON - nothing goes to a team wallet</li>
-              <li>The game holds no keys and no balance on your behalf</li>
-              <li>Works with Phantom, Solflare and Backpack</li>
+              <li>No real money involved</li>
+              {PROPERTY_MARKET_OPEN ? (
+                <li>Sell your car or home to another player at your price</li>
+              ) : (
+                <li>Homes and cars go on sale soon</li>
+              )}
+              <li>Trade items face to face</li>
             </ul>
-            <div className="token-mint">
-              <span className="foot-label">Official mint</span>
-              <MintAddress />
-            </div>
           </div>
-          <div className="token-card" aria-hidden>
-            <div className="token-card-row">
+          <div className="bucks-card" aria-hidden>
+            <div className="bucks-card-row">
               <span>Trenches</span>
               <b>Open to all</b>
             </div>
             {CITY_ORDER.slice(1).map((id) => (
-              <div key={id} className="token-card-row" style={{ "--city": CITIES[id].accent } as CSSProperties}>
+              <div key={id} className="bucks-card-row" style={{ "--city": CITIES[id].accent } as CSSProperties}>
                 <span>{CITIES[id].name}</span>
-                <b>{CITIES[unlockingCity(id) ?? "trenches"].name} home</b>
+                <b>{PROPERTY_MARKET_OPEN ? `${CITIES[unlockingCity(id) ?? "trenches"].name} home` : "Locked for now"}</b>
               </div>
             ))}
-            <p>What opens each gate</p>
+            <p>{PROPERTY_MARKET_OPEN ? "What opens each gate" : "Who can get in"}</p>
           </div>
         </div>
       </section>
@@ -365,59 +367,15 @@ export function LandingPage() {
       <section className="section">
         <div className="cta-band" data-reveal>
           <h2 className="display-sm">Your block is waiting.</h2>
-          <p>Free, in the browser, and no wallet required to start.</p>
+          <p>Free, in the browser, and no sign-up.</p>
           <Link to={playTarget} className="btn btn-accent btn-lg">
-            {session ? "Jump back in" : "Create your account"}
+            {session ? "Jump back in" : "Pick a name"}
             <span aria-hidden>→</span>
           </Link>
         </div>
       </section>
 
       <SiteFooter />
-      <BuyTokenFab />
     </div>
-  );
-}
-
-/**
- * The contract address in the hero, in full - an address people copy in order
- * to spend money is one they should be able to check character by character.
- * The copy button turns into a tick for a moment so the click visibly did something.
- */
-function CopyCA() {
-  const [copied, setCopied] = useState(false);
-
-  const copy = () => {
-    void navigator.clipboard?.writeText(DISPLAY_CA).then(
-      () => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1600);
-      },
-      () => setCopied(false),
-    );
-  };
-
-  return (
-    <span className="hero-ca">
-      <code>{DISPLAY_CA}</code>
-      <button
-        type="button"
-        className={copied ? "hero-ca-copy copied" : "hero-ca-copy"}
-        onClick={copy}
-        aria-label={copied ? "Copied" : "Copy contract address"}
-        title={copied ? "Copied" : "Copy"}
-      >
-        {copied ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M5 12.5l4.5 4.5L19 7.5" />
-          </svg>
-        ) : (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
-            <rect x="8.5" y="8.5" width="11" height="11" rx="2.5" />
-            <path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
-          </svg>
-        )}
-      </button>
-    </span>
   );
 }

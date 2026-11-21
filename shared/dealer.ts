@@ -4,7 +4,7 @@
  */
 export type CarSpec = { kind: string; name: string; color: string; price: number };
 
-/** Priced in Moon at 1,000 = $1 (1B supply, $1M cap). See CATALOG in items.ts. */
+/** Priced in Block Bucks. See CATALOG in items.ts. */
 export const DEALER_STOCK: CarSpec[] = [
   { kind: "hatch", name: "Hatch", color: "#E5E7EB", price: 5000 },
   { kind: "sedan", name: "Sedan", color: "#3B82F6", price: 10000 },

@@ -1,34 +1,16 @@
 /**
- * Bug reports, written straight to Firestore from the browser.
- *
- * The SDK is imported dynamically rather than at module scope. Firebase is
- * several hundred kilobytes and all but a handful of players will never open
- * the form, so it has no business in the bundle everyone downloads to walk
- * around a city. Nothing here runs until someone actually reports something.
- *
- * The config is not a secret - a Firebase web config identifies the project
- * and is visible in any client that talks to it - but it lives in env vars
- * anyway, so a fork or a second project is a deploy setting rather than an
- * edit. Left unset, reporting reports itself as unavailable instead of
- * failing silently at submit time.
+ * Bug reports, saved by the local game server into its sandbox database
+ * (backend/data/sandbox-db.json, table "bug_reports"). Nothing leaves the
+ * machine.
  */
 
-const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+import { apiUrl } from "./api";
 
-export const COLLECTION = "bug_reports";
-
-/** The longest report we will send. Firestore's own limit is far higher. */
+/** The longest report we will send. */
 export const REPORT_MAX = 2000;
 
 export function reportingConfigured(): boolean {
-  return Boolean(config.apiKey && config.projectId && config.appId);
+  return true;
 }
 
 /** What the player was doing when it happened, gathered rather than asked for. */
@@ -69,26 +51,9 @@ function renderer(): string {
   }
 }
 
-let ready: Promise<{ db: unknown; add: typeof import("firebase/firestore").addDoc; col: typeof import("firebase/firestore").collection }> | null = null;
-
-function connect() {
-  ready ??= (async () => {
-    const [{ initializeApp, getApps }, firestore] = await Promise.all([
-      import("firebase/app"),
-      import("firebase/firestore"),
-    ]);
-    // getApps() first: React strict mode mounts twice in development, and
-    // initializing the same project twice throws.
-    const app = getApps()[0] ?? initializeApp(config);
-    return { db: firestore.getFirestore(app), add: firestore.addDoc, col: firestore.collection };
-  })();
-  return ready;
-}
-
 export async function sendBugReport(report: string, context: BugContext): Promise<{ ok: true } | { ok: false; reason: string }> {
   const text = report.trim();
   if (!text) return { ok: false, reason: "Describe what went wrong first." };
-  if (!reportingConfigured()) return { ok: false, reason: "Bug reporting is not configured for this build." };
 
   const doc: Doc = {
     ...context,
@@ -101,14 +66,15 @@ export async function sendBugReport(report: string, context: BugContext): Promis
   };
 
   try {
-    const { db, add, col } = await connect();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await add(col(db as any, COLLECTION), doc);
+    const res = await fetch(apiUrl("/api/bug-reports"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(doc),
+    });
+    if (!res.ok) return { ok: false, reason: `Could not save that (${res.status}).` };
     return { ok: true };
   } catch (err) {
-    // Almost always the security rules refusing the write, which is worth
-    // saying plainly - it is a project setting, not something the player did.
     const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, reason: `Could not send that: ${message}` };
+    return { ok: false, reason: `Could not reach the local game server: ${message}` };
   }
 }

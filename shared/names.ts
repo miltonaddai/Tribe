@@ -2,7 +2,7 @@
  * Display names are unique, because they are the identity players actually see.
  *
  * Nametags, the friends list and the map roster all show a name, and the game
- * moves real value between players - trades, whispers, home sales in $MOON. Two
+ * moves real value between players - trades, whispers, home sales in Block Bucks. Two
  * players sharing a name makes impersonating someone's friend a working scam.
  *
  * Uniqueness alone would not achieve much, though. "Milton" and "milton" are
@@ -19,7 +19,7 @@ export const NAME_MAX = 16;
 /** Names nobody may claim, because they read as authority. */
 const RESERVED_WORDS = [
   "admin", "administrator", "mod", "moderator", "staff", "support", "help",
-  "system", "server", "official", "moonville", "moon", "tribe", "team", "owner", "root",
+  "system", "server", "official", "block", "blockbucks", "moonville", "tribe", "team", "owner", "root",
   "null", "undefined", "anonymous", "everyone", "here",
 ];
 
@@ -115,12 +115,11 @@ export function nameProblemText(problem: NameProblem): string {
 /**
  * What the in-game currency is called on screen.
  *
- * It is the $MOON token itself, so the label is the ticker rather than a
- * separate name - a player holding MOON in their wallet should see MOON in
- * the game. Kept in one place so it cannot drift between the HUD, the store,
- * the notice text and the inbox.
+ * Block Bucks are simulated in-game money, not a token on any chain. Kept in
+ * one place so it cannot drift between the HUD, the store, the notice text
+ * and the inbox.
  */
-export const CURRENCY = "MOON";
+export const CURRENCY = "Block Bucks";
 
 export const HOME_NAME_MAX = 24;
 

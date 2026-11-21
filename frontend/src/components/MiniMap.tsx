@@ -10,7 +10,7 @@ import {
   lotCentre,
   parseHomeId,
   type CityId,
-} from "@moonville/shared";
+} from "@block/shared";
 import type { MapCitizen, OwnedCar, OwnedHome } from "../game/engine";
 
 const W = 218;

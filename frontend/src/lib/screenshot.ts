@@ -14,7 +14,7 @@
  */
 
 /** Bottom-right mark. Small enough not to spoil the shot, enough to be read. */
-const MARK = "MOONVILLE";
+const MARK = "BLOCK";
 
 /**
  * Copies a live canvas into an offscreen one.
@@ -72,7 +72,7 @@ export async function composeShot(shot: HTMLCanvasElement, caption: string): Pro
 export function shotFilename(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  return `moonville-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+  return `block-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
 }
 
 export function downloadShot(blob: Blob) {

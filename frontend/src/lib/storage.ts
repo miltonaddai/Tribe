@@ -1,9 +1,9 @@
-import type { CharacterRecord, GameSettings, WalletChainId } from "@moonville/shared";
+import type { CharacterRecord, GameSettings, WalletChainId } from "@block/shared";
 import { apiUrl, authHeaders } from "./api";
-import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@moonville/shared";
+import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@block/shared";
 
-const CHAR = "moonville:character";
-const SETTINGS = "moonville:settings";
+const CHAR = "block:character";
+const SETTINGS = "block:settings";
 
 /** Player ids are case-sensitive; nothing is folded. Kept as the comparison seam. */
 function normalizeWallet(address: string, _chain?: WalletChainId) {
@@ -31,7 +31,7 @@ function parseCharacter(raw: unknown): CharacterRecord | null {
       shoe: parseShoe(parsed.shoe),
       shoeColor: parseHexColor(parsed.shoeColor, "#111111"),
       brokemeter: Number.isFinite(Number(parsed.brokemeter)) ? Math.min(100, Math.max(0, Number(parsed.brokemeter))) : 100,
-      moon: Number.isFinite(parsed.moon) ? parsed.moon : 0,
+      bucks: Number.isFinite(parsed.bucks) ? parsed.bucks : 0,
       inventory: seedInventory(accessories, parsed.inventory),
       equippedGun: isGunId(String(parsed.equippedGun ?? "")) ? parsed.equippedGun : null,
       equippedPet: isPetId(String(parsed.equippedPet ?? "")) ? parsed.equippedPet : null,
@@ -133,6 +133,6 @@ export async function persistSettings(address: string, chain: WalletChainId, set
       body: JSON.stringify({ address, chain, settings }),
     });
   } catch {
-    // Keep the local copy even if Supabase is down.
+    // Keep the local copy even if the game server is not running.
   }
 }

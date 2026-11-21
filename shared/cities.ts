@@ -128,13 +128,12 @@ export const CITY_ORDER: CityId[] = ["trenches", "bagtown", "midtown", "uptown"]
 export type CityThreshold = { min: number; city: CityId };
 
 /**
- * What an unowned home costs, in Moon, by district. Homes are bought outright
+ * What an unowned home costs, in Block Bucks, by district. Homes are bought outright
  * at this price - there is no auction, so nothing discovers the price for us.
  *
  * Each rung costs more than the last, and a home is also the key to the next
  * district up (see homeAccessTier), so the price of a district's homes is the
- * price of climbing out of it. At 1,000 Moon = $1 that is roughly
- * $25 / $50 / $100 / $250.
+ * price of climbing out of it.
  */
 export const HOME_PRICE: Record<CityId, number> = {
   trenches: 25_000,
@@ -144,11 +143,11 @@ export const HOME_PRICE: Record<CityId, number> = {
 };
 
 /**
- * $MOON-held thresholds by district. They no longer gate real players - homes
+ * Balance thresholds by district. They no longer gate real players - homes
  * do - and survive only for the dev launcher's demo:<n> players, whose made-up
  * balance stands in for climbing the ladder so every district can be tested.
  */
-export const DEFAULT_MOON_CITY_THRESHOLDS: CityThreshold[] = [
+export const DEFAULT_BUCKS_CITY_THRESHOLDS: CityThreshold[] = [
   { min: 500_000, city: "uptown" },
   { min: 300_000, city: "midtown" },
   { min: 100_000, city: "bagtown" },
@@ -170,7 +169,7 @@ export function canEnterCity(playerTier: number, targetCity: CityId): boolean {
 /**
  * District access is earned with homes, one rung at a time: a home in the
  * Trenches opens Bagtown, a home in Bagtown opens Midtown, a home in Midtown
- * opens Uptown. $MOON held does not open anything; it only pays for things.
+ * opens Uptown. Block Bucks held do not open anything; it only pays for things.
  *
  * Expressed as a tier: no homes is tier 1 (the Trenches), and each home lifts
  * you to one tier above its district. So owning in a district always lets you
@@ -183,8 +182,30 @@ export function homeAccessTier(ownedCities: Iterable<CityId>): number {
     const home = CITIES[city]?.tier;
     if (home) tier = Math.max(tier, Math.min(4, home + 1));
   }
-  return tier;
+  return capTier(tier);
 }
+
+/**
+ * Whether homes and cars can be bought and sold.
+ *
+ * Off for now. While it is off nobody can buy a home or a car - from the city,
+ * a dealership or another player - or put one up for sale, and since homes are
+ * the keys to the districts above, only the Trenches is open: every other
+ * district is locked for everyone, home owners included. Flip this to true to
+ * bring the property market and the district ladder back.
+ */
+export const PROPERTY_MARKET_OPEN = false;
+
+/** The highest district tier anyone may enter right now. */
+export const MAX_OPEN_TIER = PROPERTY_MARKET_OPEN ? 4 : 1;
+
+/** Clamps an access tier to what is currently open. */
+export function capTier(tier: number): number {
+  return Math.min(MAX_OPEN_TIER, tier);
+}
+
+/** Said whenever someone tries to buy or sell property while the market is closed. */
+export const PROPERTY_CLOSED_TEXT = "Homes and cars aren't for sale yet.";
 
 /** The district whose homes open this one, or null for the Trenches, which is open to all. */
 export function unlockingCity(city: CityId): CityId | null {

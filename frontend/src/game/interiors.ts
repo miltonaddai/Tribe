@@ -1,7 +1,7 @@
 import * as pc from "playcanvas";
-import type { CityTheme } from "@moonville/shared";
+import type { CityTheme } from "@block/shared";
 import { box, hexColor } from "./pcApp";
-import { bedFrameX, HOSPITAL_BEDS } from "@moonville/shared";
+import { bedFrameX, HOSPITAL_BEDS } from "@block/shared";
 
 export type InteriorKind = "home" | "hospital" | "police" | "townhall" | "store" | "fashion";
 

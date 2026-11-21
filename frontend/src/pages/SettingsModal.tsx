@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import type { GameSettings } from "@moonville/shared";
-import { DEFAULT_SETTINGS } from "@moonville/shared";
+import type { GameSettings } from "@block/shared";
+import { CURRENCY, DEFAULT_SETTINGS } from "@block/shared";
 import { loadSettings, persistSettings, saveSettings } from "../lib/storage";
-import { shorten } from "../lib/session";
 import { useSession } from "../state/SessionStore";
 import { Dropdown } from "../components/Dropdown";
 
@@ -21,9 +20,8 @@ export function SettingsModal({
   onClose: () => void;
   onSave?: (s: GameSettings) => void;
 }) {
-  const { session, openLink, unlink } = useSession();
+  const { session } = useSession();
   const [s, setS] = useState<GameSettings>(() => loadSettings());
-  const [walletError, setWalletError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setS(loadSettings());
@@ -77,33 +75,9 @@ export function SettingsModal({
               <div className="wallet-chip">{session?.username ?? "Not signed in"}</div>
             </div>
             <div className="setting-row">
-              <span>Solana Wallet</span>
-              <div className="wallet-actions">
-                <div className="wallet-chip">
-                  {session?.solanaAddress ? shorten(session.solanaAddress) : "Not linked"}
-                </div>
-                {session && !session.demo && (
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    onClick={() => {
-                      setWalletError(null);
-                      if (!session.solanaAddress) {
-                        openLink();
-                        return;
-                      }
-                      unlink().catch((err: unknown) =>
-                        setWalletError(err instanceof Error ? err.message : "Could not unlink the wallet."),
-                      );
-                    }}
-                  >
-                    {session.solanaAddress ? "Unlink" : "Link"}
-                  </button>
-                )}
-              </div>
+              <span>Mode</span>
+              <div className="wallet-chip">Offline sandbox · {CURRENCY}</div>
             </div>
-            {walletError && <p className="field-error">{walletError}</p>}
-            <Toggle label="Show Wallet Publicly" on={s.showWalletPublicly} onChange={(v) => patch({ showWalletPublicly: v })} />
             <Select label="Trade Requests" value={s.tradeRequests} options={TRADE} onChange={(v) => patch({ tradeRequests: v })} />
             <Toggle label="Email Notifications" on={s.emailNotifications} onChange={(v) => patch({ emailNotifications: v })} />
           </section>

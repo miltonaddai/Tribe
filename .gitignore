@@ -13,3 +13,6 @@ coverage
 frontend/dist
 backend/dist
 promo
+
+# Offline sandbox database
+backend/data

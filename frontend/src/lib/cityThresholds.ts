@@ -1,4 +1,4 @@
-import { CITY_ORDER, DEFAULT_MOON_CITY_THRESHOLDS, type CityId, type CityThreshold } from "@moonville/shared";
+import { CITY_ORDER, DEFAULT_BUCKS_CITY_THRESHOLDS, type CityId, type CityThreshold } from "@block/shared";
 
 /*
  * Every setting is read by its literal name (import.meta.env.VITE_X), never as
@@ -13,21 +13,21 @@ function envNum(raw: string | undefined, fallback: number) {
 }
 
 const FALLBACK = Object.fromEntries(
-  DEFAULT_MOON_CITY_THRESHOLDS.map((row) => [row.city, row.min]),
+  DEFAULT_BUCKS_CITY_THRESHOLDS.map((row) => [row.city, row.min]),
 ) as Record<CityId, number>;
 
 /**
- * District access by $MOON held. Only used for the demo wallet in the dev
+ * District access by Block Bucks held. Only used for the demo wallet in the dev
  * launcher - a real sign-in takes the district from the server, which is the
  * authority and re-checks it on join.
  */
 const CONFIGURED: Record<CityId, string | undefined> = {
-  trenches: import.meta.env.VITE_CITY_MIN_MOON_TRENCHES,
-  bagtown: import.meta.env.VITE_CITY_MIN_MOON_BAGTOWN,
-  midtown: import.meta.env.VITE_CITY_MIN_MOON_MIDTOWN,
-  uptown: import.meta.env.VITE_CITY_MIN_MOON_UPTOWN,
+  trenches: import.meta.env.VITE_CITY_MIN_BUCKS_TRENCHES,
+  bagtown: import.meta.env.VITE_CITY_MIN_BUCKS_BAGTOWN,
+  midtown: import.meta.env.VITE_CITY_MIN_BUCKS_MIDTOWN,
+  uptown: import.meta.env.VITE_CITY_MIN_BUCKS_UPTOWN,
 };
 
-export function moonThresholds(): CityThreshold[] {
+export function bucksThresholds(): CityThreshold[] {
   return CITY_ORDER.map((city) => ({ city, min: envNum(CONFIGURED[city], FALLBACK[city]) }));
 }

@@ -1,6 +1,10 @@
 import { Client, type Room } from "@colyseus/sdk";
 
-const url = import.meta.env.VITE_COLYSEUS_URL || "ws://localhost:2567";
+/**
+ * The local game server, on the same host that served the page - so another
+ * machine on your LAN opening http://<your-ip>:5173 joins the same world.
+ */
+const url = import.meta.env.VITE_COLYSEUS_URL || `ws://${window.location.hostname || "localhost"}:2567`;
 
 export type JoinFailure = "full" | "offline" | "auth";
 

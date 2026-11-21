@@ -9,7 +9,7 @@ import {
   HOME_PRICE,
   PROPERTY_MARKET_OPEN,
   unlockingCity,
-} from "@block/shared";
+} from "@tribe/shared";
 import { Header } from "../components/Header";
 import { SiteFooter } from "../components/SiteFooter";
 
@@ -20,7 +20,7 @@ const GROUPS: { title: string; sections: Section[] }[] = [
     title: "Getting started",
     sections: [
       { id: "how-to-play", label: "How to play", blurb: "Pick a name, build a character, learn the controls." },
-      { id: "overview", label: "Overview", blurb: "What Block is and what you do in it." },
+      { id: "overview", label: "Overview", blurb: "What Tribe is and what you do in it." },
       { id: "wallets", label: `Profiles & ${CURRENCY}`, blurb: "Names, saving, and the city's currency." },
     ],
   },
@@ -267,8 +267,7 @@ function content(id: string) {
       <>
         <h1>Profiles &amp; {CURRENCY}</h1>
         <p className="lede">
-          This build is an offline sandbox. There is no sign-in: you pick a name and play, and {CURRENCY} are the
-          in-game currency.
+          There is no sign-in: you pick a name and play, and {CURRENCY} are the city&apos;s currency.
         </p>
 
         <h2>Your profile</h2>
@@ -306,7 +305,7 @@ function content(id: string) {
       <>
         <h1>Overview</h1>
         <p className="lede">
-          Block is a social city in your browser. Pick a name, build a character, and drop into
+          Tribe is a social city in your browser. Pick a name, build a character, and drop into
           {PROPERTY_MARKET_OPEN ? " one of four districts" : " the Trenches"}. Everything for sale is priced in{" "}
           {CURRENCY}.
         </p>
@@ -608,7 +607,7 @@ function content(id: string) {
           are social for now, so show up, be known, and the room notices.
         </p>
         <Note>
-          Governance is the part of Block still being built. The hall, the dais and the voice are real; the voting
+          Governance is the part of Tribe still being built. The hall, the dais and the voice are real; the voting
           is currently whatever the people in the room agree it is.
         </Note>
       </>
@@ -630,7 +629,7 @@ function content(id: string) {
         </p>
         <h2>Fixing it</h2>
         <p>Every district has a Hospital. Walk through the door and your health refills on its own. Free.</p>
-        <Note>Violence in Block is social, not economic. Someone can ruin your afternoon. Nobody can take your property.</Note>
+        <Note>Violence in Tribe is social, not economic. Someone can ruin your afternoon. Nobody can take your property.</Note>
       </>
     );
   }
@@ -661,7 +660,7 @@ function content(id: string) {
     <>
       <h1>How to play</h1>
       <p className="lede">
-        Block runs in the browser on a desktop or laptop. Pick a name, build a character, and you are on the
+        Tribe runs in the browser on a desktop or laptop. Pick a name, build a character, and you are on the
         street. No download, no launcher, no sign-up.
       </p>
 

@@ -1,27 +1,31 @@
 /**
  * Brings localStorage written by earlier versions of the game up to date.
  *
- * - Moonville saved its session, characters, settings and speaker choice under
- *   `moonville:` / `moonville.` keys. The game is now Block, so those move to
- *   `block:` / `block.` - same values, new names - and a returning player keeps
- *   their character. A key already present under the new name wins, so this is
- *   safe to run on every load.
- * - Older still, the game was The Block and then Tribe. Those players were
- *   wiped long ago, so their keys are simply dropped.
+ * - The game was called Moonville, then Block, and saved its session,
+ *   characters, settings and speaker choice under `moonville:` / `block:` keys
+ *   (and `moonville.` / `block.` for the speaker). It is Tribe now, so those
+ *   move to `tribe:` / `tribe.` - same values, new names - and a returning
+ *   player keeps their character. A key already present under the new name
+ *   wins, so this is safe to run on every load.
+ * - Older still, the game was The Block. Those players were wiped long ago, so
+ *   their keys are simply dropped. (Tribe was also an early name, but `tribe:`
+ *   is the current prefix again, so nothing under it is ever dropped.)
  *
  * Runs before React mounts, because the session and character stores read
  * straight from localStorage during their first render.
  */
 const RENAMED_PREFIXES: [from: string, to: string][] = [
-  ["moonville:", "block:"],
-  ["moonville.", "block."],
+  ["moonville:", "tribe:"],
+  ["moonville.", "tribe."],
+  ["block:", "tribe:"],
+  ["block.", "tribe."],
 ];
 
-const DROPPED_PREFIXES = ["the-block:", "the-block.", "tribe:", "tribe."];
+const DROPPED_PREFIXES = ["the-block:", "the-block."];
 
 /** A saved character's balance used to be called `moon`; it is `bucks` now. */
 function renameBalanceField(key: string, value: string): string {
-  if (!key.startsWith("block:character")) return value;
+  if (!key.startsWith("tribe:character")) return value;
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     if (parsed && typeof parsed === "object" && "moon" in parsed && !("bucks" in parsed)) {

@@ -12,7 +12,7 @@ import {
   type CharacterRecord,
   type GameSettings,
   type WalletChainId,
-} from "@block/shared";
+} from "@tribe/shared";
 import { WorldRoom } from "./rooms/WorldRoom";
 import { startingCityForWallet } from "./services/holdings";
 import { accountSession, playAs, sessionFromHeader, usernameAvailable } from "./services/accounts";
@@ -44,7 +44,7 @@ async function requireSession(req: Request, res: Response): Promise<Authed | nul
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "block", mode: "offline-sandbox", startingBucks: STARTING_BUCKS });
+  res.json({ ok: true, service: "tribe", mode: "offline-sandbox", startingBucks: STARTING_BUCKS });
 });
 
 /**
@@ -63,7 +63,7 @@ app.get("/api/live", async (_req, res) => {
       const rooms = await matchMaker.query({ name: "world" });
       liveCache = { players: rooms.reduce((sum, room) => sum + (room.clients ?? 0), 0), at: Date.now() };
     } catch (error) {
-      console.warn("[block] live player count failed", error);
+      console.warn("[tribe] live player count failed", error);
       res.status(503).json({ error: "unavailable" });
       return;
     }
@@ -207,7 +207,7 @@ void listen(
       target.use(app);
     },
     beforeListen: () => {
-      console.log(`[block] offline sandbox - no external services, ${STARTING_BUCKS.toLocaleString()} Block Bucks to start`);
+      console.log(`[tribe] offline sandbox - no external services, ${STARTING_BUCKS.toLocaleString()} Bucks to start`);
     },
   }),
   port,

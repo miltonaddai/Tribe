@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { CityTheme } from "@block/shared";
+import type { CityTheme } from "@tribe/shared";
 
 export const TIME_OF_DAY = ["Local Time", "Always Day", "Always Night"] as const;
 

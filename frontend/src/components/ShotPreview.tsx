@@ -11,7 +11,7 @@ import { canCopyImages, copyShot, downloadShot, openPostComposer } from "../lib/
  */
 // The site's own address rather than a hardcoded domain, so a rename or a
 // move never ships a share link pointing at the old one.
-const POST_TEXT = `Playing Block ${window.location.origin}\n\n(Press Ctrl/Cmd + V to add your screenshot, then delete this line)`;
+const POST_TEXT = `Playing Tribe ${window.location.origin}\n\n(Press Ctrl/Cmd + V to add your screenshot, then delete this line)`;
 
 /**
  * What to do with a screenshot once it exists.

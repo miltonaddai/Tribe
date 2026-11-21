@@ -1,5 +1,5 @@
 import * as pc from "playcanvas";
-import type { PreviewMotion } from "@block/shared";
+import type { PreviewMotion } from "@tribe/shared";
 import { createPcApp, destroyPcApp, box } from "./pcApp";
 import { createCitizen, type Appearance } from "./character";
 import { applyCitizenMotion } from "./motion";

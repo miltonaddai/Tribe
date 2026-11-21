@@ -11,15 +11,15 @@ import {
   type CityId,
   type GameSettings,
   type WalletChainId,
-} from "@block/shared";
+} from "@tribe/shared";
 import { getDb } from "./localDb";
 import { STARTING_BUCKS } from "./liveEnv";
-import { nameKey } from "@block/shared";
+import { nameKey } from "@tribe/shared";
 
 type WalletRow = {
   address: string;
   chain: WalletChainId;
-  /** Internal currency id for the stored balance (displayed as Block Bucks). */
+  /** Internal currency id for the stored balance (displayed as Bucks). */
   symbol: "BUCKS";
   last_balance: number;
   last_city: CityId;
@@ -298,7 +298,7 @@ export async function fetchBucks(address: string, chain: WalletChainId): Promise
 }
 
 /**
- * Block Bucks movements that the server owns (auction escrow and payouts) are
+ * Bucks movements that the server owns (auction escrow and payouts) are
  * written straight to the character row so they outlive the session.
  */
 export async function writeBucks(address: string, chain: WalletChainId, bucks: number) {

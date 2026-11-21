@@ -14,7 +14,7 @@
     "emitDecoratorMetadata": true,
     "resolveJsonModule": true,
     "paths": {
-      "@block/shared": ["../shared/index.ts"]
+      "@tribe/shared": ["../shared/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

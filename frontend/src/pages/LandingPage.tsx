@@ -1,6 +1,6 @@
 import { useEffect, useRef, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { CITIES, CITY_ORDER, CURRENCY, HOME_PRICE, PROPERTY_MARKET_OPEN, unlockingCity } from "@block/shared";
+import { CITIES, CITY_ORDER, CURRENCY, HOME_PRICE, PROPERTY_MARKET_OPEN, unlockingCity } from "@tribe/shared";
 import { Header, usePlayTarget } from "../components/Header";
 import { SiteFooter } from "../components/SiteFooter";
 import { useSession } from "../state/SessionStore";
@@ -200,8 +200,8 @@ export function LandingPage() {
           </h1>
           <p className="hero-lede">
             {PROPERTY_MARKET_OPEN
-              ? "Block is a multiplayer city in your browser. Make a character, claim a home, drive, trade, talk and climb through four districts."
-              : "Block is a multiplayer city in your browser. Make a character, dress up, drive, trade, talk and make the Trenches your own - with three more districts to come."}
+              ? "Tribe is a multiplayer city in your browser. Make a character, claim a home, drive, trade, talk and climb through four districts."
+              : "Tribe is a multiplayer city in your browser. Make a character, dress up, drive, trade, talk and make the Trenches your own - with three more districts to come."}
           </p>
           <div className="hero-ctas">
             <Link to={playTarget} className="btn btn-accent btn-lg">

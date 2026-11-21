@@ -42,7 +42,7 @@ import { CURRENCY,
   type InventoryStack,
   type ItemId,
   type PetId,
-} from "@block/shared";
+} from "@tribe/shared";
 import { composeShot, snapshot } from "../lib/screenshot";
 import { joinWorld, type JoinFailure } from "../lib/colyseus";
 import { loadCharacter, saveCharacter } from "../lib/storage";

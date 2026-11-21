@@ -5,7 +5,7 @@ import {
   offenceLabel,
   REPORT_NOTE_MAX,
   type CrimeReport,
-} from "@block/shared";
+} from "@tribe/shared";
 
 /**
  * The station blotter: file a report, and read what has been filed here in the

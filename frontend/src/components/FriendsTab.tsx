@@ -1,4 +1,4 @@
-import { CITIES, type CityId } from "@block/shared";
+import { CITIES, type CityId } from "@tribe/shared";
 import type { Friend } from "../game/engine";
 
 function cityName(id: string | null) {

@@ -1,11 +1,12 @@
 # Changelog
 
-All notable changes to Block (formerly Moonville, and before that Tribe) are listed here.
+All notable changes to Tribe (formerly Block, and before that Moonville) are listed here.
 
 ## Unreleased — 2026-11-21
 
 ### Changed
 
+- **Block is now Tribe, and Block Bucks are just Bucks.** Browser storage moves from `block:` (and any leftover `moonville:`) keys to `tribe:` on first load, so saves carry over. `@block/shared` is now `@tribe/shared`.
 - **Moonville is now Block, and the currency is Block Bucks.** Block Bucks are simulated in-game money, so the $MOON token pages, buy button and contract address are gone from the site. Internal names follow: browser storage moves from `moonville:` to `block:` keys (migrated on first load), `@moonville/shared` is `@block/shared`, the `moon` balance field and database column are `bucks` (an existing sandbox database is migrated when the server starts), and env vars are renamed - `CITY_MIN_MOON_*` → `CITY_MIN_BUCKS_*`, `VITE_CITY_MIN_MOON_*` → `VITE_CITY_MIN_BUCKS_*`, `SANDBOX_STARTING_MOON` → `SANDBOX_STARTING_BUCKS`.
 - **Open source under the MIT License.** See `LICENSE`.
 - **Offline sandbox.** The game runs entirely on your machine and calls no outside API. Supabase is replaced by a local JSON-file database (`backend/data/sandbox-db.json`) and the `supabase/migrations/` folder is gone. There is no authentication: pick a name and play. $MOON is simulated - every new profile starts with `SANDBOX_STARTING_MOON` (2,000,000) and purchases come out of that balance. Solana wallets and payments, Firebase bug reports (now saved locally) and the default Google STUN server are removed.

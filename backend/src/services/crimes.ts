@@ -14,7 +14,7 @@ import {
   type CrimeReport,
   type OffenceId,
   type WalletChainId,
-} from "@block/shared";
+} from "@tribe/shared";
 import { getDb } from "./localDb";
 
 export type ReportDraft = {

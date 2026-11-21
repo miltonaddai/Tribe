@@ -26,7 +26,7 @@ export class PlayerState extends Schema {
   sitting = false;
   /** Lying down rather than sitting, so onlookers see a sleeper not a stander. */
   lying = false;
-  /** The player's Block Bucks balance, pushed by the server. Never seeded here. */
+  /** The player's Bucks balance, pushed by the server. Never seeded here. */
   bucks = 0;
   inventory = "[]";
   gun = "";

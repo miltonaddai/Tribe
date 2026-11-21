@@ -33,7 +33,7 @@ export type VoiceDiagnostic = {
   volume: number;
 };
 
-const OUTPUT_KEY = "block.audio-output";
+const OUTPUT_KEY = "tribe.audio-output";
 /** Browsers that cannot route audio per element only ever use the system default. */
 export const canPickOutput = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 

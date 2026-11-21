@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { CURRENCY } from "@block/shared";
+import { CURRENCY } from "@tribe/shared";
 import { useSession } from "../state/SessionStore";
 import { loadCharacterForWallet } from "../lib/storage";
 
-/** The Block mark. Decorative: every use sits beside the name or a label. */
+/** The Tribe mark. Decorative: every use sits beside the name or a label. */
 export function BrandLogo() {
   return <img className="brand-logo" src="/logo.svg" alt="" aria-hidden draggable={false} />;
 }
@@ -85,11 +85,11 @@ export function Header({ solid = false }: { solid?: boolean }) {
   return (
     <header className={cls} ref={root}>
       <div className="nav-inner">
-        <Link to="/" className="nav-brand" aria-label="Block home">
+        <Link to="/" className="nav-brand" aria-label="Tribe home">
           <span className="nav-logo">
             <BrandLogo />
           </span>
-          Block
+          Tribe
         </Link>
 
         <nav className="nav-links" id="nav-menu" aria-label="Main">

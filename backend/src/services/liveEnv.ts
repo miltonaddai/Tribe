@@ -27,7 +27,7 @@ export function envNumber(key: string, fallback: number) {
 }
 
 /**
- * Ceiling on a player's Block Bucks balance, 1B.
+ * Ceiling on a player's Bucks balance, 1B.
  *
  * An overflow guard, not an economic limit. It is applied with Math.min, so
  * keep it far above anything a player could realistically earn.
@@ -35,9 +35,9 @@ export function envNumber(key: string, fallback: number) {
 export const BUCKS_CAP = 1_000_000_000;
 
 /**
- * Block Bucks handed to a brand new player in the sandbox.
+ * Bucks handed to a brand new player in the sandbox.
  *
- * Block Bucks are not a token on any chain - just a number on the character
+ * Bucks are not a token on any chain - just a number on the character
  * row in the local database. 2M is enough to buy a home in every district, so the
  * whole map is reachable without grinding. Change SANDBOX_STARTING_BUCKS to test
  * a poorer economy.

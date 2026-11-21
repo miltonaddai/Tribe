@@ -121,7 +121,7 @@ export function homeFloors(city: CityId, gx: number, gz: number): number {
 }
 
 /**
- * What an unowned home costs, in Block Bucks: the district's base price scaled by
+ * What an unowned home costs, in Bucks: the district's base price scaled by
  * how big the building is.
  *
  * Normalised across the district's own floor range, so the largest home in a
@@ -178,7 +178,7 @@ export function homeGradeById(id: string): { grade: number; luxury: number } {
 }
 
 /**
- * Floor on an owner's asking price, in Block Bucks: enough that a listing means
+ * Floor on an owner's asking price, in Bucks: enough that a listing means
  * something, not enough to price anyone out.
  *
  * Shared so the sell panel and the server cannot disagree about what is valid.

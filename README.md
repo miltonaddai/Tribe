@@ -1,12 +1,12 @@
-# Block
+# Tribe
 
-**Start in the Trenches. Make it Uptown.**
+**Start in the Trenches. Make it yours.**
 
-Block is a multiplayer social city in your browser. Pick a name, build a character, and drop into a living city with other players: dress up, trade, talk, throw a punch, and explore the Trenches. Homes, cars and the climb to the gold towers of Uptown are coming soon.
+Tribe is a multiplayer social city in your browser. Pick a name, build a character, and drop into a living city with other players: dress up, trade, talk, throw a punch, and explore the Trenches. Homes, cars and the climb to the gold towers of Uptown are coming soon.
 
 ## The city
 
-The world is one connected map, ordered by wealth. Each district is a 6×6 grid of lots behind a wall with gates, and you climb it one rung at a time.
+The world is one connected map, ordered by wealth. Each district is a 6×6 grid of lots behind a wall with gates.
 
 | Tier | District | Feel |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ Every district has the same civic spine:
 
 ## What you do
 
-- **Spend Block Bucks.** Block Bucks are the city's currency. Every new player starts with a stack of them to spend on clothes, accessories, pets and weapons.
+- **Spend Bucks.** Bucks are the city's currency. Every new player starts with a stack of them to spend on clothes, accessories, pets and weapons.
 - **Meet people.** City chat, whispers to whoever is next to you, and proximity voice that fades with distance. Send friend requests and see who is online on the map.
 - **Trade.** Offer items from your bag face to face.
 - **Fight.** Throw a punch or carry a gun. Health wears down when you are hit; a hospital patches you up. Nobody can take what you own.
@@ -47,14 +47,14 @@ Every district has the same civic spine:
 | **E** | Enter or leave a building or car. |
 | **C** | Sit on a nearby chair or bench. |
 | **I** | Inventory - inside a Store this is also the shop. |
-| **M** | Map: districts, your property, and who is online. |
-| **N** | Inbox: receipts, sales and friend requests. |
+| **M** | Map: districts and who is online. |
+| **N** | Inbox: receipts and friend requests. |
 | **G** | Send a friend request to whoever is next to you. |
 | **T** | Offer an item to the player beside you. |
 | **Enter** | Whisper if someone is in range, otherwise city chat. |
 | **Esc** | Pause and release the mouse. |
 
-Block runs on a desktop or laptop browser - Chrome, Edge, Firefox or Safari.
+Tribe runs on a desktop or laptop browser - Chrome, Edge, Firefox or Safari.
 
 ## Running it
 
@@ -97,10 +97,10 @@ The server is authoritative: balances, inventory, property and health live on it
 
 The property market is one switch: `PROPERTY_MARKET_OPEN` in `shared/cities.ts`. It is `false` for now, which closes home and car sales and locks every district above the Trenches. Set it to `true` to open both.
 
-### Coming from Moonville
+### Coming from an earlier version
 
-Block was previously called Moonville, with a currency called $MOON. Old saves carry over automatically: browser storage moves from `moonville:` to `block:` keys on first load, and an existing save file has its `moon` balances renamed to `bucks` when the server starts.
+Tribe was previously called Block, with Block Bucks, and before that Moonville, with $MOON. Old saves carry over automatically: browser storage moves from `moonville:` and `block:` keys to `tribe:` keys on first load, and an existing save file has its `moon` balances renamed to `bucks` when the server starts.
 
 ## License
 
-Block is open source under the [MIT License](LICENSE).
+Tribe is open source under the [MIT License](LICENSE).

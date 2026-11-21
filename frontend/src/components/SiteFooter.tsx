@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { CURRENCY, PROPERTY_MARKET_OPEN } from "@block/shared";
+import { CURRENCY, PROPERTY_MARKET_OPEN } from "@tribe/shared";
 import { BrandLogo } from "./Header";
 
 export function SiteFooter() {
@@ -11,7 +11,7 @@ export function SiteFooter() {
             <span className="nav-logo">
               <BrandLogo />
             </span>
-            Block
+            Tribe
           </Link>
           <p>A browser city built block by block. Free to play, owned by the people living in it.</p>
         </div>
@@ -33,7 +33,7 @@ export function SiteFooter() {
         </nav>
       </div>
       <div className="foot-base">
-        <span>© {new Date().getFullYear()} Block · MIT License</span>
+        <span>© {new Date().getFullYear()} Tribe · MIT License</span>
         <span>Built for the browser</span>
       </div>
     </footer>

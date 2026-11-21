@@ -46,7 +46,7 @@ import { CURRENCY,
   parseHomeId,
   type CityId,
   type WalletChainId,
-} from "@block/shared";
+} from "@tribe/shared";
 import { PlayerState, VehicleState, ChatLine, HomeState, WorldState, INTEREST_MANAGEMENT } from "../schema/index";
 import {
   clampAskingPrice,
@@ -636,7 +636,7 @@ export class WorldRoom extends Room<{ state: WorldState }> {
       // browser reports holding - accepting it was how paid items ended up
       // living in localStorage, and how a crafted client could mint them.
       // The balance is never taken from the client: a client-supplied figure
-      // would let anyone print Block Bucks. Every change runs through the server -
+      // would let anyone print Bucks. Every change runs through the server -
       // purchases, sales and escrow. `data.bucks` is read and dropped.
       if (typeof data.gun === "string") player.gun = data.gun.slice(0, 24);
       if (typeof data.pet === "string") player.pet = data.pet.slice(0, 24);
@@ -1404,7 +1404,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
   }
 
   /**
-   * Block Bucks the server moves itself (escrow in, refund out) are written to the
+   * Bucks the server moves itself (escrow in, refund out) are written to the
    * character row as well as the live player, so they survive a refresh. The
    * wallet may not be connected, which is why the write is keyed by wallet.
    */
@@ -1487,7 +1487,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       this.vehicleChains.set(row.id, row.ownerChain);
       this.state.vehicles.set(row.id, vehicle);
     }
-    if (rows.length) console.log(`[block] restored ${rows.length} owned vehicle(s)`);
+    if (rows.length) console.log(`[tribe] restored ${rows.length} owned vehicle(s)`);
   }
 
   private async restoreAuctions() {
@@ -1514,7 +1514,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       home.endsAt = row.endsAt;
       this.state.homes.set(home.id, home);
     }
-    if (rows.length) console.log(`[block] restored ${rows.length} home auction(s)`);
+    if (rows.length) console.log(`[tribe] restored ${rows.length} home auction(s)`);
     this.reportDriftedHomes(rows.map((row) => row.homeId));
     // Anything that ran out while the server was down closes on the next tick.
   }
@@ -1578,14 +1578,14 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     const live = new Set(allHomeIds());
     const orphans = storedIds.filter((id) => !live.has(id));
     if (orphans.length === 0) {
-      console.log(`[block] home auctions verified — all ${storedIds.length} match a generated home`);
+      console.log(`[tribe] home auctions verified — all ${storedIds.length} match a generated home`);
       return;
     }
     console.warn(
-      `[block] WARNING: ${orphans.length} of ${storedIds.length} stored home auction(s) no longer match a generated home.`,
+      `[tribe] WARNING: ${orphans.length} of ${storedIds.length} stored home auction(s) no longer match a generated home.`,
     );
-    console.warn(`[block] orphaned ids: ${orphans.slice(0, 20).join(", ")}${orphans.length > 20 ? " …" : ""}`);
-    console.warn("[block] re-match them by lot_gx/lot_gz in home_auctions before players notice.");
+    console.warn(`[tribe] orphaned ids: ${orphans.slice(0, 20).join(", ")}${orphans.length > 20 ? " …" : ""}`);
+    console.warn("[tribe] re-match them by lot_gx/lot_gz in home_auctions before players notice.");
   }
 
 /**
@@ -1620,7 +1620,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     }
 
     const chain = this.chainFor(client.sessionId);
-    // Simulated Block Bucks: billed straight from the balance on the character row.
+    // Simulated Bucks: billed straight from the balance on the character row.
     await this.moveBucks(player.wallet, chain, -item.price);
     if (!player.wallet) player.bucks = Math.max(0, player.bucks - item.price);
 
@@ -1935,7 +1935,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
       const lookup = await startingCityForWallet(wallet, chain);
       holdings = { tier: CITIES[lookup.city].tier, balance: lookup.balance };
     } catch (error) {
-      console.warn("[block] holdings lookup failed, defaulting to tier 1", error);
+      console.warn("[tribe] holdings lookup failed, defaulting to tier 1", error);
     }
     this.holdingsCache.set(key, { ...holdings, at: Date.now() });
     return holdings;
@@ -1943,7 +1943,7 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
 
   /**
    * Sweeps every connected player: saves where they stand and re-derives their
-   * district tier. Block Bucks is simulated and only moves through the server, so the
+   * district tier. Bucks is simulated and only moves through the server, so the
    * live balance is already authoritative and is never re-read here.
    */
   private async refreshHoldings() {
@@ -2066,14 +2066,14 @@ this.onMessage("home-name", (client, data: { id?: string; name?: string }) => {
     player.bucks = Math.max(0, Math.min(BUCKS_CAP, balance));
     // What you carry is checked against what you own, for the same reason the
     // inventory is: a gun, a pet, an accessory and half the outfits are all
-    // bought with Block Bucks, and every one of these used to be taken on the
+    // bought with Bucks, and every one of these used to be taken on the
     // client's word. A rifle claimed here shoots with a rifle's range.
     player.gun = hasItem(owned, (options.gun ?? "") as never) ? options.gun ?? "" : "";
     player.pet = hasItem(owned, (options.pet ?? "") as never) ? options.pet ?? "" : "";
     this.chains.set(client.sessionId, chain);
     this.allowTeleport(client.sessionId);
     // One live session per wallet. Two tabs on the same wallet would each hold
-    // their own copy of the Block Bucks balance, so escrow taken from one would be
+    // their own copy of the Bucks balance, so escrow taken from one would be
     // invisible to the other and the stale tab could spend it twice.
     this.evictOtherSessions(player.wallet, client.sessionId);
     this.state.players.set(client.sessionId, player);

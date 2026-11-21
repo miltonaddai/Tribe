@@ -65,7 +65,7 @@ export function assertJson(res: Response) {
  */
 export function authHeaders(): Record<string, string> {
   try {
-    const raw = localStorage.getItem("block:session");
+    const raw = localStorage.getItem("tribe:session");
     const token = raw ? (JSON.parse(raw) as { token?: string }).token : "";
     return token ? { authorization: `Bearer ${token}` } : {};
   } catch {

@@ -1,9 +1,9 @@
 {
-  "name": "block",
+  "name": "tribe",
   "private": true,
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Block — a Roblox-style social city game that runs offline",
+  "description": "Tribe — a Roblox-style social city game that runs offline",
   "scripts": {
     "install:all": "yarn --cwd frontend install && yarn --cwd backend install",
     "dev:web": "yarn --cwd frontend dev",

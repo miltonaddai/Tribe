@@ -19,7 +19,7 @@ export function DesktopOnly({ reason }: { reason: Blocked }) {
           <BrandLogo />
         </span>
 
-        <h1>{narrow ? "Your window is too narrow" : "Block needs a desktop"}</h1>
+        <h1>{narrow ? "Your window is too narrow" : "Tribe needs a desktop"}</h1>
 
         <p>
           {narrow ? (
@@ -38,7 +38,7 @@ export function DesktopOnly({ reason }: { reason: Blocked }) {
 
         {!narrow && (
           <p className="desktop-only-sub">
-            Open <strong>Block</strong> on a laptop or desktop and pick your name - your character and
+            Open <strong>Tribe</strong> on a laptop or desktop and pick your name - your character and
             everything you own will be exactly where you left them.
           </p>
         )}

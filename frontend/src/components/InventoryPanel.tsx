@@ -1,4 +1,4 @@
-import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@block/shared";
+import { CURRENCY, CATALOG, CITIES, catalogItem, itemName, stackCount, type CityId, type InventoryStack, type ItemId } from "@tribe/shared";
 import { HomeArt, ItemArt, VehicleArt } from "./ItemArt";
 
 type OwnedHome = {

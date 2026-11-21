@@ -1,4 +1,4 @@
-import { cityFromBalance, DEFAULT_CHAIN, type AccountSession, type CharacterRecord, type CityId, type WalletChainId } from "@block/shared";
+import { cityFromBalance, DEFAULT_CHAIN, type AccountSession, type CharacterRecord, type CityId, type WalletChainId } from "@tribe/shared";
 import { apiUrl, assertJson, authHeaders } from "./api";
 import { bucksThresholds } from "./cityThresholds";
 import { hydrateCharacter, saveCharacter } from "./storage";
@@ -8,7 +8,7 @@ import { hydrateCharacter, saveCharacter } from "./storage";
  *
  * The game runs as an offline sandbox: there is no sign-in. A player picks a
  * name and the local game server hands back the profile with that name,
- * creating it the first time. Block Bucks are simulated - a balance the server keeps
+ * creating it the first time. Bucks are simulated - a balance the server keeps
  * in its local database.
  */
 export type Session = {
@@ -17,14 +17,14 @@ export type Session = {
   username: string;
   /** Sent to the API and the game room to say who is playing. Empty for demo players. */
   token: string;
-  /** Block Bucks, as of the last refresh. */
+  /** Bucks, as of the last refresh. */
   balance: number;
   city: CityId;
   demo: boolean;
   chain: WalletChainId;
 };
 
-const KEY = "block:session";
+const KEY = "tribe:session";
 
 export function loadSession(): Session | null {
   try {
@@ -139,7 +139,7 @@ export async function checkUsername(name: string): Promise<{ valid: boolean; exi
   }
 }
 
-/** `held` is Block Bucks, matching the demo:<n> holdings the server reads back. */
+/** `held` is Bucks, matching the demo:<n> holdings the server reads back. */
 export function connectDemo(held = 150_000, username = "citizen"): Session {
   const session: Session = {
     playerId: `demo:${held}`,

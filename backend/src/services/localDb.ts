@@ -91,7 +91,7 @@ class Store {
 
   /**
    * Upgrades a database written by an older build. The balance column was
-   * `moon` and the currency symbol "MOON" before the game became Block.
+   * `moon` and the currency symbol "MOON" under the game's old name, Moonville.
    */
   private migrate() {
     let changed = false;

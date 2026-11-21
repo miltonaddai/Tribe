@@ -20,7 +20,7 @@ import {
   type OutfitId,
   type PreviewMotion,
   type ShoeId,
-} from "@block/shared";
+} from "@tribe/shared";
 import { Dropdown } from "../components/Dropdown";
 import { Header } from "../components/Header";
 import { CharacterPreview } from "../game/preview";

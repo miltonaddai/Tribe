@@ -14,7 +14,7 @@ export function openingBid() {
 }
 
 /**
- * Floor on a home listing, in Block Bucks: high enough that a listing means
+ * Floor on a home listing, in Bucks: high enough that a listing means
  * something, low enough not to price anyone out of selling.
  */
 export const MIN_ASKING_PRICE = 1_000;
@@ -73,4 +73,4 @@ export function nextBidFor(highBid: number, live: boolean, askingPrice = 0) {
  * a real membership test now — the server derives the same lot set the client
  * builds, so a junk id can no longer open an auction row.
  */
-export { isHomeId } from "@block/shared";
+export { isHomeId } from "@tribe/shared";

@@ -18,7 +18,7 @@ import { CURRENCY, PROPERTY_MARKET_OPEN,
   type CityId,
   type CityTheme,
   type LandmarkKind,
-} from "@block/shared";
+} from "@tribe/shared";
 import { aabbFrom, box, entityYaw, graphicsDevice, hitsAabb, lightPool, type Aabb } from "./pcApp";
 import { brickBox } from "./bricks";
 import { createCitizen, type Appearance } from "./character";

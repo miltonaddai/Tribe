@@ -95,7 +95,7 @@ export const PETS: { id: PetId; label: string }[] = [
 ];
 
 /**
- * Prices are in Block Bucks, the in-game currency.
+ * Prices are in Bucks, the in-game currency.
  * Pitched so the whole catalog costs about the price of one Trenches home:
  * cosmetics and gear are impulse buys, property is the goal.
  */

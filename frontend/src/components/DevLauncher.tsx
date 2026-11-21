@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@block/shared";
+import { CITIES, CITY_ORDER, seedInventory, type CityId, type CharacterRecord, type OutfitId, type HeadwearId } from "@tribe/shared";
 import { isDevToolsEnabled } from "../lib/devTools";
 import { connectDemo } from "../lib/session";
 import { loadCharacter, saveCharacter } from "../lib/storage";

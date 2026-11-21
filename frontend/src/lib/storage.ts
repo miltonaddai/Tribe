@@ -1,9 +1,9 @@
-import type { CharacterRecord, GameSettings, WalletChainId } from "@block/shared";
+import type { CharacterRecord, GameSettings, WalletChainId } from "@tribe/shared";
 import { apiUrl, authHeaders } from "./api";
-import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@block/shared";
+import { DEFAULT_SETTINGS, isGunId, isPetId, parseAccessories, parseHexColor, parseShoe, seedInventory } from "@tribe/shared";
 
-const CHAR = "block:character";
-const SETTINGS = "block:settings";
+const CHAR = "tribe:character";
+const SETTINGS = "tribe:settings";
 
 /** Player ids are case-sensitive; nothing is folded. Kept as the comparison seam. */
 function normalizeWallet(address: string, _chain?: WalletChainId) {

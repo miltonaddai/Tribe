@@ -1,4 +1,4 @@
-import type { WalletChainId } from "@block/shared";
+import type { WalletChainId } from "@tribe/shared";
 import { getDb } from "./localDb";
 
 export type FriendLink = {

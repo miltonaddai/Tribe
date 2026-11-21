@@ -128,7 +128,7 @@ export const CITY_ORDER: CityId[] = ["trenches", "bagtown", "midtown", "uptown"]
 export type CityThreshold = { min: number; city: CityId };
 
 /**
- * What an unowned home costs, in Block Bucks, by district. Homes are bought outright
+ * What an unowned home costs, in Bucks, by district. Homes are bought outright
  * at this price - there is no auction, so nothing discovers the price for us.
  *
  * Each rung costs more than the last, and a home is also the key to the next
@@ -169,7 +169,7 @@ export function canEnterCity(playerTier: number, targetCity: CityId): boolean {
 /**
  * District access is earned with homes, one rung at a time: a home in the
  * Trenches opens Bagtown, a home in Bagtown opens Midtown, a home in Midtown
- * opens Uptown. Block Bucks held do not open anything; it only pays for things.
+ * opens Uptown. Bucks held do not open anything; it only pays for things.
  *
  * Expressed as a tier: no homes is tier 1 (the Trenches), and each home lifts
  * you to one tier above its district. So owning in a district always lets you

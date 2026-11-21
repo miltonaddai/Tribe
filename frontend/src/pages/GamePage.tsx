@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@block/shared";
-import type { GameSettings } from "@block/shared";
+import { CURRENCY, CITIES, HOME_NAME_MAX, MIN_ASKING_PRICE, armSlots, gunSpec } from "@tribe/shared";
+import type { GameSettings } from "@tribe/shared";
 import { GameEngine, type HudState } from "../game/engine";
 import { loadCharacter, loadCharacterForWallet, loadSettings } from "../lib/storage";
 import { clearSession, loadSession } from "../lib/session";
@@ -20,7 +20,7 @@ import { playBlock, type Blocked } from "../lib/device";
 import { MiniMap, zoneLabel } from "../components/MiniMap";
 import { AudioOutputPicker } from "../components/AudioOutputPicker";
 import { loadOutputDevice } from "../lib/voiceChat";
-import type { ItemId } from "@block/shared";
+import type { ItemId } from "@tribe/shared";
 
 const EMPTY: HudState = {
   city: "trenches",
@@ -124,7 +124,7 @@ function WorldFullScreen({ onRetry }: { onRetry: () => Promise<boolean> }) {
   return (
     <div className="session-ended">
       <div className="session-ended-card">
-        <p className="list-kicker">BLOCK IS FULL</p>
+        <p className="list-kicker">TRIBE IS FULL</p>
         <p className="session-ended-body">
           Every slot in the city is taken right now. You are in line and will be let in as soon as someone
           leaves.
@@ -581,7 +581,7 @@ export function GamePage() {
       {loading && (
         <div className="boot" role="status" aria-live="polite">
           <div className="boot-card">
-            <p className="boot-mark">BLOCK</p>
+            <p className="boot-mark">TRIBE</p>
             <div className="boot-bar">
               <span />
             </div>

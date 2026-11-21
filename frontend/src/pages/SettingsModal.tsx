@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { GameSettings } from "@block/shared";
-import { CURRENCY, DEFAULT_SETTINGS } from "@block/shared";
+import type { GameSettings } from "@tribe/shared";
+import { CURRENCY, DEFAULT_SETTINGS } from "@tribe/shared";
 import { loadSettings, persistSettings, saveSettings } from "../lib/storage";
 import { useSession } from "../state/SessionStore";
 import { Dropdown } from "../components/Dropdown";

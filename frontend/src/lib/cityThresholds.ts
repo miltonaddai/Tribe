@@ -1,4 +1,4 @@
-import { CITY_ORDER, DEFAULT_BUCKS_CITY_THRESHOLDS, type CityId, type CityThreshold } from "@block/shared";
+import { CITY_ORDER, DEFAULT_BUCKS_CITY_THRESHOLDS, type CityId, type CityThreshold } from "@tribe/shared";
 
 /*
  * Every setting is read by its literal name (import.meta.env.VITE_X), never as
@@ -17,7 +17,7 @@ const FALLBACK = Object.fromEntries(
 ) as Record<CityId, number>;
 
 /**
- * District access by Block Bucks held. Only used for the demo wallet in the dev
+ * District access by Bucks held. Only used for the demo wallet in the dev
  * launcher - a real sign-in takes the district from the server, which is the
  * authority and re-checks it on join.
  */

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ACCOUNT_PREFIX, checkName, nameKey, nameProblemText, type AccountSession } from "@block/shared";
+import { ACCOUNT_PREFIX, checkName, nameKey, nameProblemText, type AccountSession } from "@tribe/shared";
 import { getDb } from "./localDb";
 
 /**

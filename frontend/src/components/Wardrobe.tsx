@@ -5,7 +5,7 @@ import {
   outfitPrice,
   ownsOutfit,
   type InventoryStack,
-} from "@block/shared";
+} from "@tribe/shared";
 
 /**
  * The fashion house floor: every outfit in the game, with the free ones wearable

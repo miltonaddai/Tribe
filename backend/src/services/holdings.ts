@@ -1,12 +1,12 @@
-import { CITIES, cityFromBalance, DEFAULT_CHAIN, MAX_OPEN_TIER, type CityId, type WalletChainId } from "@block/shared";
+import { CITIES, cityFromBalance, DEFAULT_CHAIN, MAX_OPEN_TIER, type CityId, type WalletChainId } from "@tribe/shared";
 import { bucksThresholds } from "./cityThresholds";
 import { fetchBucks } from "./db";
 import { STARTING_BUCKS } from "./liveEnv";
 
 /**
- * How many Block Bucks a player holds.
+ * How many Bucks a player holds.
  *
- * Block Bucks are a balance on the character row in the local database. A player with no character yet reads as the starting
+ * Bucks are a balance on the character row in the local database. A player with no character yet reads as the starting
  * grant, which is what their character will be created with.
  *
  * `demo:<n>` ids report n, so the dev launcher can exercise every tier.

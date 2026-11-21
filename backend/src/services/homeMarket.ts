@@ -1,4 +1,4 @@
-import { HOME_PRICE, MIN_ASKING_PRICE, type CityId } from "@block/shared";
+import { HOME_PRICE, MIN_ASKING_PRICE, type CityId } from "@tribe/shared";
 
 /**
  * Homes are bought outright: one price, one payment, instant transfer.
@@ -30,4 +30,4 @@ export function clampAskingPrice(value: unknown) {
  * junk id cannot name a home that does not exist.
  */
 // Re-exported so callers keep importing market rules from one place.
-export { isHomeId, MIN_ASKING_PRICE } from "@block/shared";
+export { isHomeId, MIN_ASKING_PRICE } from "@tribe/shared";

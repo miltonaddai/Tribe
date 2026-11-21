@@ -2,7 +2,7 @@
  * Display names are unique, because they are the identity players actually see.
  *
  * Nametags, the friends list and the map roster all show a name, and the game
- * moves real value between players - trades, whispers, home sales in Block Bucks. Two
+ * moves real value between players - trades, whispers, home sales in Bucks. Two
  * players sharing a name makes impersonating someone's friend a working scam.
  *
  * Uniqueness alone would not achieve much, though. "Milton" and "milton" are
@@ -115,11 +115,11 @@ export function nameProblemText(problem: NameProblem): string {
 /**
  * What the in-game currency is called on screen.
  *
- * Block Bucks are simulated in-game money, not a token on any chain. Kept in
+ * Bucks are simulated in-game money, not a token on any chain. Kept in
  * one place so it cannot drift between the HUD, the store, the notice text
  * and the inbox.
  */
-export const CURRENCY = "Block Bucks";
+export const CURRENCY = "Bucks";
 
 export const HOME_NAME_MAX = 24;
 

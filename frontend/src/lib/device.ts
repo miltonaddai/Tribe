@@ -1,5 +1,5 @@
 /**
- * Whether this device can actually play Block.
+ * Whether this device can actually play Tribe.
  *
  * The game is built around a keyboard and a mouse: WASD to walk, right-drag to
  * turn the camera, pointer lock to aim, and a HUD that assumes a wide screen. A

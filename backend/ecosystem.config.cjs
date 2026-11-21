@@ -10,14 +10,14 @@
  *
  * The app runs through tsx rather than from compiled output. The sources use
  * extensionless relative imports ("./rooms/WorldRoom"), which Node's ESM loader
- * will not resolve on its own, and @block/shared is published as raw TypeScript.
+ * will not resolve on its own, and @tribe/shared is published as raw TypeScript.
  * Emitting JavaScript would mean rewriting every import in the codebase first,
  * so tsx stays the runtime here and is a real dependency, not a dev one.
  */
 module.exports = {
   apps: [
     {
-      name: "block",
+      name: "tribe",
 
       // The local tsx shim, so this never depends on npx resolving anything at
       // start-up. Both tsx and typescript are in `dependencies` precisely

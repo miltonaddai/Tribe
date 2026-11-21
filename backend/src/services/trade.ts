@@ -16,7 +16,7 @@
  * reason and changes nothing, so there is no path where items leave one player
  * without arriving at the other.
  *
- * Currency is deliberately not tradeable: trades swap items only. Block Bucks
+ * Currency is deliberately not tradeable: trades swap items only. Bucks
  * move through purchases and sales, which the server prices itself.
  */
 
@@ -28,7 +28,7 @@ import {
   takeItem,
   type InventoryStack,
   type ItemId,
-} from "@block/shared";
+} from "@tribe/shared";
 
 /** Per side, so a full stake still fits the trade panel without scrolling. */
 export const TRADE_MAX_ITEMS = 8;

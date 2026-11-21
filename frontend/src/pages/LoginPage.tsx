@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CURRENCY, NAME_MAX, checkName, nameProblemText } from "@block/shared";
+import { CURRENCY, NAME_MAX, checkName, nameProblemText } from "@tribe/shared";
 import { BrandLogo } from "../components/Header";
 import { checkUsername, playAs } from "../lib/session";
 import { loadCharacterForWallet } from "../lib/storage";
@@ -83,7 +83,7 @@ export function LoginPage() {
       <aside className="auth-art" aria-hidden>
         <img src="/images/cities/midtown.png" alt="" />
         <div className="auth-art-copy">
-          <p className="eyebrow">Block</p>
+          <p className="eyebrow">Tribe</p>
           <h2 className="display-sm">A city that belongs to the people living in it.</h2>
           <p>Offline sandbox. No sign-in, no wallet - just {CURRENCY}.</p>
         </div>
@@ -94,7 +94,7 @@ export function LoginPage() {
           <span className="nav-logo">
             <BrandLogo />
           </span>
-          Block
+          Tribe
         </Link>
 
         <div className="auth-card card-in">
@@ -114,7 +114,7 @@ export function LoginPage() {
                 autoCapitalize="off"
                 spellCheck={false}
                 maxLength={NAME_MAX}
-                placeholder="e.g. blockrunner"
+                placeholder="e.g. streetrunner"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 aria-invalid={nameState.status === "error"}
